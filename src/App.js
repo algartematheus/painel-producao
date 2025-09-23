@@ -6,6 +6,7 @@ import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, Chev
 import { initializeApp } from 'firebase/app';
 import { 
     getAuth, 
+    createUserWithEmailAndPassword, 
     signInWithEmailAndPassword, 
     signOut, 
     onAuthStateChanged,
@@ -823,7 +824,7 @@ const handleLogout = () => {
 
     const handleSaveEntryEdit = async () => {
         const dateKey = selectedDate.toISOString().slice(0, 10);
-        const dayDocRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/productionData`, dateKey);
+        const dayDocRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_productionData`, dateKey);
         const dayDoc = await getDoc(dayDocRef);
         const originalEntries = dayDoc.exists() ? dayDoc.data().entries : [];
         const originalEntry = originalEntries.find(e => e.id === editingEntryId);
@@ -850,7 +851,7 @@ const handleLogout = () => {
             if (productionDiff[productId] !== 0) {
                 const lotToUpdate = lots.find(l => l.productId === parseInt(productId));
                 if (lotToUpdate) {
-                    const lotRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/lots`, lotToUpdate.id);
+                    const lotRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_lots`, lotToUpdate.id);
                     const newProduced = (lotToUpdate.produced || 0) + productionDiff[productId];
                     let newStatus = lotToUpdate.status;
                     if (newProduced >= lotToUpdate.target) {
@@ -1000,7 +1001,7 @@ const handleLogout = () => {
             <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
             <div className="relative">
                 <button onClick={() => setIsNavOpen(!isNavOpen)} className="flex items-center gap-2 p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
-                    <h1 className="text-xl font-bold text-gray-800 dark:text-white tracking-wider text-center hidden sm:block">{currentDashboard.name}</h1>
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white tracking-wider text-center">{currentDashboard.name}</h1>
                     <ChevronDownIcon size={20} className={`transition-transform ${isNavOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {isNavOpen && (
@@ -1018,8 +1019,8 @@ const handleLogout = () => {
                 )}
             </div>
         </div>
-        <div className="flex items-center space-x-4">
-            <span className='text-sm text-gray-500 dark:text-gray-400 hidden sm:block'>{user.email}</span>
+        <div className="flex items-center space-x-2 sm:space-x-4">
+            <span className='text-sm text-gray-500 dark:text-gray-400 hidden md:block'>{user.email}</span>
             <button onClick={handleLogout} title="Sair" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50">
                 <LogOut size={20} />
             </button>
@@ -1156,7 +1157,7 @@ const handleLogout = () => {
         <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
              <h2 className="text-xl font-semibold mb-4 flex items-center"><PlusCircle className="mr-2 text-blue-500"/> Adicionar Novo Lançamento</h2>
              <form onSubmit={handleAddEntry} className="grid grid-cols-1 gap-4 items-end">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="flex flex-col"><label>Período</label><input type="text" name="period" value={newEntry.period} onChange={handleInputChange} placeholder="ex: 12:00" required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
                     <div className="flex flex-col"><label>Nº Pessoas</label><input type="number" name="people" value={newEntry.people} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
                     <div className="flex flex-col"><label>Tempo Disp.</label><input type="number" name="availableTime" value={newEntry.availableTime} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
@@ -1174,7 +1175,7 @@ const handleLogout = () => {
                         {showUrgent ? 'Remover item fora de ordem' : 'Adicionar item fora de ordem'}
                     </button>
                     {showUrgent && (
-                        <div className="grid grid-cols-2 gap-4 p-3 bg-blue-50 dark:bg-gray-800 rounded-lg">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-blue-50 dark:bg-gray-800 rounded-lg">
                              <div className="flex flex-col"><label>Lote Urgente</label>
                                 <select name="productId" value={urgentProduction.productId} onChange={handleUrgentChange} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
                                     <option value="">Selecione o lote...</option>
@@ -1190,7 +1191,7 @@ const handleLogout = () => {
                     )}
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 items-end mt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 items-end mt-4">
                     {predictedLots.filter(p => !p.isUrgent).map((lot, index) => (
                         <div key={lot.id || index} className="flex flex-col">
                             <label className="text-sm truncate">Produzido ({lot.productName})</label>
@@ -1198,7 +1199,7 @@ const handleLogout = () => {
                         </div>
                      ))}
                     <div className="flex flex-col p-2 rounded-md bg-blue-50 dark:bg-gray-700 text-center"><label>Meta Prevista</label><span className="font-bold text-lg text-blue-600 dark:text-blue-400">{goalPreview || '0'}</span></div>
-                    <button type="submit" className="h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 col-start-[-2]">Adicionar</button>
+                    <button type="submit" className="h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 md:col-start-[-2]">Adicionar</button>
                 </div>
              </form>
         </section>
