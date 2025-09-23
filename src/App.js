@@ -30,8 +30,8 @@ import {
 
 // --- Configuração do Firebase ---
 // As variáveis __app_id e __firebase_config são injetadas pelo ambiente.
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+const firebaseConfig = typeof window.__firebase_config !== 'undefined' ? JSON.parse(window.__firebase_config) : {};
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -1295,9 +1295,9 @@ const App = () => {
 
     useEffect(() => {
         const handleAuth = async (authInstance) => {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+            if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
                 try {
-                    await signInWithCustomToken(authInstance, __initial_auth_token);
+                    await signInWithCustomToken(authInstance, window.__initial_auth_token);
                 } catch (error) {
                     console.error("Erro no login com token customizado:", error);
                     await signInAnonymously(authInstance);
@@ -1310,7 +1310,7 @@ const App = () => {
             setLoading(false);
         });
         
-        if (auth.currentUser === null && typeof __initial_auth_token !== 'undefined' ) {
+        if (auth.currentUser === null && typeof window.__initial_auth_token !== 'undefined' ) {
             handleAuth(auth);
         } else {
             setLoading(false);
