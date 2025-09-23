@@ -31,7 +31,6 @@ import {
 const raceBullLogoUrl = "https://firebasestorage.googleapis.com/v0/b/quadrodeproducao.firebasestorage.app/o/assets%2FLOGO%20PROPRIET%C3%81RIA.png?alt=media&token=a16d015f-e8ca-4b3c-b744-7cef3ab6504b";
 
 // --- Configuração do Firebase ---
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyAmt7kVZUO3J_KxWXH5GuWjIZ5BYu7HD98",
   authDomain: "quadrodeproducao.firebaseapp.com",
@@ -151,7 +150,7 @@ const AuthScreen = () => {
         <div className="min-h-screen bg-gray-100 dark:bg-black flex flex-col justify-center items-center p-4">
             <div className="w-full max-w-md">
                 <div className="flex justify-center items-center mb-8">
-                    <img src={raceBullLogo} alt="Race Bull Logo" className="h-24 w-auto" />
+                    <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-24 w-auto" />
                 </div>
                 <div className="bg-white dark:bg-gray-900 p-8 rounded-2xl shadow-2xl">
                     <h2 className="text-2xl font-bold text-center text-gray-800 dark:text-white mb-6">
@@ -1008,7 +1007,7 @@ const handleLogout = () => {
      
       <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-10">
         <div className="flex items-center gap-4">
-            <img src={raceBullLogo} alt="Race Bull Logo" className="h-12 w-auto" />
+            <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto" />
             <h1 className="text-2xl font-bold text-gray-800 dark:text-white tracking-wider hidden sm:block">QUADRO DE PRODUÇÃO</h1>
         </div>
         <div className="flex items-center space-x-4">
