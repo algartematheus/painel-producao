@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff } from 'lucide-react';
+import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff, ChevronDown as ChevronDownIcon } from 'lucide-react';
 
 // Importações do Firebase
 import { initializeApp } from 'firebase/app';
 import { 
     getAuth, 
-    createUserWithEmailAndPassword, 
     signInWithEmailAndPassword, 
     signOut, 
     onAuthStateChanged,
@@ -231,7 +230,7 @@ const CronoanaliseDashboard = ({ user }) => {
     const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
         const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setProducts(productsData);
-    });
+    }, (error) => console.error("Erro ao carregar produtos:", error));
 
     const lotsQuery = query(collection(db, `${basePath}_lots`));
     const unsubscribeLots = onSnapshot(lotsQuery, (snapshot) => {
@@ -243,7 +242,7 @@ const CronoanaliseDashboard = ({ user }) => {
         } else {
             setLotCounter(1);
         }
-    });
+    }, (error) => console.error("Erro ao carregar lotes:", error));
 
     return () => {
         unsubscribeProducts();
@@ -260,7 +259,7 @@ useEffect(() => {
     const unsubscribeProduction = onSnapshot(productionDocRef, (doc) => {
         const entries = (doc.exists() && doc.data().entries) ? doc.data().entries : [];
         setProductionData(prev => ({ ...prev, [dateKey]: entries }));
-    });
+    }, (error) => console.error("Erro ao carregar dados de produção:", error));
 
     return () => unsubscribeProduction();
 }, [selectedDate, currentDashboard.id]);
@@ -1002,7 +1001,7 @@ const handleLogout = () => {
             <div className="relative">
                 <button onClick={() => setIsNavOpen(!isNavOpen)} className="flex items-center gap-2 p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
                     <h1 className="text-xl font-bold text-gray-800 dark:text-white tracking-wider text-center hidden sm:block">{currentDashboard.name}</h1>
-                    <ChevronDown size={20} className={`transition-transform ${isNavOpen ? 'rotate-180' : ''}`} />
+                    <ChevronDownIcon size={20} className={`transition-transform ${isNavOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {isNavOpen && (
                     <div className="absolute top-full mt-2 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-xl py-2 z-20">
