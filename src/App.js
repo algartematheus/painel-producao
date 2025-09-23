@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, Calendar, ChevronLeft, ChevronRight, MessageSquare, Key, AlertTriangle, Flag, Layers, CheckCircle, ChevronUp, ChevronDown, LogOut, UserCircle, Eye, EyeOff } from 'lucide-react';
+import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, Calendar, ChevronLeft, ChevronRight, MessageSquare, Key, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff } from 'lucide-react';
 
 // Importações do Firebase
 import { initializeApp } from 'firebase/app';
@@ -23,7 +23,6 @@ import {
     onSnapshot, 
     query, 
     writeBatch,
-    Timestamp,
     updateDoc,
     getDoc
 } from 'firebase/firestore';
@@ -252,7 +251,7 @@ const handleLogout = () => {
       // Limpa a seleção se não houver lotes ativos
       setNewEntry(prev => ({...prev, productId: ''}));
     }
-  }, [lots, editingEntryId]);
+  }, [lots, editingEntryId, newEntry.productId]);
  
   // Efeito para calcular a meta prevista dinâmica
   useEffect(() => {
@@ -412,44 +411,52 @@ const handleLogout = () => {
         let totalDailyAverageEfficiencies = 0;
         let productiveDaysCount = 0;
 
-        for (let day = 1; day <= new Date(year, month + 1, 0).getDate(); day++) {
-            const dateKey = new Date(year, month, day).toISOString().slice(0, 10);
-            const dayData = productionData[dateKey];
+        // Itera sobre as chaves de productionData para encontrar dias produtivos
+        Object.keys(productionData).forEach(dateKey => {
+            const date = new Date(dateKey);
+            if(date.getFullYear() === year && date.getMonth() === month) {
+                 const dayData = productionData[dateKey];
+                if (dayData && dayData.length > 0) {
+                    productiveDaysCount++;
+                    let dailyProduction = 0;
+                    let dailyGoal = 0;
+                    let dailyEfficiencySum = 0;
 
-            if (dayData && dayData.length > 0) {
-                productiveDaysCount++;
-                let dailyProduction = 0;
-                let dailyGoal = 0;
-                let dailyEfficiencySum = 0;
+                    dayData.forEach(item => {
+                        let periodProduction = 0;
+                        let totalTimeValue = 0;
 
-                dayData.forEach(item => {
-                    let periodProduction = 0;
-                    let totalTimeValue = 0;
+                        item.productionDetails.forEach(detail => {
+                            periodProduction += detail.produced;
+                            const product = products.find(p => p.id === detail.productId);
+                            if (product) totalTimeValue += detail.produced * product.standardTime;
+                        });
+                    
+                        if (item.goalDisplay) {
+                            dailyGoal += item.goalDisplay.split(' / ').reduce((acc, val) => acc + (parseInt(val.trim(), 10) || 0), 0);
+                        } else {
+                            const firstProduct = products.find(p => p.id === item.productionDetails[0]?.productId);
+                             if(firstProduct?.standardTime > 0) {
+                                dailyGoal += Math.round((item.people * item.availableTime) / firstProduct.standardTime);
+                            }
+                        }
 
-                    item.productionDetails.forEach(detail => {
-                        periodProduction += detail.produced;
-                        const product = products.find(p => p.id === detail.productId);
-                        if (product) totalTimeValue += detail.produced * product.standardTime;
+                        dailyProduction += periodProduction;
+
+                        const totalAvailableTime = item.people * item.availableTime;
+                        const periodEfficiency = totalAvailableTime > 0 ? (totalTimeValue / totalAvailableTime) * 100 : 0;
+                        dailyEfficiencySum += periodEfficiency;
                     });
-                   
-                    const firstProduct = products.find(p => p.id === item.productionDetails[0]?.productId);
-                    if(firstProduct) {
-                        dailyGoal += Math.round((item.people * item.availableTime) / firstProduct.standardTime);
-                    }
-                    dailyProduction += periodProduction;
+                
+                    const dailyAverageEfficiency = dayData.length > 0 ? dailyEfficiencySum / dayData.length : 0;
+                    totalDailyAverageEfficiencies += dailyAverageEfficiency;
 
-                    const totalAvailableTime = item.people * item.availableTime;
-                    const periodEfficiency = totalAvailableTime > 0 ? (totalTimeValue / totalAvailableTime) * 100 : 0;
-                    dailyEfficiencySum += periodEfficiency;
-                });
-               
-                const dailyAverageEfficiency = dayData.length > 0 ? dailyEfficiencySum / dayData.length : 0;
-                totalDailyAverageEfficiencies += dailyAverageEfficiency;
-
-                totalMonthlyProduction += dailyProduction;
-                totalMonthlyGoal += dailyGoal;
+                    totalMonthlyProduction += dailyProduction;
+                    totalMonthlyGoal += dailyGoal;
+                }
             }
-        }
+        });
+
 
         const averageMonthlyEfficiency = productiveDaysCount > 0 ? parseFloat((totalDailyAverageEfficiencies / productiveDaysCount).toFixed(2)) : 0;
 
@@ -541,10 +548,12 @@ const handleLogout = () => {
   const handleAddProduct = async (e) => {
     e.preventDefault();
     if (!newProduct.name || !newProduct.standardTime) return;
-    await addDoc(collection(db, 'artifacts', appId, 'public/data/products'), { 
+    const newProductData = { 
         ...newProduct, 
         standardTime: parseFloat(newProduct.standardTime) 
-    });
+    };
+    const docRef = doc(collection(db, 'artifacts', appId, 'public/data/products'));
+    await setDoc(docRef, newProductData);
     setNewProduct({ name: '', standardTime: '' });
   };
 
@@ -615,7 +624,8 @@ const handleLogout = () => {
         const product = products.find(p => p.id === newLot.productId);
         if (!product) return;
 
-        await addDoc(collection(db, 'artifacts', appId, 'public/data/lots'), {
+        const docRef = doc(collection(db, 'artifacts', appId, 'public/data/lots'));
+        await setDoc(docRef, {
             sequentialId: lotCounter,
             productId: product.id,
             productName: product.name,
@@ -628,6 +638,7 @@ const handleLogout = () => {
             startDate: null,
             endDate: null,
         });
+
         setNewLot({ productId: '', target: '', customName: '' });
     };
 
@@ -908,7 +919,7 @@ const handleLogout = () => {
                  {days.map((day, i) => {
                      const isSelected = day.toDateString() === selectedDate.toDateString();
                      const isCurrentMonth = day.getMonth() === currentMonth.getMonth();
-                     const hasData = !!productionData[day.toISOString().slice(0, 10)];
+                     const hasData = !!(productionData[day.toISOString().slice(0, 10)] && productionData[day.toISOString().slice(0, 10)].length > 0);
                      return (<button key={i} onClick={() => setSelectedDate(day)} className={`p-2 rounded-full text-sm relative ${isCurrentMonth ? '' : 'text-gray-400 dark:text-gray-600'} ${isSelected ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}>{day.getDate()}{hasData && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-green-500 rounded-full"></span>}</button>)
                  })}
             </div>
