@@ -36,10 +36,11 @@ const firebaseConfig = {
   measurementId: "G-9XDEKDPCK9"
 };
 
+// Inicialização dos serviços do Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = firebaseConfig.projectId; // Usa o projectId da configuração
+const appId = firebaseConfig.projectId; // Usamos o Project ID para consistência
 
 // --- COMPONENTES MODAIS ---
 
