@@ -45,7 +45,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = firebaseConfig.projectId; // Usamos o Project ID para consistência
+const appId = firebaseConfig.projectId; // Usamos o Project ID para consistência nos caminhos
 
 // --- Lista de Quadros ---
 const dashboards = [
@@ -96,7 +96,6 @@ const PasswordModal = ({ isOpen, onClose, onConfirm }) => {
     const [passwordInput, setPasswordInput] = useState('');
     if (!isOpen) return null;
     const handleConfirm = () => {
-        // Esta senha ainda está fixa. Para produção, considere um sistema de gerenciamento de senhas mais robusto.
         if (passwordInput === '07060887') { onConfirm(); } 
         else { alert('Senha incorreta!'); }
         setPasswordInput('');
