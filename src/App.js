@@ -117,7 +117,6 @@ const PasswordModal = ({ isOpen, onClose, onConfirm }) => {
 
 // --- TELA DE AUTENTICAÇÃO ---
 const AuthScreen = () => {
-    const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -130,22 +129,15 @@ const AuthScreen = () => {
         try {
             const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
             await setPersistence(auth, persistence);
-            
-            if (isLogin) {
-                await signInWithEmailAndPassword(auth, email, password);
-            } else {
-                await createUserWithEmailAndPassword(auth, email, password);
-            }
+            await signInWithEmailAndPassword(auth, email, password);
         } catch (err) {
             switch (err.code) {
                 case 'auth/user-not-found':
-                    setError('Nenhum usuário encontrado com este email.');
+                case 'auth/invalid-credential':
+                    setError('Email ou senha inválidos.');
                     break;
                 case 'auth/wrong-password':
-                    setError('Senha incorreta.');
-                    break;
-                case 'auth/email-already-in-use':
-                    setError('Este email já está sendo utilizado.');
+                    setError('Email ou senha inválidos.');
                     break;
                 default:
                     setError('Ocorreu um erro. Tente novamente.');
@@ -162,7 +154,7 @@ const AuthScreen = () => {
                 </div>
                 <div className="bg-white dark:bg-gray-900 p-8 rounded-2xl shadow-2xl">
                     <h2 className="text-2xl font-bold text-center text-gray-800 dark:text-white mb-6">
-                        {isLogin ? 'Acessar Painel' : 'Criar Conta'}
+                        Acessar Painel
                     </h2>
                     <form onSubmit={handleAuth} className="space-y-6">
                         <div>
@@ -179,23 +171,16 @@ const AuthScreen = () => {
                             </div>
                         </div>
 
-                        {isLogin && (
-                            <div className="flex items-center">
-                                <input id="remember-me" name="remember-me" type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-                                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900 dark:text-gray-300">Manter-me conectado</label>
-                            </div>
-                        )}
+                        <div className="flex items-center">
+                            <input id="remember-me" name="remember-me" type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+                            <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900 dark:text-gray-300">Manter-me conectado</label>
+                        </div>
 
                         {error && <p className="text-sm text-red-500 text-center">{error}</p>}
                         <button type="submit" className="w-full h-12 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors">
-                            {isLogin ? 'Entrar' : 'Criar Conta'}
+                            Entrar
                         </button>
                     </form>
-                    <div className="mt-6 text-center">
-                        <button onClick={() => setIsLogin(!isLogin)} className="text-sm text-blue-500 hover:underline">
-                            {isLogin ? 'Não tem uma conta? Crie uma agora' : 'Já tem uma conta? Faça login'}
-                        </button>
-                    </div>
                 </div>
             </div>
         </div>
@@ -236,18 +221,19 @@ const CronoanaliseDashboard = ({ user }) => {
   const [showUrgent, setShowUrgent] = useState(false);
   const [urgentProduction, setUrgentProduction] = useState({productId: '', produced: ''});
 
+  const [isNavOpen, setIsNavOpen] = useState(false);
+
   // --- Lógica de Carregamento de Dados do Firebase ---
   useEffect(() => {
-    const productsPath = `artifacts/${appId}/public/data/${currentDashboard.id}_products`;
-    const lotsPath = `artifacts/${appId}/public/data/${currentDashboard.id}_lots`;
+    const basePath = `artifacts/${appId}/public/data/${currentDashboard.id}`;
     
-    const productsQuery = query(collection(db, productsPath));
+    const productsQuery = query(collection(db, `${basePath}_products`));
     const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
         const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setProducts(productsData);
     });
 
-    const lotsQuery = query(collection(db, lotsPath));
+    const lotsQuery = query(collection(db, `${basePath}_lots`));
     const unsubscribeLots = onSnapshot(lotsQuery, (snapshot) => {
         const lotsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setLots(lotsData);
@@ -537,7 +523,7 @@ const handleLogout = () => {
     const dateKey = selectedDate.toISOString().slice(0, 10);
     const dayDocRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_productionData/${dateKey}`);
     const dayDoc = await getDoc(dayDocRef);
-    const currentEntries = dayDoc.exists() ? dayDoc.data().entries : [];
+    const currentEntries = dayDoc.exists() && dayDoc.data().entries ? dayDoc.data().entries : [];
     
     const batch = writeBatch(db);
     batch.set(dayDocRef, { entries: [...currentEntries, newEntryWithId] }, { merge: true });
@@ -791,7 +777,7 @@ const handleLogout = () => {
                 if (product && product.standardTime > 0) {
                     const alreadyProducedInEntry = (entryData.productionDetails.find(d => d.productId === lot.productId) || {}).produced || 0;
                     const originalProducedInEntry = (originalEntry?.productionDetails.find(d=>d.productId === lot.productId)?.produced || 0);
-                    const remainingInLot = lot.target - (lot.produced - originalProducedInEntry + alreadyProducedInEntry);
+                    const remainingInLot = (lot.target || 0) - ((lot.produced || 0) - originalProducedInEntry + alreadyProducedInEntry);
                     
                     const producible = Math.min(Math.max(0, remainingInLot), Math.floor(remainingTime / product.standardTime));
 
@@ -999,13 +985,9 @@ const handleLogout = () => {
     );
   };
  
-  const handleDashboardChange = (direction) => {
-      setCurrentDashboardIndex(prevIndex => {
-          const newIndex = prevIndex + direction;
-          if (newIndex < 0) return dashboards.length - 1;
-          if (newIndex >= dashboards.length) return 0;
-          return newIndex;
-      });
+  const handleDashboardChange = (index) => {
+      setCurrentDashboardIndex(index);
+      setIsNavOpen(false);
   };
 
   return (
@@ -1017,10 +999,24 @@ const handleLogout = () => {
       <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-10">
         <div className="flex items-center gap-4">
             <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
-            <div className="flex items-center gap-2">
-                 <button onClick={() => handleDashboardChange(-1)} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"><ChevronLeft size={20}/></button>
-                 <h1 className="text-2xl font-bold text-gray-800 dark:text-white tracking-wider text-center w-64 hidden sm:block">{currentDashboard.name}</h1>
-                 <button onClick={() => handleDashboardChange(1)} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"><ChevronRight size={20}/></button>
+            <div className="relative">
+                <button onClick={() => setIsNavOpen(!isNavOpen)} className="flex items-center gap-2 p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
+                    <h1 className="text-xl font-bold text-gray-800 dark:text-white tracking-wider text-center hidden sm:block">{currentDashboard.name}</h1>
+                    <ChevronDown size={20} className={`transition-transform ${isNavOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isNavOpen && (
+                    <div className="absolute top-full mt-2 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-xl py-2 z-20">
+                        {dashboards.map((dash, index) => (
+                            <button 
+                                key={dash.id} 
+                                onClick={() => handleDashboardChange(index)}
+                                className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            >
+                                {dash.name}
+                            </button>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
         <div className="flex items-center space-x-4">
@@ -1301,7 +1297,7 @@ const handleLogout = () => {
                                 )}
                             </div>
                             <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2.5">
-                                <div className="bg-blue-600 h-2.5 rounded-full" style={{width: `${((lot.produced||0)/lot.target)*100}%`}}></div>
+                                <div className="bg-blue-600 h-2.5 rounded-full" style={{width: `${((lot.produced||0)/(lot.target || 1))*100}%`}}></div>
                             </div>
                         </div>
                     </div>
