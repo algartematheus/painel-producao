@@ -6,7 +6,6 @@ import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, Chev
 import { initializeApp } from 'firebase/app';
 import { 
     getAuth, 
-    createUserWithEmailAndPassword, 
     signInWithEmailAndPassword, 
     signOut, 
     onAuthStateChanged,
@@ -521,7 +520,7 @@ const handleLogout = () => {
     };
 
     const dateKey = selectedDate.toISOString().slice(0, 10);
-    const dayDocRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_productionData/${dateKey}`);
+    const dayDocRef = doc(db, `artifacts/${appId}/${currentDashboard.id}/productionData/${dateKey}`);
     const dayDoc = await getDoc(dayDocRef);
     const currentEntries = dayDoc.exists() && dayDoc.data().entries ? dayDoc.data().entries : [];
     
@@ -531,7 +530,7 @@ const handleLogout = () => {
     productionDetails.forEach(detail => {
         const lotToUpdate = lots.find(l => l.productId === detail.productId);
         if (lotToUpdate) {
-            const lotRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_lots/${lotToUpdate.id}`);
+            const lotRef = doc(db, `artifacts/${appId}/${currentDashboard.id}/lots/${lotToUpdate.id}`);
             const newProduced = (lotToUpdate.produced || 0) + detail.produced;
             const newStatus = newProduced >= lotToUpdate.target ? 'completed' : 'ongoing';
             batch.update(lotRef, { produced: newProduced, status: lotToUpdate.status === 'future' ? 'ongoing' : newStatus });
@@ -574,7 +573,7 @@ const handleLogout = () => {
         ...newProduct, 
         standardTime: parseFloat(newProduct.standardTime) 
     };
-    const docRef = doc(collection(db, `artifacts/${appId}/public/data/${currentDashboard.id}_products`));
+    const docRef = doc(collection(db, `artifacts/${appId}/${currentDashboard.id}/products`));
     await setDoc(docRef, newProductData);
     setNewProduct({ name: '', standardTime: '' });
   };
@@ -585,7 +584,7 @@ const handleLogout = () => {
   };
  
   const handleSaveProduct = async (id) => {
-    const productRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_products`, id);
+    const productRef = doc(db, `artifacts/${appId}/${currentDashboard.id}/products`, id);
     await updateDoc(productRef, { 
         ...editingProductData, 
         standardTime: parseFloat(editingProductData.standardTime) 
@@ -595,12 +594,12 @@ const handleLogout = () => {
  
   const handleDeleteProduct = async (id) => {
     if(window.confirm("Tem certeza?")) {
-        await deleteDoc(doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_products`, id));
+        await deleteDoc(doc(db, `artifacts/${appId}/${currentDashboard.id}/products`, id));
     }
   };
  
   const handleDeleteEntry = async (entryId, dateKey) => {
-      const dayDocRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_productionData`, dateKey);
+      const dayDocRef = doc(db, `artifacts/${appId}/${currentDashboard.id}/productionData`, dateKey);
       const dayDoc = await getDoc(dayDocRef);
       if (!dayDoc.exists()) return;
       
@@ -613,7 +612,7 @@ const handleLogout = () => {
       entryToDelete.productionDetails.forEach(detail => {
           const lotToUpdate = lots.find(l => l.productId === detail.productId);
           if (lotToUpdate) {
-              const lotRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_lots`, lotToUpdate.id);
+              const lotRef = doc(db, `artifacts/${appId}/${currentDashboard.id}/lots`, lotToUpdate.id);
               const newProduced = Math.max(0, (lotToUpdate.produced || 0) - detail.produced);
               const newStatus = (lotToUpdate.produced >= lotToUpdate.target && newProduced < lotToUpdate.target) ? 'ongoing' : lotToUpdate.status;
               batch.update(lotRef, { produced: newProduced, status: newStatus });
@@ -628,7 +627,7 @@ const handleLogout = () => {
 
   const handleSaveObservation = async (entryId, observation) => {
       const dateKey = selectedDate.toISOString().slice(0, 10);
-      const dayDocRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_productionData`, dateKey);
+      const dayDocRef = doc(db, `artifacts/${appId}/${currentDashboard.id}/productionData`, dateKey);
       const dayDoc = await getDoc(dayDocRef);
       if (dayDoc.exists()) {
           const updatedEntries = dayDoc.data().entries.map(e => e.id === entryId ? { ...e, observation } : e);
@@ -637,7 +636,7 @@ const handleLogout = () => {
   };
 
   const handleSaveLotObservation = async (lotId, observation) => {
-    await updateDoc(doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_lots`, lotId), { observation });
+    await updateDoc(doc(db, `artifacts/${appId}/${currentDashboard.id}/lots`, lotId), { observation });
   };
  
     const handleAddLot = async (e) => {
@@ -646,7 +645,7 @@ const handleLogout = () => {
         const product = products.find(p => p.id === newLot.productId);
         if (!product) return;
 
-        const docRef = doc(collection(db, `artifacts/${appId}/public/data/${currentDashboard.id}_lots`));
+        const docRef = doc(collection(db, `artifacts/${appId}/${currentDashboard.id}/lots`));
         await setDoc(docRef, {
             sequentialId: lotCounter,
             productId: product.id,
@@ -665,7 +664,7 @@ const handleLogout = () => {
     };
 
     const handleDeleteLot = async (lotId) => {
-        await deleteDoc(doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_lots`, lotId));
+        await deleteDoc(doc(db, `artifacts/${appId}/${currentDashboard.id}/lots`, lotId));
     };
 
     const handleStartEditLot = (lot) => {
@@ -674,7 +673,7 @@ const handleLogout = () => {
     };
 
     const handleSaveLotEdit = async (lotId) => {
-        const lotRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_lots`, lotId);
+        const lotRef = doc(db, `artifacts/${appId}/${currentDashboard.id}/lots`, lotId);
         const lot = lots.find(l => l.id === lotId);
         const newTarget = parseInt(editingLotData.target, 10);
         
@@ -705,14 +704,14 @@ const handleLogout = () => {
             const currentLot = sortedActiveLots[currentIndex];
             const swapLot = sortedActiveLots[swapIndex];
             const batch = writeBatch(db);
-            batch.update(doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_lots`, currentLot.id), { order: swapLot.order });
-            batch.update(doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_lots`, swapLot.id), { order: currentLot.order });
+            batch.update(doc(db, `artifacts/${appId}/${currentDashboard.id}/lots`, currentLot.id), { order: swapLot.order });
+            batch.update(doc(db, `artifacts/${appId}/${currentDashboard.id}/lots`, swapLot.id), { order: currentLot.order });
             await batch.commit();
         }
     };
 
     const handleLotStatusChange = async (lotId, newStatus) => {
-        await updateDoc(doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_lots`, lotId), { status: newStatus });
+        await updateDoc(doc(db, `artifacts/${appId}/${currentDashboard.id}/lots`, lotId), { status: newStatus });
     };
 
     const recalculatePredictions = (entryData, allProducts, allLots, originalEntry = null) => {
@@ -824,7 +823,7 @@ const handleLogout = () => {
 
     const handleSaveEntryEdit = async () => {
         const dateKey = selectedDate.toISOString().slice(0, 10);
-        const dayDocRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_productionData`, dateKey);
+        const dayDocRef = doc(db, `artifacts/${appId}/${currentDashboard.id}/productionData`, dateKey);
         const dayDoc = await getDoc(dayDocRef);
         const originalEntries = dayDoc.exists() ? dayDoc.data().entries : [];
         const originalEntry = originalEntries.find(e => e.id === editingEntryId);
@@ -851,7 +850,7 @@ const handleLogout = () => {
             if (productionDiff[productId] !== 0) {
                 const lotToUpdate = lots.find(l => l.productId === parseInt(productId));
                 if (lotToUpdate) {
-                    const lotRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}_lots`, lotToUpdate.id);
+                    const lotRef = doc(db, `artifacts/${appId}/${currentDashboard.id}/lots`, lotToUpdate.id);
                     const newProduced = (lotToUpdate.produced || 0) + productionDiff[productId];
                     let newStatus = lotToUpdate.status;
                     if (newProduced >= lotToUpdate.target) {
@@ -1293,7 +1292,7 @@ const handleLogout = () => {
                                          <button onClick={() => setEditingLotId(null)} className="text-gray-500 hover:text-gray-400"><XCircle size={16}/></button>
                                     </div>
                                 ) : (
-                                    <span>{lot.produced || 0} / {lot.target.toLocaleString('pt-BR')}</span>
+                                    <span>{lot.produced || 0} / {(lot.target || 0).toLocaleString('pt-BR')}</span>
                                 )}
                             </div>
                             <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2.5">
