@@ -67,7 +67,7 @@ const ObservationModal = ({ isOpen, onClose, entry, onSave }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
             <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
-                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Observação do Período ({entry.period})</h2><button onClick={onClose}><XCircle /></button></div>
+                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Observação do Período ({entry?.period})</h2><button onClick={onClose}><XCircle /></button></div>
                 <textarea value={observation} onChange={e => setObservation(e.target.value)} rows="4" className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4"></textarea>
                 <button onClick={handleSave} className="w-full h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600">Salvar</button>
             </div>
@@ -84,7 +84,7 @@ const LotObservationModal = ({ isOpen, onClose, lot, onSave }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
             <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
-                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Observação do Lote ({lot.productName} #{lot.sequentialId})</h2><button onClick={onClose}><XCircle /></button></div>
+                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Observação do Lote ({lot?.productName} #{lot?.sequentialId})</h2><button onClick={onClose}><XCircle /></button></div>
                 <textarea value={observation} onChange={e => setObservation(e.target.value)} rows="4" className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4"></textarea>
                 <button onClick={handleSave} className="w-full h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600">Salvar</button>
             </div>
@@ -240,20 +240,18 @@ const CronoanaliseDashboard = ({ user }) => {
   useEffect(() => {
     const basePath = `artifacts/${appId}/public/data/${currentDashboard.id}`;
     
-    // Carregar Produtos
     const productsQuery = query(collection(db, `${basePath}/products`));
     const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
         const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setProducts(productsData);
     });
 
-    // Carregar Lotes
     const lotsQuery = query(collection(db, `${basePath}/lots`));
     const unsubscribeLots = onSnapshot(lotsQuery, (snapshot) => {
         const lotsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setLots(lotsData);
         if (lotsData.length > 0) {
-            const maxId = Math.max(...lotsData.map(l => l.sequentialId || 0));
+            const maxId = Math.max(0, ...lotsData.map(l => l.sequentialId || 0));
             setLotCounter(maxId + 1);
         } else {
             setLotCounter(1);
@@ -287,7 +285,7 @@ const handleLogout = () => {
 
   // Efeito para pré-selecionar o produto do primeiro lote da fila
   useEffect(() => {
-    if (editingEntryId) return; // Não muda a seleção durante a edição de uma entrada
+    if (editingEntryId) return;
     const firstActiveLot = lots
         .filter(l => l.status === 'ongoing' || l.status === 'future')
         .sort((a, b) => a.order - b.order)[0];
@@ -297,14 +295,12 @@ const handleLogout = () => {
     if (firstActiveLot && !isCurrentSelectionValidAndActive) {
       setNewEntry(prev => ({ ...prev, productId: firstActiveLot.productId }));
     } else if (!firstActiveLot && !isCurrentSelectionValidAndActive) {
-      // Limpa a seleção se não houver lotes ativos
       setNewEntry(prev => ({...prev, productId: ''}));
     }
   }, [lots, editingEntryId, newEntry.productId]);
  
   // Efeito para calcular a meta prevista dinâmica
   useEffect(() => {
-    // 1. Calculate time consumed by urgent item
     let timeConsumedByUrgent = 0;
     let urgentPrediction = null;
 
@@ -323,7 +319,6 @@ const handleLogout = () => {
         }
     }
 
-    // 2. Calculate remaining time for normal prediction
     const totalAvailableMinutes = (newEntry.availableTime || 0) * (newEntry.people || 0);
     const remainingTime = totalAvailableMinutes - timeConsumedByUrgent;
 
@@ -385,11 +380,13 @@ const handleLogout = () => {
   }, [selectedDate, productionData]);
 
   const processedData = useMemo(() => {
+    if (!dailyProductionData || dailyProductionData.length === 0) return [];
+
     let cumulativeProduction = 0;
     let cumulativeGoal = 0;
     let cumulativeEfficiencySum = 0;
    
-    const sortedData = [...dailyProductionData].sort((a, b) => a.period.localeCompare(b.period));
+    const sortedData = [...dailyProductionData].sort((a, b) => (a.period || "").localeCompare(b.period || ""));
 
     return sortedData.map((item, index) => {
         let totalTimeValue = 0;
@@ -397,31 +394,19 @@ const handleLogout = () => {
 
         (item.productionDetails || []).forEach(detail => {
             const product = products.find(p => p.id === detail.productId);
-            if (product) {
-                totalTimeValue += detail.produced * product.standardTime;
-                totalProducedInPeriod += detail.produced;
+            if (product && product.standardTime) {
+                totalTimeValue += (detail.produced || 0) * product.standardTime;
+                totalProducedInPeriod += (detail.produced || 0);
             }
         });
 
-        const totalAvailableTime = item.people * item.availableTime;
+        const totalAvailableTime = (item.people || 0) * (item.availableTime || 0);
         const efficiency = totalAvailableTime > 0 ? parseFloat(((totalTimeValue / totalAvailableTime) * 100).toFixed(2)) : 0;
        
-        let goalForDisplay;
-        let producedForDisplay;
-        let numericGoal;
+        let goalForDisplay = item.goalDisplay || "0";
+        let producedForDisplay = (item.productionDetails || []).map(d => d.produced || 0).join(' / ');
+        let numericGoal = goalForDisplay.split(' / ').reduce((acc, val) => acc + (parseInt(val.trim(), 10) || 0), 0);
        
-        producedForDisplay = (item.productionDetails || []).map(d => d.produced).join(' / ');
-
-        if (item.goalDisplay) {
-            goalForDisplay = item.goalDisplay;
-            numericGoal = item.goalDisplay.split(' / ').reduce((acc, val) => acc + (parseInt(val.trim(), 10) || 0), 0);
-        } else {
-            const firstProduct = products.find(p => p.id === (item.productionDetails && item.productionDetails[0]?.productId));
-            numericGoal = firstProduct?.standardTime > 0 ? Math.round(totalAvailableTime / firstProduct.standardTime) : 0;
-            goalForDisplay = numericGoal;
-        }
-
-
         cumulativeProduction += totalProducedInPeriod;
         cumulativeGoal += numericGoal;
         cumulativeEfficiencySum += efficiency;
@@ -461,47 +446,47 @@ const handleLogout = () => {
         let productiveDaysCount = 0;
 
         Object.keys(productionData).forEach(dateKey => {
-            const date = new Date(dateKey);
-            if(date.getFullYear() === year && date.getMonth() === month) {
-                 const dayData = productionData[dateKey];
-                if (dayData && dayData.length > 0) {
-                    productiveDaysCount++;
-                    let dailyProduction = 0;
-                    let dailyGoal = 0;
-                    let dailyEfficiencySum = 0;
+            try {
+                const date = new Date(dateKey + "T00:00:00");
+                if(date.getFullYear() === year && date.getMonth() === month) {
+                     const dayData = productionData[dateKey];
+                    if (dayData && dayData.length > 0) {
+                        productiveDaysCount++;
+                        let dailyProduction = 0;
+                        let dailyGoal = 0;
+                        let dailyEfficiencySum = 0;
 
-                    dayData.forEach(item => {
-                        let periodProduction = 0;
-                        let totalTimeValue = 0;
+                        dayData.forEach(item => {
+                            let periodProduction = 0;
+                            let totalTimeValue = 0;
 
-                        (item.productionDetails || []).forEach(detail => {
-                            periodProduction += detail.produced;
-                            const product = products.find(p => p.id === detail.productId);
-                            if (product) totalTimeValue += detail.produced * product.standardTime;
+                            (item.productionDetails || []).forEach(detail => {
+                                periodProduction += (detail.produced || 0);
+                                const product = products.find(p => p.id === detail.productId);
+                                if (product && product.standardTime) {
+                                     totalTimeValue += (detail.produced || 0) * product.standardTime;
+                                }
+                            });
+                        
+                            if (item.goalDisplay) {
+                                dailyGoal += item.goalDisplay.split(' / ').reduce((acc, val) => acc + (parseInt(val.trim(), 10) || 0), 0);
+                            }
+                            dailyProduction += periodProduction;
+
+                            const totalAvailableTime = (item.people || 0) * (item.availableTime || 0);
+                            const periodEfficiency = totalAvailableTime > 0 ? (totalTimeValue / totalAvailableTime) * 100 : 0;
+                            dailyEfficiencySum += periodEfficiency;
                         });
                     
-                        if (item.goalDisplay) {
-                            dailyGoal += item.goalDisplay.split(' / ').reduce((acc, val) => acc + (parseInt(val.trim(), 10) || 0), 0);
-                        } else {
-                            const firstProduct = products.find(p => p.id === (item.productionDetails && item.productionDetails[0]?.productId));
-                             if(firstProduct?.standardTime > 0) {
-                                dailyGoal += Math.round((item.people * item.availableTime) / firstProduct.standardTime);
-                            }
-                        }
+                        const dailyAverageEfficiency = dayData.length > 0 ? dailyEfficiencySum / dayData.length : 0;
+                        totalDailyAverageEfficiencies += dailyAverageEfficiency;
 
-                        dailyProduction += periodProduction;
-
-                        const totalAvailableTime = item.people * item.availableTime;
-                        const periodEfficiency = totalAvailableTime > 0 ? (totalTimeValue / totalAvailableTime) * 100 : 0;
-                        dailyEfficiencySum += periodEfficiency;
-                    });
-                
-                    const dailyAverageEfficiency = dayData.length > 0 ? dailyEfficiencySum / dayData.length : 0;
-                    totalDailyAverageEfficiencies += dailyAverageEfficiency;
-
-                    totalMonthlyProduction += dailyProduction;
-                    totalMonthlyGoal += dailyGoal;
+                        totalMonthlyProduction += dailyProduction;
+                        totalMonthlyGoal += dailyGoal;
+                    }
                 }
+            } catch(e) {
+                console.error("Data inválida no sumário mensal:", dateKey);
             }
         });
 
