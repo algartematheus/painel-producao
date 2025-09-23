@@ -271,7 +271,7 @@ useEffect(() => {
     const dateKey = selectedDate.toISOString().slice(0, 10);
     const productionDocRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/productionData/${dateKey}`);
     const unsubscribeProduction = onSnapshot(productionDocRef, (doc) => {
-        const entries = doc.exists() ? doc.data().entries : [];
+        const entries = (doc.exists() && doc.data().entries) ? doc.data().entries : [];
         setProductionData(prev => ({ ...prev, [dateKey]: entries }));
     });
 
@@ -395,7 +395,7 @@ const handleLogout = () => {
         let totalTimeValue = 0;
         let totalProducedInPeriod = 0;
 
-        item.productionDetails.forEach(detail => {
+        (item.productionDetails || []).forEach(detail => {
             const product = products.find(p => p.id === detail.productId);
             if (product) {
                 totalTimeValue += detail.produced * product.standardTime;
@@ -410,13 +410,13 @@ const handleLogout = () => {
         let producedForDisplay;
         let numericGoal;
        
-        producedForDisplay = item.productionDetails.map(d => d.produced).join(' / ');
+        producedForDisplay = (item.productionDetails || []).map(d => d.produced).join(' / ');
 
         if (item.goalDisplay) {
             goalForDisplay = item.goalDisplay;
             numericGoal = item.goalDisplay.split(' / ').reduce((acc, val) => acc + (parseInt(val.trim(), 10) || 0), 0);
         } else {
-            const firstProduct = products.find(p => p.id === item.productionDetails[0]?.productId);
+            const firstProduct = products.find(p => p.id === (item.productionDetails && item.productionDetails[0]?.productId));
             numericGoal = firstProduct?.standardTime > 0 ? Math.round(totalAvailableTime / firstProduct.standardTime) : 0;
             goalForDisplay = numericGoal;
         }
@@ -460,7 +460,6 @@ const handleLogout = () => {
         let totalDailyAverageEfficiencies = 0;
         let productiveDaysCount = 0;
 
-        // Itera sobre as chaves de productionData para encontrar dias produtivos
         Object.keys(productionData).forEach(dateKey => {
             const date = new Date(dateKey);
             if(date.getFullYear() === year && date.getMonth() === month) {
@@ -475,7 +474,7 @@ const handleLogout = () => {
                         let periodProduction = 0;
                         let totalTimeValue = 0;
 
-                        item.productionDetails.forEach(detail => {
+                        (item.productionDetails || []).forEach(detail => {
                             periodProduction += detail.produced;
                             const product = products.find(p => p.id === detail.productId);
                             if (product) totalTimeValue += detail.produced * product.standardTime;
@@ -484,7 +483,7 @@ const handleLogout = () => {
                         if (item.goalDisplay) {
                             dailyGoal += item.goalDisplay.split(' / ').reduce((acc, val) => acc + (parseInt(val.trim(), 10) || 0), 0);
                         } else {
-                            const firstProduct = products.find(p => p.id === item.productionDetails[0]?.productId);
+                            const firstProduct = products.find(p => p.id === (item.productionDetails && item.productionDetails[0]?.productId));
                              if(firstProduct?.standardTime > 0) {
                                 dailyGoal += Math.round((item.people * item.availableTime) / firstProduct.standardTime);
                             }
