@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, Calendar, ChevronLeft, ChevronRight, MessageSquare, Key, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff } from 'lucide-react';
+import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff } from 'lucide-react';
 
 // Importações do Firebase
 import { initializeApp } from 'firebase/app';
@@ -17,7 +17,6 @@ import {
     getFirestore, 
     collection, 
     doc, 
-    addDoc, 
     setDoc, 
     deleteDoc, 
     onSnapshot, 
