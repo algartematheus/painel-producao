@@ -9,7 +9,10 @@ import {
     createUserWithEmailAndPassword, 
     signInWithEmailAndPassword, 
     signOut, 
-    onAuthStateChanged
+    onAuthStateChanged,
+    setPersistence,
+    browserLocalPersistence,
+    browserSessionPersistence
 } from 'firebase/auth';
 import { 
     getFirestore, 
@@ -109,11 +112,15 @@ const AuthScreen = () => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [showPassword, setShowPassword] = useState(false);
+    const [rememberMe, setRememberMe] = useState(true);
 
     const handleAuth = async (e) => {
         e.preventDefault();
         setError('');
         try {
+            const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
+            await setPersistence(auth, persistence);
+            
             if (isLogin) {
                 await signInWithEmailAndPassword(auth, email, password);
             } else {
@@ -161,6 +168,14 @@ const AuthScreen = () => {
                                 </button>
                             </div>
                         </div>
+
+                        {isLogin && (
+                            <div className="flex items-center">
+                                <input id="remember-me" name="remember-me" type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+                                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900 dark:text-gray-300">Manter-me conectado</label>
+                            </div>
+                        )}
+
                         {error && <p className="text-sm text-red-500 text-center">{error}</p>}
                         <button type="submit" className="w-full h-12 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors">
                             {isLogin ? 'Entrar' : 'Criar Conta'}
