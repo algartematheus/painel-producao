@@ -47,6 +47,15 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = firebaseConfig.projectId; // Usamos o Project ID para consistência
 
+// --- Lista de Quadros ---
+const dashboards = [
+    { id: 'producao', name: 'Quadro da Produção' },
+    { id: 'acabamento', name: 'Quadro do Acabamento' },
+    { id: 'estoque', name: 'Quadro do Estoque' },
+    { id: 'corte', name: 'Quadro do Corte' },
+];
+
+
 // --- COMPONENTES MODAIS ---
 
 const ObservationModal = ({ isOpen, onClose, entry, onSave }) => {
@@ -202,6 +211,9 @@ const CronoanaliseDashboard = ({ user }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [calendarView, setCalendarView] = useState('day');
 
+  const [currentDashboardIndex, setCurrentDashboardIndex] = useState(0);
+  const currentDashboard = dashboards[currentDashboardIndex];
+
   const [productionData, setProductionData] = useState({});
   const [products, setProducts] = useState([]);
   const [lots, setLots] = useState([]);
@@ -227,15 +239,17 @@ const CronoanaliseDashboard = ({ user }) => {
 
   // --- Lógica de Carregamento de Dados do Firebase ---
   useEffect(() => {
+    const basePath = `artifacts/${appId}/public/data/${currentDashboard.id}`;
+    
     // Carregar Produtos
-    const productsQuery = query(collection(db, 'artifacts', appId, 'public/data/products'));
+    const productsQuery = query(collection(db, `${basePath}/products`));
     const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
         const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setProducts(productsData);
     });
 
     // Carregar Lotes
-    const lotsQuery = query(collection(db, 'artifacts', appId, 'public/data/lots'));
+    const lotsQuery = query(collection(db, `${basePath}/lots`));
     const unsubscribeLots = onSnapshot(lotsQuery, (snapshot) => {
         const lotsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setLots(lotsData);
@@ -251,19 +265,19 @@ const CronoanaliseDashboard = ({ user }) => {
         unsubscribeProducts();
         unsubscribeLots();
     };
-}, []);
+}, [currentDashboard.id]);
 
 // Carregar Dados de Produção para o dia selecionado
 useEffect(() => {
     const dateKey = selectedDate.toISOString().slice(0, 10);
-    const productionDocRef = doc(db, 'artifacts', appId, 'public/data/productionData', dateKey);
+    const productionDocRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/productionData/${dateKey}`);
     const unsubscribeProduction = onSnapshot(productionDocRef, (doc) => {
         const entries = doc.exists() ? doc.data().entries : [];
         setProductionData(prev => ({ ...prev, [dateKey]: entries }));
     });
 
     return () => unsubscribeProduction();
-}, [selectedDate]);
+}, [selectedDate, currentDashboard.id]);
 
 
 const handleLogout = () => {
@@ -535,7 +549,7 @@ const handleLogout = () => {
     };
 
     const dateKey = selectedDate.toISOString().slice(0, 10);
-    const dayDocRef = doc(db, 'artifacts', appId, 'public/data/productionData', dateKey);
+    const dayDocRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/productionData/${dateKey}`);
     const dayDoc = await getDoc(dayDocRef);
     const currentEntries = dayDoc.exists() ? dayDoc.data().entries : [];
     
@@ -545,7 +559,7 @@ const handleLogout = () => {
     productionDetails.forEach(detail => {
         const lotToUpdate = lots.find(l => l.productId === detail.productId);
         if (lotToUpdate) {
-            const lotRef = doc(db, 'artifacts', appId, 'public/data/lots', lotToUpdate.id);
+            const lotRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/lots/${lotToUpdate.id}`);
             const newProduced = (lotToUpdate.produced || 0) + detail.produced;
             const newStatus = newProduced >= lotToUpdate.target ? 'completed' : 'ongoing';
             batch.update(lotRef, { produced: newProduced, status: lotToUpdate.status === 'future' ? 'ongoing' : newStatus });
@@ -588,7 +602,7 @@ const handleLogout = () => {
         ...newProduct, 
         standardTime: parseFloat(newProduct.standardTime) 
     };
-    const docRef = doc(collection(db, 'artifacts', appId, 'public/data/products'));
+    const docRef = doc(collection(db, `artifacts/${appId}/public/data/${currentDashboard.id}/products`));
     await setDoc(docRef, newProductData);
     setNewProduct({ name: '', standardTime: '' });
   };
@@ -599,7 +613,7 @@ const handleLogout = () => {
   };
  
   const handleSaveProduct = async (id) => {
-    const productRef = doc(db, 'artifacts', appId, 'public/data/products', id);
+    const productRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/products`, id);
     await updateDoc(productRef, { 
         ...editingProductData, 
         standardTime: parseFloat(editingProductData.standardTime) 
@@ -609,12 +623,12 @@ const handleLogout = () => {
  
   const handleDeleteProduct = async (id) => {
     if(window.confirm("Tem certeza?")) {
-        await deleteDoc(doc(db, 'artifacts', appId, 'public/data/products', id));
+        await deleteDoc(doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/products`, id));
     }
   };
  
   const handleDeleteEntry = async (entryId, dateKey) => {
-      const dayDocRef = doc(db, 'artifacts', appId, 'public/data/productionData', dateKey);
+      const dayDocRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/productionData`, dateKey);
       const dayDoc = await getDoc(dayDocRef);
       if (!dayDoc.exists()) return;
       
@@ -627,7 +641,7 @@ const handleLogout = () => {
       entryToDelete.productionDetails.forEach(detail => {
           const lotToUpdate = lots.find(l => l.productId === detail.productId);
           if (lotToUpdate) {
-              const lotRef = doc(db, 'artifacts', appId, 'public/data/lots', lotToUpdate.id);
+              const lotRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/lots`, lotToUpdate.id);
               const newProduced = Math.max(0, (lotToUpdate.produced || 0) - detail.produced);
               const newStatus = (lotToUpdate.produced >= lotToUpdate.target && newProduced < lotToUpdate.target) ? 'ongoing' : lotToUpdate.status;
               batch.update(lotRef, { produced: newProduced, status: newStatus });
@@ -642,7 +656,7 @@ const handleLogout = () => {
 
   const handleSaveObservation = async (entryId, observation) => {
       const dateKey = selectedDate.toISOString().slice(0, 10);
-      const dayDocRef = doc(db, 'artifacts', appId, 'public/data/productionData', dateKey);
+      const dayDocRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/productionData`, dateKey);
       const dayDoc = await getDoc(dayDocRef);
       if (dayDoc.exists()) {
           const updatedEntries = dayDoc.data().entries.map(e => e.id === entryId ? { ...e, observation } : e);
@@ -651,7 +665,7 @@ const handleLogout = () => {
   };
 
   const handleSaveLotObservation = async (lotId, observation) => {
-    await updateDoc(doc(db, 'artifacts', appId, 'public/data/lots', lotId), { observation });
+    await updateDoc(doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/lots`, lotId), { observation });
   };
  
     const handleAddLot = async (e) => {
@@ -660,7 +674,7 @@ const handleLogout = () => {
         const product = products.find(p => p.id === newLot.productId);
         if (!product) return;
 
-        const docRef = doc(collection(db, 'artifacts', appId, 'public/data/lots'));
+        const docRef = doc(collection(db, `artifacts/${appId}/public/data/${currentDashboard.id}/lots`));
         await setDoc(docRef, {
             sequentialId: lotCounter,
             productId: product.id,
@@ -679,7 +693,7 @@ const handleLogout = () => {
     };
 
     const handleDeleteLot = async (lotId) => {
-        await deleteDoc(doc(db, 'artifacts', appId, 'public/data/lots', lotId));
+        await deleteDoc(doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/lots`, lotId));
     };
 
     const handleStartEditLot = (lot) => {
@@ -688,7 +702,7 @@ const handleLogout = () => {
     };
 
     const handleSaveLotEdit = async (lotId) => {
-        const lotRef = doc(db, 'artifacts', appId, 'public/data/lots', lotId);
+        const lotRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/lots`, lotId);
         const lot = lots.find(l => l.id === lotId);
         const newTarget = parseInt(editingLotData.target, 10);
         
@@ -719,14 +733,14 @@ const handleLogout = () => {
             const currentLot = sortedActiveLots[currentIndex];
             const swapLot = sortedActiveLots[swapIndex];
             const batch = writeBatch(db);
-            batch.update(doc(db, 'artifacts', appId, 'public/data/lots', currentLot.id), { order: swapLot.order });
-            batch.update(doc(db, 'artifacts', appId, 'public/data/lots', swapLot.id), { order: currentLot.order });
+            batch.update(doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/lots`, currentLot.id), { order: swapLot.order });
+            batch.update(doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/lots`, swapLot.id), { order: currentLot.order });
             await batch.commit();
         }
     };
 
     const handleLotStatusChange = async (lotId, newStatus) => {
-        await updateDoc(doc(db, 'artifacts', appId, 'public/data/lots', lotId), { status: newStatus });
+        await updateDoc(doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/lots`, lotId), { status: newStatus });
     };
 
     const recalculatePredictions = (entryData, allProducts, allLots, originalEntry = null) => {
@@ -838,7 +852,7 @@ const handleLogout = () => {
 
     const handleSaveEntryEdit = async () => {
         const dateKey = selectedDate.toISOString().slice(0, 10);
-        const dayDocRef = doc(db, 'artifacts', appId, 'public/data/productionData', dateKey);
+        const dayDocRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/productionData`, dateKey);
         const dayDoc = await getDoc(dayDocRef);
         const originalEntries = dayDoc.exists() ? dayDoc.data().entries : [];
         const originalEntry = originalEntries.find(e => e.id === editingEntryId);
@@ -865,7 +879,7 @@ const handleLogout = () => {
             if (productionDiff[productId] !== 0) {
                 const lotToUpdate = lots.find(l => l.productId === parseInt(productId));
                 if (lotToUpdate) {
-                    const lotRef = doc(db, 'artifacts', appId, 'public/data/lots', lotToUpdate.id);
+                    const lotRef = doc(db, `artifacts/${appId}/public/data/${currentDashboard.id}/lots`, lotToUpdate.id);
                     const newProduced = (lotToUpdate.produced || 0) + productionDiff[productId];
                     let newStatus = lotToUpdate.status;
                     if (newProduced >= lotToUpdate.target) {
@@ -999,6 +1013,15 @@ const handleLogout = () => {
     );
   };
  
+  const handleDashboardChange = (direction) => {
+      setCurrentDashboardIndex(prevIndex => {
+          const newIndex = prevIndex + direction;
+          if (newIndex < 0) return dashboards.length - 1;
+          if (newIndex >= dashboards.length) return 0;
+          return newIndex;
+      });
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans">
       <ObservationModal isOpen={modalState.type === 'observation'} onClose={closeModal} entry={modalState.data} onSave={handleSaveObservation} />
@@ -1008,7 +1031,11 @@ const handleLogout = () => {
       <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-10">
         <div className="flex items-center gap-4">
             <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
-            <h1 className="text-2xl font-bold text-gray-800 dark:text-white tracking-wider hidden sm:block">QUADRO DE PRODUÇÃO</h1>
+            <div className="flex items-center gap-2">
+                 <button onClick={() => handleDashboardChange(-1)} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"><ChevronLeft size={20}/></button>
+                 <h1 className="text-2xl font-bold text-gray-800 dark:text-white tracking-wider text-center w-64 hidden sm:block">{currentDashboard.name}</h1>
+                 <button onClick={() => handleDashboardChange(1)} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"><ChevronRight size={20}/></button>
+            </div>
         </div>
         <div className="flex items-center space-x-4">
             <span className='text-sm text-gray-500 dark:text-gray-400 hidden sm:block'>{user.email}</span>
