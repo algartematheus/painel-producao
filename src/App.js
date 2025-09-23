@@ -9,9 +9,7 @@ import {
     createUserWithEmailAndPassword, 
     signInWithEmailAndPassword, 
     signOut, 
-    onAuthStateChanged,
-    signInAnonymously,
-    signInWithCustomToken
+    onAuthStateChanged
 } from 'firebase/auth';
 import { 
     getFirestore, 
@@ -41,7 +39,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = firebaseConfig.appId; // Usa o appId da configuração
+const appId = firebaseConfig.projectId; // Usa o projectId da configuração
 
 // --- COMPONENTES MODAIS ---
 
@@ -121,7 +119,20 @@ const AuthScreen = () => {
                 await createUserWithEmailAndPassword(auth, email, password);
             }
         } catch (err) {
-            setError(err.message);
+            switch (err.code) {
+                case 'auth/user-not-found':
+                    setError('Nenhum usuário encontrado com este email.');
+                    break;
+                case 'auth/wrong-password':
+                    setError('Senha incorreta.');
+                    break;
+                case 'auth/email-already-in-use':
+                    setError('Este email já está sendo utilizado.');
+                    break;
+                default:
+                    setError('Ocorreu um erro. Tente novamente.');
+                    break;
+            }
         }
     };
 
@@ -1312,31 +1323,10 @@ const App = () => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const handleAuth = async (authInstance) => {
-            if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
-                try {
-                    await signInWithCustomToken(authInstance, window.__initial_auth_token);
-                } catch (error) {
-                    console.error("Erro no login com token customizado:", error);
-                    // Se o token falhar, tenta login anônimo como fallback
-                    await signInAnonymously(authInstance);
-                }
-            } else if (auth.currentUser === null) {
-                // Se não há token e nenhum usuário, pode-se optar por autenticação anônima ou mostrar tela de login
-                // Aqui, vamos manter anônimo para o ambiente de desenvolvimento sem login explícito
-                // await signInAnonymously(authInstance);
-            }
-        };
-        
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
             setUser(currentUser);
             setLoading(false);
         });
-        
-        // A lógica de autenticação inicial pode variar. Para o deploy final,
-        // remover a chamada handleAuth() força a tela de login/senha.
-        // handleAuth(auth);
-
 
         return () => unsubscribe();
     }, []);
