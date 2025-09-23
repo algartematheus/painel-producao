@@ -27,13 +27,21 @@ import {
 } from 'firebase/firestore';
 
 // --- Configuração do Firebase ---
-// As variáveis __app_id e __firebase_config são injetadas pelo ambiente.
-const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-const firebaseConfig = typeof window.__firebase_config !== 'undefined' ? JSON.parse(window.__firebase_config) : {};
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyAmt7kVZUO3J_KxWXH5GuWjIZ5BYu7HD98",
+  authDomain: "quadrodeproducao.firebaseapp.com",
+  projectId: "quadrodeproducao",
+  storageBucket: "quadrodeproducao.firebasestorage.app",
+  messagingSenderId: "1043513785567",
+  appId: "1:1043513785567:web:083ab6a94b239cca3cbd6a",
+  measurementId: "G-9XDEKDPCK9"
+};
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const appId = firebaseConfig.appId; // Usa o appId da configuração
 
 // --- COMPONENTES MODAIS ---
 
@@ -1310,8 +1318,13 @@ const App = () => {
                     await signInWithCustomToken(authInstance, window.__initial_auth_token);
                 } catch (error) {
                     console.error("Erro no login com token customizado:", error);
+                    // Se o token falhar, tenta login anônimo como fallback
                     await signInAnonymously(authInstance);
                 }
+            } else if (auth.currentUser === null) {
+                // Se não há token e nenhum usuário, pode-se optar por autenticação anônima ou mostrar tela de login
+                // Aqui, vamos manter anônimo para o ambiente de desenvolvimento sem login explícito
+                // await signInAnonymously(authInstance);
             }
         };
         
@@ -1320,11 +1333,9 @@ const App = () => {
             setLoading(false);
         });
         
-        if (auth.currentUser === null && typeof window.__initial_auth_token !== 'undefined' ) {
-            handleAuth(auth);
-        } else {
-            setLoading(false);
-        }
+        // A lógica de autenticação inicial pode variar. Para o deploy final,
+        // remover a chamada handleAuth() força a tela de login/senha.
+        // handleAuth(auth);
 
 
         return () => unsubscribe();
