@@ -150,7 +150,7 @@ const AuthScreen = () => {
         <div className="min-h-screen bg-gray-100 dark:bg-black flex flex-col justify-center items-center p-4">
             <div className="w-full max-w-md">
                 <div className="flex justify-center items-center mb-8">
-                    <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-24 w-auto" />
+                    <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-24 w-auto dark:invert" />
                 </div>
                 <div className="bg-white dark:bg-gray-900 p-8 rounded-2xl shadow-2xl">
                     <h2 className="text-2xl font-bold text-center text-gray-800 dark:text-white mb-6">
@@ -1007,7 +1007,7 @@ const handleLogout = () => {
      
       <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-10">
         <div className="flex items-center gap-4">
-            <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto" />
+            <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
             <h1 className="text-2xl font-bold text-gray-800 dark:text-white tracking-wider hidden sm:block">QUADRO DE PRODUÇÃO</h1>
         </div>
         <div className="flex items-center space-x-4">
