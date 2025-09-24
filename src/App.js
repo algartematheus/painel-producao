@@ -31,13 +31,13 @@ const raceBullLogoUrl = "https://firebasestorage.googleapis.com/v0/b/quadrodepro
 
 // --- Configuração do Firebase ---
 const firebaseConfig = {
-  apiKey: "AIzaSyAmt7kVZUO3J_KxWXH5GuWjIZ5BYu7HD98",
-  authDomain: "quadrodeproducao.firebaseapp.com",
-  projectId: "quadrodeproducao",
-  storageBucket: "quadrodeproducao.firebasestorage.app",
-  messagingSenderId: "1043513785567",
-  appId: "1:1043513785567:web:083ab6a94b239cca3cbd6a",
-  measurementId: "G-9XDEKDPCK9"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID,
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
 };
 
 // Inicialização dos serviços do Firebase
