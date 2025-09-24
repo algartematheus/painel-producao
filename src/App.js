@@ -1054,7 +1054,7 @@ const handleLogout = () => {
           <StatCard title="Produção Acumulada (Mês)" value={monthlySummary.totalProduction.toLocaleString('pt-BR')} unit="un." />
           <StatCard title="Meta Acumulada (Mês)" value={monthlySummary.totalGoal.toLocaleString('pt-BR')} unit="un." />
           <StatCard title="Eficiência da Última Hora (Dia)" value={summary.lastHourEfficiency} unit="%" isEfficiency />
-          <StatCard title="Média de Eficiência (Mês)" value={summary.averageEfficiency} unit="%" isEfficiency />
+          <StatCard title="Média de Eficiência (Mês)" value={monthlySummary.averageEfficiency} unit="%" isEfficiency />
         </section>
 
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
