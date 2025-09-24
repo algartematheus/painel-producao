@@ -11,7 +11,8 @@ import {
     onAuthStateChanged,
     setPersistence,
     browserLocalPersistence,
-    browserSessionPersistence
+    browserSessionPersistence,
+    createUserWithEmailAndPassword
 } from 'firebase/auth';
 import { 
     getFirestore, 
@@ -29,7 +30,7 @@ import {
 // --- Logo ---
 const raceBullLogoUrl = "https://firebasestorage.googleapis.com/v0/b/quadrodeproducao.firebasestorage.app/o/assets%2FLOGO%20PROPRIET%C3%81RIA.png?alt=media&token=a16d015f-e8ca-4b3c-b744-7cef3ab6504b";
 
-// --- Configuração do Firebase ---
+// --- Configuração Segura do Firebase ---
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
   authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
@@ -116,6 +117,7 @@ const PasswordModal = ({ isOpen, onClose, onConfirm }) => {
 
 // --- TELA DE AUTENTICAÇÃO ---
 const AuthScreen = () => {
+    const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -128,7 +130,14 @@ const AuthScreen = () => {
         try {
             const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
             await setPersistence(auth, persistence);
-            await signInWithEmailAndPassword(auth, email, password);
+            
+            if (isLogin) {
+                await signInWithEmailAndPassword(auth, email, password);
+            } else {
+                // A lógica de criação de conta foi removida da interface,
+                // mas a função é mantida caso você decida reativá-la no futuro.
+                await createUserWithEmailAndPassword(auth, email, password);
+            }
         } catch (err) {
             switch (err.code) {
                 case 'auth/user-not-found':
@@ -137,6 +146,9 @@ const AuthScreen = () => {
                     break;
                 case 'auth/wrong-password':
                     setError('Email ou senha inválidos.');
+                    break;
+                case 'auth/email-already-in-use':
+                    setError('Este email já está sendo utilizado.');
                     break;
                 default:
                     setError('Ocorreu um erro. Tente novamente.');
@@ -224,15 +236,15 @@ const CronoanaliseDashboard = ({ user }) => {
 
   // --- Lógica de Carregamento de Dados do Firebase ---
   useEffect(() => {
-    const basePath = `artifacts/${appId}/public/data/${currentDashboard.id}`;
+    const basePath = `artifacts/${appId}/${currentDashboard.id}`;
     
-    const productsQuery = query(collection(db, `${basePath}_products`));
+    const productsQuery = query(collection(db, `${basePath}/products`));
     const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
         const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setProducts(productsData);
     }, (error) => console.error("Erro ao carregar produtos:", error));
 
-    const lotsQuery = query(collection(db, `${basePath}_lots`));
+    const lotsQuery = query(collection(db, `${basePath}/lots`));
     const unsubscribeLots = onSnapshot(lotsQuery, (snapshot) => {
         const lotsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setLots(lotsData);
@@ -253,8 +265,8 @@ const CronoanaliseDashboard = ({ user }) => {
 // Carregar Dados de Produção para o dia selecionado
 useEffect(() => {
     const dateKey = selectedDate.toISOString().slice(0, 10);
-    const productionDataCollectionPath = `artifacts/${appId}/public/data/${currentDashboard.id}_productionData`;
-    const productionDocRef = doc(db, productionDataCollectionPath, dateKey);
+    const productionDataPath = `artifacts/${appId}/${currentDashboard.id}/productionData`;
+    const productionDocRef = doc(db, productionDataPath, dateKey);
 
     const unsubscribeProduction = onSnapshot(productionDocRef, (doc) => {
         const entries = (doc.exists() && doc.data().entries) ? doc.data().entries : [];
@@ -1042,7 +1054,7 @@ const handleLogout = () => {
           <StatCard title="Produção Acumulada (Mês)" value={monthlySummary.totalProduction.toLocaleString('pt-BR')} unit="un." />
           <StatCard title="Meta Acumulada (Mês)" value={monthlySummary.totalGoal.toLocaleString('pt-BR')} unit="un." />
           <StatCard title="Eficiência da Última Hora (Dia)" value={summary.lastHourEfficiency} unit="%" isEfficiency />
-          <StatCard title="Média de Eficiência (Mês)" value={monthlySummary.averageEfficiency} unit="%" isEfficiency />
+          <StatCard title="Média de Eficiência (Mês)" value={summary.averageEfficiency} unit="%" isEfficiency />
         </section>
 
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
