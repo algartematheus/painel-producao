@@ -366,84 +366,80 @@ const CronoanaliseDashboard = ({ user }) => {
     const [urgentProduction, setUrgentProduction] = useState({productId: '', produced: ''});
     const [isNavOpen, setIsNavOpen] = useState(false);
 
-    const [isTvMode, setIsTvMode] = useState(false);
-    const [isTvSettingsOpen, setIsTvSettingsOpen] = useState(false);
-    const [tvSettings, setTvSettings] = useState(() => {
-        const saved = localStorage.getItem('tvSettings');
-        if (saved) {
-            return JSON.parse(saved);
-        }
-        return {
-            interval: 15,
-            order: dashboards.map(d => d.id),
-        };
-    });
-    
-    const [currentDashboardIndex, setCurrentDashboardIndex] = useState(0);
-
-    const handleSaveTvSettings = (newSettings) => {
-        setTvSettings(newSettings);
-        localStorage.setItem('tvSettings', JSON.stringify(newSettings));
-    };
-    
-    const orderedDashboards = useMemo(() => {
-        return tvSettings.order.map(id => dashboards.find(d => d.id === id)).filter(Boolean);
-    }, [tvSettings.order]);
-
-    const currentDashboard = useMemo(() => {
-        return orderedDashboards.length > 0 ? orderedDashboards[currentDashboardIndex % orderedDashboards.length] : dashboards[0];
-    }, [currentDashboardIndex, orderedDashboards]);
-
-
+    // Efeito para pré-selecionar o produto do primeiro lote da fila
     useEffect(() => {
-        if (isTvMode && orderedDashboards.length > 1) {
-            const timer = setInterval(() => {
-                setCurrentDashboardIndex(prevIndex => (prevIndex + 1) % orderedDashboards.length);
-            }, tvSettings.interval * 1000);
-
-            return () => clearInterval(timer);
+        if (editingEntryId) return;
+        const firstActiveLot = lots.filter(l => l.status === 'ongoing' || l.status === 'future').sort((a, b) => a.order - b.order)[0];
+        const isCurrentSelectionValidAndActive = lots.some(l => l.productId === newEntry.productId && (l.status === 'ongoing' || l.status === 'future'));
+        if (firstActiveLot && !isCurrentSelectionValidAndActive) {
+            setNewEntry(prev => ({ ...prev, productId: firstActiveLot.productId }));
+        } else if (!firstActiveLot && !isCurrentSelectionValidAndActive) {
+            setNewEntry(prev => ({...prev, productId: ''}));
         }
-    }, [isTvMode, tvSettings.interval, orderedDashboards.length]);
-
-    useEffect(() => {
-        if (!projectId || !currentDashboard) return;
-        const basePath = `artifacts/${projectId}/public/data`;
+    }, [lots, editingEntryId, newEntry.productId]);
+    
+    // Efeito para calcular a meta prevista dinâmica
+    const { predictedLots, goalPreview } = useMemo(() => {
+        let timeConsumedByUrgent = 0;
+        let urgentPrediction = null;
+        if (showUrgent && urgentProduction.productId && urgentProduction.produced > 0) {
+            const urgentProduct = products.find(p => p.id === urgentProduction.productId);
+            if (urgentProduct) {
+                timeConsumedByUrgent = urgentProduct.standardTime * urgentProduction.produced;
+                const urgentLot = lots.find(l => l.productId === urgentProduct.id);
+                urgentPrediction = {
+                    ...(urgentLot || {}),
+                    productId: urgentProduct.id, productName: urgentProduct.name,
+                    producible: parseInt(urgentProduction.produced, 10), isUrgent: true
+                };
+            }
+        }
+        const totalAvailableMinutes = (newEntry.availableTime || 0) * (newEntry.people || 0);
+        const remainingTime = totalAvailableMinutes - timeConsumedByUrgent;
+        let normalPredictions = [];
+        if (remainingTime > 0) {
+            const selectedProduct = products.find(p => p.id === newEntry.productId);
+            if (selectedProduct) {
+                const activeLots = lots.filter(l => l.status === 'ongoing' || l.status === 'future').sort((a, b) => a.order - b.order);
+                const startIndex = activeLots.findIndex(l => l.productId === newEntry.productId);
+                if (startIndex === -1) {
+                    if (selectedProduct.standardTime > 0) {
+                        const possiblePieces = Math.floor(remainingTime / selectedProduct.standardTime);
+                        normalPredictions.push({ id: `nolot-${selectedProduct.id}`, productId: selectedProduct.id, productName: selectedProduct.name, producible: possiblePieces });
+                    }
+                } else {
+                    let timeForNormal = remainingTime;
+                    for (let i = startIndex; i < activeLots.length; i++) {
+                        if (timeForNormal <= 0) break;
+                        const lot = activeLots[i];
+                        const productForLot = products.find(p => p.id === lot.productId);
+                        if (productForLot && productForLot.standardTime > 0) {
+                            const remainingPiecesInLot = Math.max(0, (lot.target || 0) - (lot.produced || 0));
+                            const producible = Math.min(remainingPiecesInLot, Math.floor(timeForNormal / productForLot.standardTime));
+                            if (producible > 0) {
+                                normalPredictions.push({ ...lot, producible, productName: productForLot.name });
+                                timeForNormal -= producible * productForLot.standardTime;
+                                if (producible < remainingPiecesInLot) break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        const allPredictions = urgentPrediction ? [urgentPrediction, ...normalPredictions] : normalPredictions;
+        const newGoalPreview = allPredictions.map(p => p.producible || 0).join(' / ') || '0';
         
-        const productsQuery = query(collection(db, `${basePath}/${currentDashboard.id}_products`));
-        const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
-            setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        }, (error) => console.error("Erro ao carregar produtos:", error));
+        return { predictedLots: allPredictions, goalPreview: newGoalPreview };
 
-        const lotsQuery = query(collection(db, `${basePath}/${currentDashboard.id}_lots`));
-        const unsubscribeLots = onSnapshot(lotsQuery, (snapshot) => {
-            const lotsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setLots(lotsData);
-            setLotCounter(lotsData.length > 0 ? Math.max(0, ...lotsData.map(l => l.sequentialId || 0)) + 1 : 1);
-        }, (error) => console.error("Erro ao carregar lotes:", error));
-
-        return () => {
-            unsubscribeProducts();
-            unsubscribeLots();
-        };
-    }, [currentDashboard]);
+    }, [newEntry.availableTime, newEntry.people, newEntry.productId, products, lots, urgentProduction, showUrgent]);
 
     useEffect(() => {
-        if (!projectId || !currentDashboard) return;
-        const dateKey = selectedDate.toISOString().slice(0, 10);
-        const productionDataPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`;
-        const productionDocRef = doc(db, productionDataPath, dateKey);
+        setNewEntry(prev => ({
+            ...prev,
+            productions: Array(predictedLots.filter(p => !p.isUrgent).length).fill('')
+        }));
+    }, [predictedLots]);
 
-        const unsubscribeProduction = onSnapshot(productionDocRef, (doc) => {
-            setProductionData(prev => ({ ...prev, [dateKey]: (doc.exists() && doc.data().entries) ? doc.data().entries : [] }));
-        }, (error) => console.error("Erro ao carregar dados de produção:", error));
-
-        return () => unsubscribeProduction();
-    }, [selectedDate, currentDashboard]);
-
-    const handleLogout = () => {
-        signOut(auth);
-    };
-    
     const dailyProductionData = useMemo(() => {
         const dateKey = selectedDate.toISOString().slice(0, 10);
         return productionData[dateKey] || [];
@@ -1142,4 +1138,6 @@ const App = () => {
 };
 
 export default App;
+
+
 
