@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff, ChevronDown as ChevronDownIcon, Archive } from 'lucide-react';
+import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff, ChevronDown as ChevronDownIcon } from 'lucide-react';
 // Importações do Firebase
 import { initializeApp } from 'firebase/app';
 import {
@@ -270,7 +270,7 @@ const CronoanaliseDashboard = ({ user }) => {
             unsubscribeLots();
             unsubscribeDeletedLots();
         };
-    }, [currentDashboard.id, projectId]);
+    }, [currentDashboard.id]);
 
     useEffect(() => {
         if (!projectId) return;
@@ -281,7 +281,7 @@ const CronoanaliseDashboard = ({ user }) => {
             setProductionData(prev => ({ ...prev, [dateKey]: entries }));
         }, (error) => console.error("Erro ao carregar dados de produção:", error));
         return () => unsubscribeProduction();
-    }, [selectedDate, currentDashboard.id, projectId]);
+    }, [selectedDate, currentDashboard.id]);
 
     const handleLogout = () => {
         signOut(auth);
