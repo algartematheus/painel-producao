@@ -400,26 +400,6 @@ const CronoanaliseDashboard = ({ user }) => {
         }
     };
     
-    const handleDeleteLot = (lotId) => {
-        const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotId}`;
-        const itemData = { itemType: 'lot', itemId: lotId, itemDocPath };
-        setModalState({
-            type: 'password',
-            data: itemData,
-            nextAction: 'requestReason'
-        });
-    };
-
-    const handleDeleteProduct = (productId) => {
-        const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_products/${productId}`;
-        const itemData = { itemType: 'product', itemId: productId, itemDocPath };
-        setModalState({
-            type: 'password',
-            data: itemData,
-            nextAction: 'requestReason'
-        });
-    };
-
     const handlePasswordSuccess = () => {
         if (modalState.nextAction === 'requestReason') {
             setModalState(prev => ({
@@ -431,6 +411,24 @@ const CronoanaliseDashboard = ({ user }) => {
             modalState.nextAction();
             closeModal();
         }
+    };
+    
+    const handleDeleteLot = (lotId) => {
+        const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotId}`;
+        setModalState({
+            type: 'password',
+            data: { itemType: 'lot', itemId: lotId, itemDocPath },
+            nextAction: 'requestReason'
+        });
+    };
+
+    const handleDeleteProduct = (productId) => {
+        const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_products/${productId}`;
+        setModalState({
+            type: 'password',
+            data: { itemType: 'product', itemId: productId, itemDocPath },
+            nextAction: 'requestReason'
+        });
     };
 
     const handleDeleteEntry = (entryId, dateKey) => {
@@ -877,13 +875,20 @@ const CronoanaliseDashboard = ({ user }) => {
             <PasswordModal
                 isOpen={modalState.type === 'password'}
                 onClose={closeModal}
-                onSuccess={modalState.callback}
+                onSuccess={handlePasswordSuccess}
                 adminConfig={adminConfig}
             />
             <ReasonModal 
                 isOpen={modalState.type === 'reason'} 
                 onClose={closeModal} 
-                onConfirm={modalState.callback}
+                onConfirm={(reason) => {
+                    if (modalState.nextAction === 'executeDelete') {
+                        console.log("Chamando executeSoftDelete com:", modalState.data, reason);
+                        executeSoftDelete(modalState.data, reason);
+                    } else {
+                        console.warn("Motivo informado mas nextAction não era executeDelete:", modalState);
+                    }
+                }}
             />
             <AdminSettingsModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} setAdminConfig={setAdminConfig} />
 
