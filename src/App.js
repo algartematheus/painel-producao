@@ -238,7 +238,7 @@ const [urgentProduction, setUrgentProduction] = useState({productId: '', produce
 const [isNavOpen, setIsNavOpen] = useState(false);
 // --- Lógica de Carregamento de Dados do Firebase ---
 useEffect(() => {
-const basePath = `dashboards/${currentDashboard.id}`;
+const basePath = `artifacts/${currentDashboard.id}`;
 const productsQuery = query(collection(db, `${basePath}/products`));
 const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
 const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -263,7 +263,7 @@ unsubscribeLots();
 // Carregar Dados de Produção para o dia selecionado
 useEffect(() => {
 const dateKey = selectedDate.toISOString().slice(0, 10);
-const productionDataPath = `dashboards/${currentDashboard.id}/productionData`;
+const productionDataPath = `artifacts/${currentDashboard.id}/productionData`;
 const productionDocRef = doc(db, productionDataPath, dateKey);
 const unsubscribeProduction = onSnapshot(productionDocRef, (doc) => {
 const entries = (doc.exists() && doc.data().entries) ? doc.data().entries : [];
@@ -487,7 +487,7 @@ period: newEntry.period, people: newEntry.people, availableTime: newEntry.availa
 productionDetails, observation: '', goalDisplay: goalPreview, primaryProductId: newEntry.productId,
 };
 const dateKey = selectedDate.toISOString().slice(0, 10);
-const dayDocRef = doc(db, `dashboards/${currentDashboard.id}/productionData/${dateKey}`);
+const dayDocRef = doc(db, `artifacts/${currentDashboard.id}/productionData/${dateKey}`);
 const dayDoc = await getDoc(dayDocRef);
 const currentEntries = dayDoc.exists() && dayDoc.data().entries ? dayDoc.data().entries : [];
 const batch = writeBatch(db);
@@ -495,7 +495,7 @@ batch.set(dayDocRef, { entries: [...currentEntries, newEntryWithId] }, { merge: 
 productionDetails.forEach(detail => {
 const lotToUpdate = lots.find(l => l.productId === detail.productId);
 if (lotToUpdate) {
-const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots/${lotToUpdate.id}`);
+const lotRef = doc(db, `artifacts/${currentDashboard.id}/lots/${lotToUpdate.id}`);
 const newProduced = (lotToUpdate.produced || 0) + detail.produced;
 const newStatus = newProduced >= lotToUpdate.target ? 'completed' : 'ongoing';
 batch.update(lotRef, { produced: newProduced, status: lotToUpdate.status === 'future' ? 'ongoing' : newStatus });
@@ -533,7 +533,7 @@ const newProductData = {
 ...newProduct,
 standardTime: parseFloat(newProduct.standardTime)
 };
-const docRef = doc(collection(db, `dashboards/${currentDashboard.id}/products`));
+const docRef = doc(collection(db, `artifacts/${currentDashboard.id}/products`));
 await setDoc(docRef, newProductData);
 setNewProduct({ name: '', standardTime: '' });
 };
@@ -542,7 +542,7 @@ setEditingProductId(product.id);
 setEditingProductData({ name: product.name, standardTime: product.standardTime });
 };
 const handleSaveProduct = async (id) => {
-const productRef = doc(db, `dashboards/${currentDashboard.id}/products`, id);
+const productRef = doc(db, `artifacts/${currentDashboard.id}/products`, id);
 await updateDoc(productRef, {
 ...editingProductData,
 standardTime: parseFloat(editingProductData.standardTime)
@@ -551,11 +551,11 @@ setEditingProductId(null);
 };
 const handleDeleteProduct = async (id) => {
 if(window.confirm("Tem certeza?")) {
-await deleteDoc(doc(db, `dashboards/${currentDashboard.id}/products`, id));
+await deleteDoc(doc(db, `artifacts/${currentDashboard.id}/products`, id));
 }
 };
 const handleDeleteEntry = async (entryId, dateKey) => {
-const dayDocRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, dateKey);
+const dayDocRef = doc(db, `artifacts/${currentDashboard.id}/productionData`, dateKey);
 const dayDoc = await getDoc(dayDocRef);
 if (!dayDoc.exists()) return;
 const entries = dayDoc.data().entries || [];
@@ -565,7 +565,7 @@ const batch = writeBatch(db);
 entryToDelete.productionDetails.forEach(detail => {
 const lotToUpdate = lots.find(l => l.productId === detail.productId);
 if (lotToUpdate) {
-const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id);
+const lotRef = doc(db, `artifacts/${currentDashboard.id}/lots`, lotToUpdate.id);
 const newProduced = Math.max(0, (lotToUpdate.produced || 0) - detail.produced);
 const newStatus = (lotToUpdate.produced >= lotToUpdate.target && newProduced < lotToUpdate.target) ? 'ongoing' : lotToUpdate.status;
 batch.update(lotRef, { produced: newProduced, status: newStatus });
@@ -577,7 +577,7 @@ await batch.commit();
 };
 const handleSaveObservation = async (entryId, observation) => {
 const dateKey = selectedDate.toISOString().slice(0, 10);
-const dayDocRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, dateKey);
+const dayDocRef = doc(db, `artifacts/${currentDashboard.id}/productionData`, dateKey);
 const dayDoc = await getDoc(dayDocRef);
 if (dayDoc.exists()) {
 const updatedEntries = dayDoc.data().entries.map(e => e.id === entryId ? { ...e, observation } : e);
@@ -585,14 +585,14 @@ await setDoc(dayDocRef, { entries: updatedEntries });
 }
 };
 const handleSaveLotObservation = async (lotId, observation) => {
-await updateDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, lotId), { observation });
+await updateDoc(doc(db, `artifacts/${currentDashboard.id}/lots`, lotId), { observation });
 };
 const handleAddLot = async (e) => {
 e.preventDefault();
 if (!newLot.productId || !newLot.target) { alert("Selecione um produto e insira a quantidade."); return; }
 const product = products.find(p => p.id === newLot.productId);
 if (!product) return;
-const docRef = doc(collection(db, `dashboards/${currentDashboard.id}/lots`));
+const docRef = doc(collection(db, `artifacts/${currentDashboard.id}/lots`));
 await setDoc(docRef, {
 sequentialId: lotCounter,
 productId: product.id,
@@ -609,14 +609,14 @@ endDate: null,
 setNewLot({ productId: '', target: '', customName: '' });
 };
 const handleDeleteLot = async (lotId) => {
-await deleteDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, lotId));
+await deleteDoc(doc(db, `artifacts/${currentDashboard.id}/lots`, lotId));
 };
 const handleStartEditLot = (lot) => {
 setEditingLotId(lot.id);
 setEditingLotData({ target: lot.target, customName: lot.customName });
 };
 const handleSaveLotEdit = async (lotId) => {
-const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotId);
+const lotRef = doc(db, `artifacts/${currentDashboard.id}/lots`, lotId);
 const lot = lots.find(l => l.id === lotId);
 const newTarget = parseInt(editingLotData.target, 10);
 let newStatus = lot.status;
@@ -643,13 +643,13 @@ if (swapIndex !== -1) {
 const currentLot = sortedActiveLots[currentIndex];
 const swapLot = sortedActiveLots[swapIndex];
 const batch = writeBatch(db);
-batch.update(doc(db, `dashboards/${currentDashboard.id}/lots`, currentLot.id), { order: swapLot.order });
-batch.update(doc(db, `dashboards/${currentDashboard.id}/lots`, swapLot.id), { order: currentLot.order });
+batch.update(doc(db, `artifacts/${currentDashboard.id}/lots`, currentLot.id), { order: swapLot.order });
+batch.update(doc(db, `artifacts/${currentDashboard.id}/lots`, swapLot.id), { order: currentLot.order });
 await batch.commit();
 }
 };
 const handleLotStatusChange = async (lotId, newStatus) => {
-await updateDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, lotId), { status: newStatus });
+await updateDoc(doc(db, `artifacts/${currentDashboard.id}/lots`, lotId), { status: newStatus });
 };
 const recalculatePredictions = (entryData, allProducts, allLots, originalEntry = null) => {
 const totalAvailableMinutes = (entryData.people || 0) * (entryData.availableTime || 0);
@@ -740,7 +740,7 @@ setEditingEntryData(prev => ({...prev, productionDetails: newDetails}));
 };
 const handleSaveEntryEdit = async () => {
 const dateKey = selectedDate.toISOString().slice(0, 10);
-const dayDocRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, dateKey);
+const dayDocRef = doc(db, `artifacts/${currentDashboard.id}/productionData`, dateKey);
 const dayDoc = await getDoc(dayDocRef);
 const originalEntries = dayDoc.exists() ? dayDoc.data().entries : [];
 const originalEntry = originalEntries.find(e => e.id === editingEntryId);
@@ -763,7 +763,7 @@ Object.keys(productionDiff).forEach(productId => {
 if (productionDiff[productId] !== 0) {
 const lotToUpdate = lots.find(l => l.productId === parseInt(productId));
 if (lotToUpdate) {
-const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id);
+const lotRef = doc(db, `artifacts/${currentDashboard.id}/lots`, lotToUpdate.id);
 const newProduced = (lotToUpdate.produced || 0) + productionDiff[productId];
 let newStatus = lotToUpdate.status;
 if (newProduced >= lotToUpdate.target) {
