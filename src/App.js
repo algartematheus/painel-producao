@@ -392,9 +392,9 @@ const CronoanaliseDashboard = ({ user }) => {
 
     const currentDashboard = useMemo(() => {
         if (isTvMode) {
-             return orderedDashboards.length > 0 ? orderedDashboards[currentDashboardIndex % orderedDashboards.length] : dashboards[0];
+             const tvIndex = currentDashboardIndex % orderedDashboards.length;
+             return orderedDashboards.length > 0 ? orderedDashboards[tvIndex] : dashboards[0];
         }
-        // No modo normal, usamos o index da lista original para manter a seleção do menu
         return dashboards[currentDashboardIndex];
     }, [currentDashboardIndex, orderedDashboards, isTvMode]);
 
@@ -402,7 +402,7 @@ const CronoanaliseDashboard = ({ user }) => {
     useEffect(() => {
         if (isTvMode && orderedDashboards.length > 1) {
             const timer = setInterval(() => {
-                setCurrentDashboardIndex(prevIndex => (prevIndex + 1)); // Deixa o useMemo fazer a conta do módulo
+                setCurrentDashboardIndex(prevIndex => (prevIndex + 1));
             }, tvSettings.interval * 1000);
 
             return () => clearInterval(timer);
@@ -919,7 +919,7 @@ const CronoanaliseDashboard = ({ user }) => {
                         </button>
                         {isNavOpen && (
                             <div className="absolute top-full mt-2 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-xl py-2 z-20">
-                                {dashboards.map((dash) => ( <button key={dash.id} onClick={() => handleDashboardChangeFromMenu(dash.id)} className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">{dash.name}</button> ))}
+                                {dashboards.map((dash) => ( <button key={dash.id} onClick={() => handleDashboardChangeFromMenu(dash.id)} className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">{dash.name}</button>))}
                             </div>
                         )}
                     </div>
