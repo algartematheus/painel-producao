@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff, ChevronDown as ChevronDownIcon } from 'lucide-react';
+import { getIdTokenResult } from "firebase/auth";
 
 // Importações do Firebase
 import { initializeApp } from 'firebase/app';
@@ -92,14 +93,10 @@ const LotObservationModal = ({ isOpen, onClose, lot, onSave }) => {
     );
 };
 
-import { getIdTokenResult } from "firebase/auth";
-
 const PasswordModal = ({ isOpen, onClose, onConfirm }) => {
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
-
-  if (!isOpen) return null;
 
   useEffect(() => {
     const checkClaims = async () => {
@@ -110,6 +107,8 @@ const PasswordModal = ({ isOpen, onClose, onConfirm }) => {
     };
     checkClaims();
   }, []);
+
+  if (!isOpen) return null;
 
   const handleConfirm = async () => {
     setChecking(true);
