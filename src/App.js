@@ -96,32 +96,39 @@ const LotObservationModal = ({ isOpen, onClose, lot, onSave }) => {
         </div>
     );
 };
-const PasswordModal = ({ isOpen, onClose, onConfirm, adminConfig }) => {
+const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
     const [passwordInput, setPasswordInput] = useState('');
     const [checking, setChecking] = useState(false);
+
+    useEffect(() => {
+        if (!isOpen) {
+            setPasswordInput('');
+            setChecking(false);
+        }
+    }, [isOpen]);
+
     if (!isOpen) return null;
+
     const handleConfirm = async () => {
         setChecking(true);
         try {
             if (!adminConfig || !adminConfig.passwordHash) {
                 alert('Configuração de administrador não encontrada. Peça para um administrador configurar a senha.');
-                onClose(); // Fecha em caso de erro de configuração
+                onClose();
                 return;
             }
             const hash = await sha256Hex(passwordInput || '');
             if (hash === adminConfig.passwordHash) {
-                onConfirm(); // Sucesso: chama a próxima etapa (abrir modal de motivo)
+                onSuccess(); // Sinaliza sucesso para o componente pai gerir o estado
             } else {
                 alert('Senha incorreta!');
-                setPasswordInput(''); // Limpa o campo para nova tentativa
             }
         } catch (e) {
             console.error(e);
             alert('Erro ao validar senha.');
-            onClose(); // Fecha em caso de erro inesperado
+            onClose();
         } finally {
             setChecking(false);
-            // A chamada para onClose() foi removida daqui para evitar o bug de fechamento prematuro
         }
     };
     return (
@@ -291,7 +298,7 @@ const CronoanaliseDashboard = ({ user }) => {
     const [newEntry, setNewEntry] = useState({ period: '', people: '', availableTime: 60, productId: '', productions: [] });
     const [goalPreview, setGoalPreview] = useState("0");
     const [predictedLots, setPredictedLots] = useState([]);
-    const [modalState, setModalState] = useState({ type: null, data: null, callback: null });
+    const [modalState, setModalState] = useState({ type: null, data: null, nextAction: null });
     const [editingEntryId, setEditingEntryId] = useState(null);
     const [editingEntryData, setEditingEntryData] = useState(null);
     const [showUrgent, setShowUrgent] = useState(false);
@@ -346,25 +353,7 @@ const CronoanaliseDashboard = ({ user }) => {
 
     const handleLogout = () => signOut(auth);
 
-    // --- LÓGICA DE EXCLUSÃO (SOFT-DELETE) ---
-
-    // Nova função para orquestrar a sequência de modais após a senha ser confirmada
-    const handlePasswordSuccess = () => {
-        // Se a ação tiver um callback específico (como em 'handleDeleteEntry'), execute-o.
-        if (modalState.callback) {
-            modalState.callback();
-            closeModal(); // Fecha o modal após a ação ser concluída.
-        }
-        // Se for um fluxo de exclusão de produto ou lote, avança para o modal de motivo.
-        else if (modalState.data && (modalState.data.itemType === 'product' || modalState.data.itemType === 'lot')) {
-            setModalState(prev => ({
-                type: 'reason',
-                data: prev.data, // Mantém os dados do item a ser excluído
-                callback: null,
-            }));
-        }
-    };
-
+    // --- LÓGICA DE EXCLUSÃO (SOFT-DELETE) - REATORADA ---
     const executeSoftDelete = async (info, reason) => {
         try {
             const originalRef = doc(db, info.itemDocPath);
@@ -391,24 +380,23 @@ const CronoanaliseDashboard = ({ user }) => {
         }
     };
 
-    // Função atualizada para iniciar o fluxo de exclusão (não precisa mais de callback)
-    const openPasswordThenReasonAndDelete = (itemType, itemId, itemDocPath) => {
+    const handleDeleteLot = (lotId) => {
+        const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotId}`;
         setModalState({
             type: 'password',
-            data: { itemType, itemId, itemDocPath },
-            callback: null // A lógica de transição agora é centralizada em handlePasswordSuccess
+            data: { itemType: 'lot', itemId: lotId, itemDocPath }
         });
     };
 
-    const handleDeleteLot = (lotId) => {
-        const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotId}`;
-        openPasswordThenReasonAndDelete('lot', lotId, itemDocPath);
-    };
     const handleDeleteProduct = (productId) => {
         const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_products/${productId}`;
-        openPasswordThenReasonAndDelete('product', productId, itemDocPath);
+        setModalState({
+            type: 'password',
+            data: { itemType: 'product', itemId: productId, itemDocPath }
+        });
     };
-    const handleDeleteEntry = async (entryId, dateKey) => {
+
+    const handleDeleteEntry = (entryId, dateKey) => {
         setModalState({
             type: 'password',
             callback: async () => {
@@ -434,7 +422,7 @@ const CronoanaliseDashboard = ({ user }) => {
                 await batch.commit();
                 alert('Lançamento removido.');
             }
-        })
+        });
     };
 
 
@@ -770,7 +758,7 @@ const CronoanaliseDashboard = ({ user }) => {
         await batch.commit();
         handleCancelEditEntry();
     };
-    const closeModal = () => setModalState({ type: null, data: null, callback: null });
+    const closeModal = () => setModalState({ type: null, data: null, nextAction: null });
     const StatCard = ({ title, value, unit = '', isEfficiency = false }) => {
         const valueColor = isEfficiency ? (value < 65 ? 'text-red-500' : 'text-green-600') : 'text-gray-800 dark:text-white';
         return (
@@ -846,8 +834,23 @@ const CronoanaliseDashboard = ({ user }) => {
         <div className="min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans">
             <ObservationModal isOpen={modalState.type === 'observation'} onClose={closeModal} entry={modalState.data} onSave={handleSaveObservation} />
             <LotObservationModal isOpen={modalState.type === 'lotObservation'} onClose={closeModal} lot={modalState.data} onSave={handleSaveLotObservation} />
-            {/* O onConfirm agora chama a nova função centralizadora */}
-            <PasswordModal isOpen={modalState.type === 'password'} onClose={closeModal} onConfirm={handlePasswordSuccess} adminConfig={adminConfig} />
+            {/* Lógica de transição de modal agora está aqui, mais robusta */}
+            <PasswordModal
+                isOpen={modalState.type === 'password'}
+                onClose={closeModal}
+                onConfirm={() => {
+                    // Se houver um callback (ex: deletar lançamento), executa e fecha.
+                    if (modalState.callback) {
+                        modalState.callback();
+                        closeModal();
+                    }
+                    // Se for um item que precisa de motivo (lote/produto), avança para o próximo modal.
+                    else if (modalState.data?.itemType === 'product' || modalState.data?.itemType === 'lot') {
+                        setModalState(prev => ({ ...prev, type: 'reason' }));
+                    }
+                }}
+                adminConfig={adminConfig}
+            />
             <ReasonModal isOpen={modalState.type === 'reason'} onClose={closeModal} onConfirm={(reason) => executeSoftDelete(modalState.data, reason)} />
             <AdminSettingsModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} setAdminConfig={setAdminConfig} />
 
@@ -1142,6 +1145,5 @@ const App = () => {
 };
 
 export default App;
-
 
 
