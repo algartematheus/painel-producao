@@ -105,23 +105,23 @@ const PasswordModal = ({ isOpen, onClose, onConfirm, adminConfig }) => {
         try {
             if (!adminConfig || !adminConfig.passwordHash) {
                 alert('Configuração de administrador não encontrada. Peça para um administrador configurar a senha.');
-                setPasswordInput('');
-                onClose();
+                onClose(); // Fecha em caso de erro de configuração
                 return;
             }
             const hash = await sha256Hex(passwordInput || '');
             if (hash === adminConfig.passwordHash) {
-                onConfirm();
+                onConfirm(); // Sucesso: chama a próxima etapa (abrir modal de motivo)
             } else {
                 alert('Senha incorreta!');
+                setPasswordInput(''); // Limpa o campo para nova tentativa
             }
         } catch (e) {
             console.error(e);
             alert('Erro ao validar senha.');
+            onClose(); // Fecha em caso de erro inesperado
         } finally {
-            setPasswordInput('');
             setChecking(false);
-            onClose(); 
+            // A chamada para onClose() foi removida daqui para evitar o bug de fechamento prematuro
         }
     };
     return (
@@ -1126,4 +1126,5 @@ const App = () => {
 };
 
 export default App;
+
 
