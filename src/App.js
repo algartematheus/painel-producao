@@ -1448,16 +1448,11 @@ const App = () => {
     }, []);
 
     if (loading) {
-        return (
-  <div className="min-h-screen bg-gray-100 dark:bg-black">
-    {user === null ? (
-      <AuthScreen />
-    ) : user ? (
-      <CronoanaliseDashboard />
-    ) : (
-      <div>Carregando...</div>
-    )}
-  </div>
-);
+        return <div className="min-h-screen bg-gray-100 dark:bg-black flex justify-center items-center"><p>Carregando...</p></div>;
+    }
+
+    return user ? <CronoanaliseDashboard user={user} /> : <AuthScreen />;
+};
 
 export default App;
+
