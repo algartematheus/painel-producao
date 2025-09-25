@@ -347,6 +347,24 @@ const CronoanaliseDashboard = ({ user }) => {
     const handleLogout = () => signOut(auth);
 
     // --- LÓGICA DE EXCLUSÃO (SOFT-DELETE) ---
+
+    // Nova função para orquestrar a sequência de modais após a senha ser confirmada
+    const handlePasswordSuccess = () => {
+        // Se a ação tiver um callback específico (como em 'handleDeleteEntry'), execute-o.
+        if (modalState.callback) {
+            modalState.callback();
+            closeModal(); // Fecha o modal após a ação ser concluída.
+        }
+        // Se for um fluxo de exclusão de produto ou lote, avança para o modal de motivo.
+        else if (modalState.data && (modalState.data.itemType === 'product' || modalState.data.itemType === 'lot')) {
+            setModalState(prev => ({
+                type: 'reason',
+                data: prev.data, // Mantém os dados do item a ser excluído
+                callback: null,
+            }));
+        }
+    };
+
     const executeSoftDelete = async (info, reason) => {
         try {
             const originalRef = doc(db, info.itemDocPath);
@@ -372,19 +390,16 @@ const CronoanaliseDashboard = ({ user }) => {
             alert('Erro ao excluir item.');
         }
     };
+
+    // Função atualizada para iniciar o fluxo de exclusão (não precisa mais de callback)
     const openPasswordThenReasonAndDelete = (itemType, itemId, itemDocPath) => {
         setModalState({
             type: 'password',
             data: { itemType, itemId, itemDocPath },
-            callback: () => {
-                setModalState({
-                    type: 'reason',
-                    data: { itemType, itemId, itemDocPath },
-                    callback: null
-                });
-            }
+            callback: null // A lógica de transição agora é centralizada em handlePasswordSuccess
         });
     };
+
     const handleDeleteLot = (lotId) => {
         const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotId}`;
         openPasswordThenReasonAndDelete('lot', lotId, itemDocPath);
@@ -831,7 +846,8 @@ const CronoanaliseDashboard = ({ user }) => {
         <div className="min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans">
             <ObservationModal isOpen={modalState.type === 'observation'} onClose={closeModal} entry={modalState.data} onSave={handleSaveObservation} />
             <LotObservationModal isOpen={modalState.type === 'lotObservation'} onClose={closeModal} lot={modalState.data} onSave={handleSaveLotObservation} />
-            <PasswordModal isOpen={modalState.type === 'password'} onClose={closeModal} onConfirm={modalState.callback} adminConfig={adminConfig} />
+            {/* O onConfirm agora chama a nova função centralizadora */}
+            <PasswordModal isOpen={modalState.type === 'password'} onClose={closeModal} onConfirm={handlePasswordSuccess} adminConfig={adminConfig} />
             <ReasonModal isOpen={modalState.type === 'reason'} onClose={closeModal} onConfirm={(reason) => executeSoftDelete(modalState.data, reason)} />
             <AdminSettingsModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} setAdminConfig={setAdminConfig} />
 
@@ -1126,5 +1142,6 @@ const App = () => {
 };
 
 export default App;
+
 
 
