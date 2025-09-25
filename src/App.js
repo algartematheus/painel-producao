@@ -149,28 +149,6 @@ const LotObservationModal = ({ isOpen, onClose, lot, onSave }) => {
     );
 };
 
-const PasswordModal = ({ isOpen, onClose, onConfirm }) => {
-    const [passwordInput, setPasswordInput] = useState('');
-    if (!isOpen) return null;
-    const handleConfirm = () => {
-        if (passwordInput === '07060887') { onConfirm(); } 
-        else { alert('Senha incorreta!'); }
-        setPasswordInput('');
-    };
-    
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-            <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
-                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Confirmação de Senha</h2><button onClick={onClose}><XCircle /></button></div>
-                <div>
-                    <p className="mb-4">Para continuar, por favor insira a senha de administrador.</p>
-                    <input type="password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4" />
-                    <button onClick={handleConfirm} className="w-full h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700">Confirmar</button>
-                </div>
-            </div>
-        </div>
-    );
-};
 
 // --- TELA DE AUTENTICAÇÃO ---
 const AuthScreen = () => {
