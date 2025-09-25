@@ -297,7 +297,7 @@ const CronoanaliseDashboard = ({ user }) => {
     const [newEntry, setNewEntry] = useState({ period: '', people: '', availableTime: 60, productId: '', productions: [] });
     const [goalPreview, setGoalPreview] = useState("0");
     const [predictedLots, setPredictedLots] = useState([]);
-    const [modalState, setModalState] = useState({ type: null, data: null, callback: null });
+    const [modalState, setModalState] = useState({ type: null, data: null, nextAction: null });
     const [editingEntryId, setEditingEntryId] = useState(null);
     const [editingEntryData, setEditingEntryData] = useState(null);
     const [showUrgent, setShowUrgent] = useState(false);
@@ -362,7 +362,7 @@ const CronoanaliseDashboard = ({ user }) => {
     const handleLogout = () => signOut(auth);
 
     // --- LÓGICA DE EXCLUSÃO (SOFT-DELETE) E MODAIS ---
-    const closeModal = () => setModalState({ type: null, data: null, callback: null });
+    const closeModal = () => setModalState({ type: null, data: null, nextAction: null });
 
     const executeSoftDelete = async (info, reason) => {
         console.log('executeSoftDelete iniciado com:', info, reason);
@@ -405,12 +405,8 @@ const CronoanaliseDashboard = ({ user }) => {
         const itemData = { itemType: 'lot', itemId: lotId, itemDocPath };
         setModalState({
             type: 'password',
-            callback: () => {
-                setModalState({ 
-                    type: 'reason', 
-                    callback: (reason) => executeSoftDelete(itemData, reason)
-                });
-            }
+            data: itemData,
+            nextAction: 'requestReason'
         });
     };
 
@@ -419,13 +415,22 @@ const CronoanaliseDashboard = ({ user }) => {
         const itemData = { itemType: 'product', itemId: productId, itemDocPath };
         setModalState({
             type: 'password',
-            callback: () => {
-                setModalState({ 
-                    type: 'reason', 
-                    callback: (reason) => executeSoftDelete(itemData, reason)
-                });
-            }
+            data: itemData,
+            nextAction: 'requestReason'
         });
+    };
+
+    const handlePasswordSuccess = () => {
+        if (modalState.nextAction === 'requestReason') {
+            setModalState(prev => ({
+                ...prev,
+                type: 'reason',
+                nextAction: 'executeDelete'
+            }));
+        } else if (typeof modalState.nextAction === 'function') {
+            modalState.nextAction();
+            closeModal();
+        }
     };
 
     const handleDeleteEntry = (entryId, dateKey) => {
@@ -451,12 +456,12 @@ const CronoanaliseDashboard = ({ user }) => {
             batch.set(dayDocRef, { entries: updatedEntries });
             await batch.commit();
             alert('Lançamento removido.');
-            closeModal();
         };
 
         setModalState({
             type: 'password',
-            callback: deleteAction
+            data: null,
+            nextAction: deleteAction
         });
     };
 
@@ -872,13 +877,13 @@ const CronoanaliseDashboard = ({ user }) => {
             <PasswordModal
                 isOpen={modalState.type === 'password'}
                 onClose={closeModal}
-                onSuccess={() => modalState.callback && modalState.callback()}
+                onSuccess={modalState.callback}
                 adminConfig={adminConfig}
             />
             <ReasonModal 
                 isOpen={modalState.type === 'reason'} 
                 onClose={closeModal} 
-                onConfirm={(reason) => modalState.callback && modalState.callback(reason)}
+                onConfirm={modalState.callback}
             />
             <AdminSettingsModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} setAdminConfig={setAdminConfig} />
 
