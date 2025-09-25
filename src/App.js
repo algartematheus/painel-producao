@@ -6,13 +6,13 @@ import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, Chev
 import { initializeApp } from 'firebase/app';
 import { 
     getAuth, 
+    createUserWithEmailAndPassword, 
     signInWithEmailAndPassword, 
     signOut, 
     onAuthStateChanged,
     setPersistence,
     browserLocalPersistence,
-    browserSessionPersistence,
-    createUserWithEmailAndPassword
+    browserSessionPersistence
 } from 'firebase/auth';
 import { 
     getFirestore, 
@@ -30,15 +30,15 @@ import {
 // --- Logo ---
 const raceBullLogoUrl = "https://firebasestorage.googleapis.com/v0/b/quadrodeproducao.firebasestorage.app/o/assets%2FLOGO%20PROPRIET%C3%81RIA.png?alt=media&token=a16d015f-e8ca-4b3c-b744-7cef3ab6504b";
 
-// --- Configuração Segura do Firebase ---
+// --- Configuração do Firebase ---
 const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
-  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.REACT_APP_FIREBASE_APP_ID,
-  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
+  apiKey: "AIzaSyAmt7kVZUO3J_KxWXH5GuWjIZ5BYu7HD98",
+  authDomain: "quadrodeproducao.firebaseapp.com",
+  projectId: "quadrodeproducao",
+  storageBucket: "quadrodeproducao.firebasestorage.app",
+  messagingSenderId: "1043513785567",
+  appId: "1:1043513785567:web:083ab6a94b239cca3cbd6a",
+  measurementId: "G-9XDEKDPCK9"
 };
 
 // Inicialização dos serviços do Firebase
@@ -134,8 +134,6 @@ const AuthScreen = () => {
             if (isLogin) {
                 await signInWithEmailAndPassword(auth, email, password);
             } else {
-                // A lógica de criação de conta foi removida da interface,
-                // mas a função é mantida caso você decida reativá-la no futuro.
                 await createUserWithEmailAndPassword(auth, email, password);
             }
         } catch (err) {
@@ -165,7 +163,7 @@ const AuthScreen = () => {
                 </div>
                 <div className="bg-white dark:bg-gray-900 p-8 rounded-2xl shadow-2xl">
                     <h2 className="text-2xl font-bold text-center text-gray-800 dark:text-white mb-6">
-                        Acessar Painel
+                        {isLogin ? 'Acessar Painel' : 'Criar Conta'}
                     </h2>
                     <form onSubmit={handleAuth} className="space-y-6">
                         <div>
@@ -182,16 +180,23 @@ const AuthScreen = () => {
                             </div>
                         </div>
 
-                        <div className="flex items-center">
-                            <input id="remember-me" name="remember-me" type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-                            <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900 dark:text-gray-300">Manter-me conectado</label>
-                        </div>
+                        {isLogin && (
+                            <div className="flex items-center">
+                                <input id="remember-me" name="remember-me" type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+                                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900 dark:text-gray-300">Manter-me conectado</label>
+                            </div>
+                        )}
 
                         {error && <p className="text-sm text-red-500 text-center">{error}</p>}
                         <button type="submit" className="w-full h-12 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors">
-                            Entrar
+                            {isLogin ? 'Entrar' : 'Criar Conta'}
                         </button>
                     </form>
+                    <div className="mt-6 text-center">
+                        <button onClick={() => setIsLogin(!isLogin)} className="text-sm text-blue-500 hover:underline">
+                            {isLogin ? 'Não tem uma conta? Crie uma agora' : 'Já tem uma conta? Faça login'}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
