@@ -297,7 +297,7 @@ const CronoanaliseDashboard = ({ user }) => {
     const [newEntry, setNewEntry] = useState({ period: '', people: '', availableTime: 60, productId: '', productions: [] });
     const [goalPreview, setGoalPreview] = useState("0");
     const [predictedLots, setPredictedLots] = useState([]);
-    const [modalState, setModalState] = useState({ type: null, data: null, callback: null });
+    const [modalState, setModalState] = useState({ type: null, data: null, nextAction: null });
     const [editingEntryId, setEditingEntryId] = useState(null);
     const [editingEntryData, setEditingEntryData] = useState(null);
     const [showUrgent, setShowUrgent] = useState(false);
@@ -362,11 +362,11 @@ const CronoanaliseDashboard = ({ user }) => {
     const handleLogout = () => signOut(auth);
 
     // --- LÓGICA DE EXCLUSÃO (SOFT-DELETE) E MODAIS ---
-    const closeModal = () => setModalState({ type: null, data: null, callback: null });
+    const closeModal = () => setModalState({ type: null, data: null, nextAction: null });
 
     const executeSoftDelete = async (info, reason) => {
+        console.log('executeSoftDelete iniciado com:', info, reason); // Log de depuração
         try {
-            // CORREÇÃO: Constrói a referência do documento corretamente
             const pathSegments = info.itemDocPath.split('/');
             const docId = pathSegments.pop();
             const collectionPath = pathSegments.join('/');
@@ -387,7 +387,10 @@ const CronoanaliseDashboard = ({ user }) => {
                 reason,
                 itemType: info.itemType || null
             });
+            
+            console.log('Removendo originalRef:', originalRef.path); // Log de depuração
             await deleteDoc(originalRef);
+
             alert('Item movido para Lixeira com sucesso.');
         } catch (e) {
             console.error('Erro ao mover item para lixeira:', e);
@@ -397,18 +400,23 @@ const CronoanaliseDashboard = ({ user }) => {
         }
     };
     
+    const handlePasswordSuccess = () => {
+        const { nextAction, data } = modalState;
+    
+        if (nextAction === 'requestReason') {
+            setModalState({ type: 'reason', data: data, nextAction: 'executeDelete' });
+        } else if (typeof nextAction === 'function') {
+            nextAction();
+            closeModal();
+        }
+    };
+    
     const handleDeleteLot = (lotId) => {
         const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotId}`;
         setModalState({
             type: 'password',
             data: { itemType: 'lot', itemId: lotId, itemDocPath },
-            callback: () => {
-                setModalState({ 
-                    type: 'reason', 
-                    data: { itemType: 'lot', itemId: lotId, itemDocPath },
-                    callback: (reason) => executeSoftDelete({ itemType: 'lot', itemId: lotId, itemDocPath }, reason)
-                });
-            }
+            nextAction: 'requestReason'
         });
     };
 
@@ -417,13 +425,7 @@ const CronoanaliseDashboard = ({ user }) => {
         setModalState({
             type: 'password',
             data: { itemType: 'product', itemId: productId, itemDocPath },
-            callback: () => {
-                setModalState({ 
-                    type: 'reason', 
-                    data: { itemType: 'product', itemId: productId, itemDocPath },
-                    callback: (reason) => executeSoftDelete({ itemType: 'product', itemId: productId, itemDocPath }, reason)
-                });
-            }
+            nextAction: 'requestReason'
         });
     };
 
@@ -450,13 +452,12 @@ const CronoanaliseDashboard = ({ user }) => {
             batch.set(dayDocRef, { entries: updatedEntries });
             await batch.commit();
             alert('Lançamento removido.');
-            closeModal();
         };
 
         setModalState({
             type: 'password',
             data: null,
-            callback: deleteAction
+            nextAction: deleteAction
         });
     };
 
