@@ -27,7 +27,6 @@ import {
 } from 'firebase/firestore';
 
 // --- Função utilitária para hash ---
-// helper: hash SHA-256 -> hex
 async function sha256Hex(message) {
     const enc = new TextEncoder();
     const data = enc.encode(message);
@@ -119,9 +118,10 @@ const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
             }
             const hash = await sha256Hex(passwordInput || '');
             if (hash === adminConfig.passwordHash) {
-                onSuccess(); // Sinaliza sucesso para o componente pai gerir o estado
+                onSuccess();
             } else {
                 alert('Senha incorreta!');
+                setPasswordInput('');
             }
         } catch (e) {
             console.error(e);
@@ -153,7 +153,6 @@ const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
     const handleConfirm = () => {
         if (!reason.trim()) { alert('Informe o motivo para continuar.'); return; }
         onConfirm(reason.trim());
-        onClose();
     };
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
@@ -353,7 +352,9 @@ const CronoanaliseDashboard = ({ user }) => {
 
     const handleLogout = () => signOut(auth);
 
-    // --- LÓGICA DE EXCLUSÃO (SOFT-DELETE) - REATORADA ---
+    // --- LÓGICA DE EXCLUSÃO (SOFT-DELETE) E MODAIS ---
+    const closeModal = () => setModalState({ type: null, data: null, nextAction: null });
+
     const executeSoftDelete = async (info, reason) => {
         try {
             const originalRef = doc(db, info.itemDocPath);
@@ -363,28 +364,41 @@ const CronoanaliseDashboard = ({ user }) => {
                 return;
             }
             const trashCollectionRef = collection(db, `artifacts/${projectId}/private/trash`);
-            const trashDoc = {
+            await addDoc(trashCollectionRef, {
                 originalPath: info.itemDocPath,
                 originalDoc: originalSnap.data(),
                 deletedByEmail: user?.email || 'unknown',
                 deletedAt: new Date().toISOString(),
                 reason,
                 itemType: info.itemType || null
-            };
-            await addDoc(trashCollectionRef, trashDoc);
+            });
             await deleteDoc(originalRef);
             alert('Item movido para Lixeira com sucesso.');
         } catch (e) {
             console.error('Erro ao mover item para lixeira:', e);
             alert('Erro ao excluir item.');
+        } finally {
+            closeModal();
         }
     };
-
+    
+    const handlePasswordSuccess = () => {
+        const { nextAction, data } = modalState;
+    
+        if (nextAction === 'requestReason') {
+            setModalState({ type: 'reason', data: data, nextAction: 'executeDelete' });
+        } else if (typeof nextAction === 'function') {
+            nextAction();
+            closeModal();
+        }
+    };
+    
     const handleDeleteLot = (lotId) => {
         const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotId}`;
         setModalState({
             type: 'password',
-            data: { itemType: 'lot', itemId: lotId, itemDocPath }
+            data: { itemType: 'lot', itemId: lotId, itemDocPath },
+            nextAction: 'requestReason'
         });
     };
 
@@ -392,39 +406,42 @@ const CronoanaliseDashboard = ({ user }) => {
         const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_products/${productId}`;
         setModalState({
             type: 'password',
-            data: { itemType: 'product', itemId: productId, itemDocPath }
+            data: { itemType: 'product', itemId: productId, itemDocPath },
+            nextAction: 'requestReason'
         });
     };
 
     const handleDeleteEntry = (entryId, dateKey) => {
+        const deleteAction = async () => {
+            const dayDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`, dateKey);
+            const dayDoc = await getDoc(dayDocRef);
+            if (!dayDoc.exists()) return;
+            const entries = dayDoc.data().entries || [];
+            const entryToDelete = entries.find(e => e.id === entryId);
+            if (!entryToDelete) return;
+
+            const batch = writeBatch(db);
+            entryToDelete.productionDetails.forEach(detail => {
+                const lotToUpdate = lots.find(l => l.productId === detail.productId);
+                if (lotToUpdate) {
+                    const lotRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_lots`, lotToUpdate.id);
+                    const newProduced = Math.max(0, (lotToUpdate.produced || 0) - detail.produced);
+                    const newStatus = (lotToUpdate.produced >= lotToUpdate.target && newProduced < lotToUpdate.target) ? 'ongoing' : lotToUpdate.status;
+                    batch.update(lotRef, { produced: newProduced, status: newStatus });
+                }
+            });
+            const updatedEntries = entries.filter(e => e.id !== entryId);
+            batch.set(dayDocRef, { entries: updatedEntries });
+            await batch.commit();
+            alert('Lançamento removido.');
+        };
+
         setModalState({
             type: 'password',
-            callback: async () => {
-                const dayDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`, dateKey);
-                const dayDoc = await getDoc(dayDocRef);
-                if (!dayDoc.exists()) return;
-                const entries = dayDoc.data().entries || [];
-                const entryToDelete = entries.find(e => e.id === entryId);
-                if (!entryToDelete) return;
-
-                const batch = writeBatch(db);
-                entryToDelete.productionDetails.forEach(detail => {
-                    const lotToUpdate = lots.find(l => l.productId === detail.productId);
-                    if (lotToUpdate) {
-                        const lotRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_lots`, lotToUpdate.id);
-                        const newProduced = Math.max(0, (lotToUpdate.produced || 0) - detail.produced);
-                        const newStatus = (lotToUpdate.produced >= lotToUpdate.target && newProduced < lotToUpdate.target) ? 'ongoing' : lotToUpdate.status;
-                        batch.update(lotRef, { produced: newProduced, status: newStatus });
-                    }
-                });
-                const updatedEntries = entries.filter(e => e.id !== entryId);
-                batch.set(dayDocRef, { entries: updatedEntries });
-                await batch.commit();
-                alert('Lançamento removido.');
-            }
+            data: null,
+            nextAction: deleteAction
         });
     };
-
 
     // --- DEMAIS LÓGICAS DO COMPONENTE ---
     useEffect(() => {
@@ -758,7 +775,7 @@ const CronoanaliseDashboard = ({ user }) => {
         await batch.commit();
         handleCancelEditEntry();
     };
-    const closeModal = () => setModalState({ type: null, data: null, nextAction: null });
+
     const StatCard = ({ title, value, unit = '', isEfficiency = false }) => {
         const valueColor = isEfficiency ? (value < 65 ? 'text-red-500' : 'text-green-600') : 'text-gray-800 dark:text-white';
         return (
@@ -834,24 +851,18 @@ const CronoanaliseDashboard = ({ user }) => {
         <div className="min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans">
             <ObservationModal isOpen={modalState.type === 'observation'} onClose={closeModal} entry={modalState.data} onSave={handleSaveObservation} />
             <LotObservationModal isOpen={modalState.type === 'lotObservation'} onClose={closeModal} lot={modalState.data} onSave={handleSaveLotObservation} />
-            {/* Lógica de transição de modal agora está aqui, mais robusta */}
+            
             <PasswordModal
                 isOpen={modalState.type === 'password'}
                 onClose={closeModal}
-                onConfirm={() => {
-                    // Se houver um callback (ex: deletar lançamento), executa e fecha.
-                    if (modalState.callback) {
-                        modalState.callback();
-                        closeModal();
-                    }
-                    // Se for um item que precisa de motivo (lote/produto), avança para o próximo modal.
-                    else if (modalState.data?.itemType === 'product' || modalState.data?.itemType === 'lot') {
-                        setModalState(prev => ({ ...prev, type: 'reason' }));
-                    }
-                }}
+                onSuccess={handlePasswordSuccess}
                 adminConfig={adminConfig}
             />
-            <ReasonModal isOpen={modalState.type === 'reason'} onClose={closeModal} onConfirm={(reason) => executeSoftDelete(modalState.data, reason)} />
+            <ReasonModal 
+                isOpen={modalState.type === 'reason'} 
+                onClose={closeModal} 
+                onConfirm={(reason) => executeSoftDelete(modalState.data, reason)} 
+            />
             <AdminSettingsModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} setAdminConfig={setAdminConfig} />
 
             <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-10">
@@ -1145,5 +1156,4 @@ const App = () => {
 };
 
 export default App;
-
 
