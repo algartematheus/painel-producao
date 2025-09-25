@@ -178,7 +178,7 @@ const TVSettingsModal = ({ isOpen, onClose, settings, onSave }) => {
                         <ul className="border dark:border-gray-700 rounded-md">
                             {localOrder.map((dashboardId, index) => {
                                 const dashboard = dashboards.find(d => d.id === dashboardId);
-                                if (!dashboard) return null; // Adiciona uma verificação para o caso de um ID não ser encontrado
+                                if (!dashboard) return null;
                                 return (
                                     <li
                                         key={dashboard.id}
@@ -366,19 +366,88 @@ const CronoanaliseDashboard = ({ user }) => {
     const [urgentProduction, setUrgentProduction] = useState({productId: '', produced: ''});
     const [isNavOpen, setIsNavOpen] = useState(false);
 
-    // Efeito para pré-selecionar o produto do primeiro lote da fila
-    useEffect(() => {
-        if (editingEntryId) return;
-        const firstActiveLot = lots.filter(l => l.status === 'ongoing' || l.status === 'future').sort((a, b) => a.order - b.order)[0];
-        const isCurrentSelectionValidAndActive = lots.some(l => l.productId === newEntry.productId && (l.status === 'ongoing' || l.status === 'future'));
-        if (firstActiveLot && !isCurrentSelectionValidAndActive) {
-            setNewEntry(prev => ({ ...prev, productId: firstActiveLot.productId }));
-        } else if (!firstActiveLot && !isCurrentSelectionValidAndActive) {
-            setNewEntry(prev => ({...prev, productId: ''}));
+    const [isTvMode, setIsTvMode] = useState(false);
+    const [isTvSettingsOpen, setIsTvSettingsOpen] = useState(false);
+    const [tvSettings, setTvSettings] = useState(() => {
+        const saved = localStorage.getItem('tvSettings');
+        if (saved) {
+            return JSON.parse(saved);
         }
-    }, [lots, editingEntryId, newEntry.productId]);
+        return {
+            interval: 15,
+            order: dashboards.map(d => d.id),
+        };
+    });
     
-    // Efeito para calcular a meta prevista dinâmica
+    const [currentDashboardIndex, setCurrentDashboardIndex] = useState(0);
+
+    const handleSaveTvSettings = (newSettings) => {
+        setTvSettings(newSettings);
+        localStorage.setItem('tvSettings', JSON.stringify(newSettings));
+    };
+    
+    const orderedDashboards = useMemo(() => {
+        return tvSettings.order.map(id => dashboards.find(d => d.id === id)).filter(Boolean);
+    }, [tvSettings.order]);
+
+    const currentDashboard = useMemo(() => {
+        if (isTvMode) {
+             return orderedDashboards.length > 0 ? orderedDashboards[currentDashboardIndex % orderedDashboards.length] : dashboards[0];
+        }
+        // No modo normal, usamos o index da lista original para manter a seleção do menu
+        return dashboards[currentDashboardIndex];
+    }, [currentDashboardIndex, orderedDashboards, isTvMode]);
+
+
+    useEffect(() => {
+        if (isTvMode && orderedDashboards.length > 1) {
+            const timer = setInterval(() => {
+                setCurrentDashboardIndex(prevIndex => (prevIndex + 1)); // Deixa o useMemo fazer a conta do módulo
+            }, tvSettings.interval * 1000);
+
+            return () => clearInterval(timer);
+        }
+    }, [isTvMode, tvSettings.interval, orderedDashboards.length]);
+
+    useEffect(() => {
+        if (!projectId || !currentDashboard) return;
+        const basePath = `artifacts/${projectId}/public/data`;
+        
+        const productsQuery = query(collection(db, `${basePath}/${currentDashboard.id}_products`));
+        const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
+            setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (error) => console.error("Erro ao carregar produtos:", error));
+
+        const lotsQuery = query(collection(db, `${basePath}/${currentDashboard.id}_lots`));
+        const unsubscribeLots = onSnapshot(lotsQuery, (snapshot) => {
+            const lotsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setLots(lotsData);
+            setLotCounter(lotsData.length > 0 ? Math.max(0, ...lotsData.map(l => l.sequentialId || 0)) + 1 : 1);
+        }, (error) => console.error("Erro ao carregar lotes:", error));
+
+        return () => {
+            unsubscribeProducts();
+            unsubscribeLots();
+        };
+    }, [currentDashboard]);
+
+    useEffect(() => {
+        if (!projectId || !currentDashboard) return;
+        const dateKey = selectedDate.toISOString().slice(0, 10);
+        const productionDataPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`;
+        const productionDocRef = doc(db, productionDataPath, dateKey);
+
+        const unsubscribeProduction = onSnapshot(productionDocRef, (doc) => {
+            setProductionData(prev => ({ ...prev, [dateKey]: (doc.exists() && doc.data().entries) ? doc.data().entries : [] }));
+        }, (error) => console.error("Erro ao carregar dados de produção:", error));
+
+        return () => unsubscribeProduction();
+    }, [selectedDate, currentDashboard]);
+
+    const handleLogout = () => {
+        signOut(auth);
+    };
+    
     const { predictedLots, goalPreview } = useMemo(() => {
         let timeConsumedByUrgent = 0;
         let urgentPrediction = null;
@@ -430,7 +499,6 @@ const CronoanaliseDashboard = ({ user }) => {
         const newGoalPreview = allPredictions.map(p => p.producible || 0).join(' / ') || '0';
         
         return { predictedLots: allPredictions, goalPreview: newGoalPreview };
-
     }, [newEntry.availableTime, newEntry.people, newEntry.productId, products, lots, urgentProduction, showUrgent]);
 
     useEffect(() => {
@@ -813,7 +881,7 @@ const CronoanaliseDashboard = ({ user }) => {
     };
 
     const handleDashboardChangeFromMenu = (dashboardId) => {
-        const newIndex = orderedDashboards.findIndex(d => d.id === dashboardId);
+        const newIndex = dashboards.findIndex(d => d.id === dashboardId);
         if (newIndex !== -1) {
             setCurrentDashboardIndex(newIndex);
         }
@@ -822,7 +890,7 @@ const CronoanaliseDashboard = ({ user }) => {
 
     if (isTvMode) {
         return <TVDashboardView
-            dashboardName={currentDashboard.name}
+            dashboardName={currentDashboard?.name || ''}
             processedData={processedData}
             summary={summary}
             onExit={() => setIsTvMode(false)}
@@ -846,12 +914,12 @@ const CronoanaliseDashboard = ({ user }) => {
                     <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
                     <div className="relative">
                         <button onClick={() => setIsNavOpen(!isNavOpen)} className="flex items-center gap-2 p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
-                            <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white tracking-wider text-center">{currentDashboard.name}</h1>
+                            <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white tracking-wider text-center">{currentDashboard?.name || 'Carregando...'}</h1>
                             <ChevronDownIcon size={20} className={`transition-transform ${isNavOpen ? 'rotate-180' : ''}`} />
                         </button>
                         {isNavOpen && (
                             <div className="absolute top-full mt-2 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-xl py-2 z-20">
-                                {orderedDashboards.map((dash) => ( <button key={dash.id} onClick={() => handleDashboardChangeFromMenu(dash.id)} className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">{dash.name}</button> ))}
+                                {dashboards.map((dash) => ( <button key={dash.id} onClick={() => handleDashboardChangeFromMenu(dash.id)} className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">{dash.name}</button> ))}
                             </div>
                         )}
                     </div>
@@ -1138,6 +1206,4 @@ const App = () => {
 };
 
 export default App;
-
-
 
