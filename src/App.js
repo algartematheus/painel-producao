@@ -379,7 +379,8 @@ const CronoanaliseDashboard = ({ user }) => {
         };
     });
     
-    const [currentDashboardIndex, setCurrentDashboardIndex] = useState(0);
+    const [manualDashboardIndex, setManualDashboardIndex] = useState(0);
+    const [tvCarouselIndex, setTvCarouselIndex] = useState(0);
 
     const handleSaveTvSettings = (newSettings) => {
         setTvSettings(newSettings);
@@ -392,17 +393,17 @@ const CronoanaliseDashboard = ({ user }) => {
 
     const currentDashboard = useMemo(() => {
         if (isTvMode) {
-             const tvIndex = currentDashboardIndex % orderedDashboards.length;
+             const tvIndex = tvCarouselIndex % orderedDashboards.length;
              return orderedDashboards.length > 0 ? orderedDashboards[tvIndex] : dashboards[0];
         }
-        return dashboards[currentDashboardIndex];
-    }, [currentDashboardIndex, orderedDashboards, isTvMode]);
+        return dashboards[manualDashboardIndex];
+    }, [manualDashboardIndex, tvCarouselIndex, orderedDashboards, isTvMode]);
 
 
     useEffect(() => {
         if (isTvMode && orderedDashboards.length > 1) {
             const timer = setInterval(() => {
-                setCurrentDashboardIndex(prevIndex => (prevIndex + 1));
+                setTvCarouselIndex(prevIndex => prevIndex + 1);
             }, tvSettings.interval * 1000);
 
             return () => clearInterval(timer);
@@ -883,7 +884,7 @@ const CronoanaliseDashboard = ({ user }) => {
     const handleDashboardChangeFromMenu = (dashboardId) => {
         const newIndex = dashboards.findIndex(d => d.id === dashboardId);
         if (newIndex !== -1) {
-            setCurrentDashboardIndex(newIndex);
+            setManualDashboardIndex(newIndex);
         }
         setIsNavOpen(false);
     };
