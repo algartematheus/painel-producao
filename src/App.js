@@ -297,7 +297,7 @@ const CronoanaliseDashboard = ({ user }) => {
     const [newEntry, setNewEntry] = useState({ period: '', people: '', availableTime: 60, productId: '', productions: [] });
     const [goalPreview, setGoalPreview] = useState("0");
     const [predictedLots, setPredictedLots] = useState([]);
-    const [modalState, setModalState] = useState({ type: null, data: null, nextAction: null });
+    const [modalState, setModalState] = useState({ type: null, data: null });
     const [editingEntryId, setEditingEntryId] = useState(null);
     const [editingEntryData, setEditingEntryData] = useState(null);
     const [showUrgent, setShowUrgent] = useState(false);
@@ -362,10 +362,9 @@ const CronoanaliseDashboard = ({ user }) => {
     const handleLogout = () => signOut(auth);
 
     // --- LÓGICA DE EXCLUSÃO (SOFT-DELETE) E MODAIS ---
-    const closeModal = () => setModalState({ type: null, data: null, nextAction: null });
+    const closeModal = () => setModalState({ type: null, data: null });
 
     const executeSoftDelete = async (info, reason) => {
-        console.log('executeSoftDelete iniciado com:', info, reason);
         try {
             const pathSegments = info.itemDocPath.split('/');
             const docId = pathSegments.pop();
@@ -375,7 +374,6 @@ const CronoanaliseDashboard = ({ user }) => {
             const originalSnap = await getDoc(originalRef);
             if (!originalSnap.exists()) {
                 alert('Documento não encontrado.');
-                console.error("Documento não encontrado em:", info.itemDocPath);
                 return;
             }
             const trashCollectionRef = collection(db, `artifacts/${projectId}/private/trash`);
@@ -388,9 +386,7 @@ const CronoanaliseDashboard = ({ user }) => {
                 itemType: info.itemType || null
             });
             
-            console.log('Removendo originalRef:', originalRef.path);
             await deleteDoc(originalRef);
-
             alert('Item movido para Lixeira com sucesso.');
         } catch (e) {
             console.error('Erro ao mover item para lixeira:', e);
@@ -400,25 +396,11 @@ const CronoanaliseDashboard = ({ user }) => {
         }
     };
     
-    const handlePasswordSuccess = () => {
-        if (modalState.nextAction === 'requestReason') {
-            setModalState(prev => ({
-                ...prev,
-                type: 'reason',
-                nextAction: 'executeDelete'
-            }));
-        } else if (typeof modalState.nextAction === 'function') {
-            modalState.nextAction();
-            closeModal();
-        }
-    };
-    
     const handleDeleteLot = (lotId) => {
         const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotId}`;
         setModalState({
             type: 'password',
             data: { itemType: 'lot', itemId: lotId, itemDocPath },
-            nextAction: 'requestReason'
         });
     };
 
@@ -427,7 +409,6 @@ const CronoanaliseDashboard = ({ user }) => {
         setModalState({
             type: 'password',
             data: { itemType: 'product', itemId: productId, itemDocPath },
-            nextAction: 'requestReason'
         });
     };
 
@@ -454,12 +435,12 @@ const CronoanaliseDashboard = ({ user }) => {
             batch.set(dayDocRef, { entries: updatedEntries });
             await batch.commit();
             alert('Lançamento removido.');
+            closeModal();
         };
 
         setModalState({
             type: 'password',
-            data: null,
-            nextAction: deleteAction
+            data: { directAction: deleteAction } // Armazena a ação direta
         });
     };
 
@@ -875,20 +856,21 @@ const CronoanaliseDashboard = ({ user }) => {
             <PasswordModal
                 isOpen={modalState.type === 'password'}
                 onClose={closeModal}
-                onSuccess={handlePasswordSuccess}
-                adminConfig={adminConfig}
-            />
-            <ReasonModal 
-                isOpen={modalState.type === 'reason'} 
-                onClose={closeModal} 
-                onConfirm={(reason) => {
-                    if (modalState.nextAction === 'executeDelete') {
-                        console.log("Chamando executeSoftDelete com:", modalState.data, reason);
-                        executeSoftDelete(modalState.data, reason);
+                onSuccess={() => {
+                    // Se houver uma ação direta, execute-a.
+                    if (modalState.data?.directAction) {
+                        modalState.data.directAction();
                     } else {
-                        console.warn("Motivo informado mas nextAction não era executeDelete:", modalState);
+                        // Caso contrário, avance para o modal de motivo.
+                        setModalState(prev => ({ ...prev, type: 'reason' }));
                     }
                 }}
+                adminConfig={adminConfig}
+            />
+            <ReasonModal
+                isOpen={modalState.type === 'reason'}
+                onClose={closeModal}
+                onConfirm={(reason) => executeSoftDelete(modalState.data, reason)}
             />
             <AdminSettingsModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} setAdminConfig={setAdminConfig} />
 
