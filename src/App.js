@@ -924,15 +924,18 @@ const CronoanaliseDashboard = ({ user }) => {
                             </div>
                         )}
                     </div>
+                     {/* --- BOTÕES DO MODO TV MOVIDOS PARA AQUI --- */}
+                    <div className="flex items-center gap-2 border-l border-gray-200 dark:border-gray-700 pl-4">
+                        <button onClick={() => setIsTvSettingsOpen(true)} title="Configurações do Modo TV" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600">
+                            <Settings size={20} />
+                        </button>
+                        <button onClick={() => setIsTvMode(true)} title="Modo TV" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-blue-500 hover:bg-blue-100 dark:hover:bg-blue-900/50">
+                            <Monitor size={20} />
+                        </button>
+                    </div>
                 </div>
                 <div className="flex items-center space-x-2 sm:space-x-4">
                     <span className='text-sm text-gray-500 dark:text-gray-400 hidden md:block'>{user.email}</span>
-                    <button onClick={() => setIsTvSettingsOpen(true)} title="Configurações do Modo TV" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600">
-                        <Settings size={20} />
-                    </button>
-                    <button onClick={() => setIsTvMode(true)} title="Modo TV" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-blue-500 hover:bg-blue-100 dark:hover:bg-blue-900/50">
-                        <Monitor size={20} />
-                    </button>
                     <button onClick={handleLogout} title="Sair" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><LogOut size={20} /></button>
                     <button onClick={toggleTheme} title="Mudar Tema" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700">{theme === 'light' ? <Moon size={20}/> : <Sun size={20}/>}</button>
                 </div>
