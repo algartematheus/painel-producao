@@ -297,7 +297,7 @@ const CronoanaliseDashboard = ({ user }) => {
     const [newEntry, setNewEntry] = useState({ period: '', people: '', availableTime: 60, productId: '', productions: [] });
     const [goalPreview, setGoalPreview] = useState("0");
     const [predictedLots, setPredictedLots] = useState([]);
-    const [modalState, setModalState] = useState({ type: null, data: null, nextAction: null });
+    const [modalState, setModalState] = useState({ type: null, data: null, callback: null });
     const [editingEntryId, setEditingEntryId] = useState(null);
     const [editingEntryData, setEditingEntryData] = useState(null);
     const [showUrgent, setShowUrgent] = useState(false);
@@ -362,14 +362,20 @@ const CronoanaliseDashboard = ({ user }) => {
     const handleLogout = () => signOut(auth);
 
     // --- LÓGICA DE EXCLUSÃO (SOFT-DELETE) E MODAIS ---
-    const closeModal = () => setModalState({ type: null, data: null, nextAction: null });
+    const closeModal = () => setModalState({ type: null, data: null, callback: null });
 
     const executeSoftDelete = async (info, reason) => {
         try {
-            const originalRef = doc(db, info.itemDocPath);
+            // CORREÇÃO: Constrói a referência do documento corretamente
+            const pathSegments = info.itemDocPath.split('/');
+            const docId = pathSegments.pop();
+            const collectionPath = pathSegments.join('/');
+            const originalRef = doc(db, collectionPath, docId);
+
             const originalSnap = await getDoc(originalRef);
             if (!originalSnap.exists()) {
                 alert('Documento não encontrado.');
+                console.error("Documento não encontrado em:", info.itemDocPath);
                 return;
             }
             const trashCollectionRef = collection(db, `artifacts/${projectId}/private/trash`);
@@ -391,23 +397,18 @@ const CronoanaliseDashboard = ({ user }) => {
         }
     };
     
-    const handlePasswordSuccess = () => {
-        const { nextAction, data } = modalState;
-    
-        if (nextAction === 'requestReason') {
-            setModalState({ type: 'reason', data: data, nextAction: 'executeDelete' });
-        } else if (typeof nextAction === 'function') {
-            nextAction();
-            closeModal();
-        }
-    };
-    
     const handleDeleteLot = (lotId) => {
         const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotId}`;
         setModalState({
             type: 'password',
             data: { itemType: 'lot', itemId: lotId, itemDocPath },
-            nextAction: 'requestReason'
+            callback: () => {
+                setModalState({ 
+                    type: 'reason', 
+                    data: { itemType: 'lot', itemId: lotId, itemDocPath },
+                    callback: (reason) => executeSoftDelete({ itemType: 'lot', itemId: lotId, itemDocPath }, reason)
+                });
+            }
         });
     };
 
@@ -416,7 +417,13 @@ const CronoanaliseDashboard = ({ user }) => {
         setModalState({
             type: 'password',
             data: { itemType: 'product', itemId: productId, itemDocPath },
-            nextAction: 'requestReason'
+            callback: () => {
+                setModalState({ 
+                    type: 'reason', 
+                    data: { itemType: 'product', itemId: productId, itemDocPath },
+                    callback: (reason) => executeSoftDelete({ itemType: 'product', itemId: productId, itemDocPath }, reason)
+                });
+            }
         });
     };
 
@@ -443,12 +450,13 @@ const CronoanaliseDashboard = ({ user }) => {
             batch.set(dayDocRef, { entries: updatedEntries });
             await batch.commit();
             alert('Lançamento removido.');
+            closeModal();
         };
 
         setModalState({
             type: 'password',
             data: null,
-            nextAction: deleteAction
+            callback: deleteAction
         });
     };
 
@@ -864,17 +872,13 @@ const CronoanaliseDashboard = ({ user }) => {
             <PasswordModal
                 isOpen={modalState.type === 'password'}
                 onClose={closeModal}
-                onSuccess={handlePasswordSuccess}
+                onSuccess={modalState.callback}
                 adminConfig={adminConfig}
             />
             <ReasonModal 
                 isOpen={modalState.type === 'reason'} 
                 onClose={closeModal} 
-                onConfirm={(reason) => {
-                    if (modalState.nextAction === 'executeDelete') {
-                      executeSoftDelete(modalState.data, reason);
-                    }
-                }} 
+                onConfirm={modalState.callback}
             />
             <AdminSettingsModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} setAdminConfig={setAdminConfig} />
 
