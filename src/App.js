@@ -259,7 +259,7 @@ const CronoanaliseDashboard = ({ user }) => {
             unsubscribeProducts();
             unsubscribeLots();
         };
-    }, [currentDashboard.id, projectId]);
+    }, [currentDashboard.id]);
 
     // Carregar Dados de Produção para o dia selecionado
     useEffect(() => {
@@ -274,7 +274,7 @@ const CronoanaliseDashboard = ({ user }) => {
         }, (error) => console.error("Erro ao carregar dados de produção:", error));
 
         return () => unsubscribeProduction();
-    }, [selectedDate, currentDashboard.id, projectId]);
+    }, [selectedDate, currentDashboard.id]);
 
     const handleLogout = () => {
         signOut(auth);
@@ -1291,4 +1291,5 @@ const App = () => {
 };
 
 export default App;
+
 
