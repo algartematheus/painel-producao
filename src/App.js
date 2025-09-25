@@ -11,7 +11,6 @@ onAuthStateChanged,
 setPersistence, 
 browserLocalPersistence, 
 browserSessionPersistence, 
-createUserWithEmailAndPassword 
 } from 'firebase/auth'; 
 import { 
 getFirestore, 
