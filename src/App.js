@@ -304,10 +304,16 @@ const CronoanaliseDashboard = ({ user }) => {
     const [urgentProduction, setUrgentProduction] = useState({ productId: '', produced: '' });
     const [isNavOpen, setIsNavOpen] = useState(false);
     const [adminConfig, setAdminConfig] = useState(null);
+    const [trashItems, setTrashItems] = useState([]);
 
     // --- CARREGAMENTO DE DADOS ---
     useEffect(() => {
         if (!projectId) return;
+        const trashQuery = query(collection(db, `artifacts/${projectId}/private/trash`));
+        const unsubscribeTrash = onSnapshot(trashQuery, (snapshot) => {
+            setTrashItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        });
+        
         let mounted = true;
         const loadAdminConfig = async () => {
             try {
@@ -322,7 +328,10 @@ const CronoanaliseDashboard = ({ user }) => {
             }
         };
         loadAdminConfig();
-        return () => { mounted = false; };
+        return () => { 
+            mounted = false;
+            unsubscribeTrash();
+        };
     }, []);
 
     useEffect(() => {
@@ -862,10 +871,10 @@ const CronoanaliseDashboard = ({ user }) => {
                 isOpen={modalState.type === 'reason'} 
                 onClose={closeModal} 
                 onConfirm={(reason) => {
-    if (modalState.nextAction === 'executeDelete') {
-      executeSoftDelete(modalState.data, reason);
-    }
-  }} 
+                    if (modalState.nextAction === 'executeDelete') {
+                      executeSoftDelete(modalState.data, reason);
+                    }
+                }} 
             />
             <AdminSettingsModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} setAdminConfig={setAdminConfig} />
 
@@ -1137,6 +1146,28 @@ const CronoanaliseDashboard = ({ user }) => {
                         </div>
                     </div>
                 </section>
+                
+                <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg mt-8">
+                    <h2 className="text-xl font-semibold mb-4 flex items-center">
+                        <Trash2 className="mr-2 text-red-500"/> Lixeira
+                    </h2>
+                    <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+                        {trashItems.length === 0 && (
+                            <p className="text-gray-500">Nenhum item na lixeira.</p>
+                        )}
+                        {trashItems.map(item => (
+                            <div key={item.id} className="p-4 bg-red-50 dark:bg-red-900/30 rounded-lg">
+                                <h4 className="font-bold">{item.itemType} (deletado por {item.deletedByEmail})</h4>
+                                <p><strong>Data:</strong> {new Date(item.deletedAt).toLocaleString('pt-BR')}</p>
+                                <p><strong>Motivo:</strong> {item.reason}</p>
+                                <pre className="text-xs mt-2 bg-gray-100 dark:bg-gray-800 p-2 rounded overflow-x-auto">
+                                    {JSON.stringify(item.originalDoc, null, 2)}
+                                </pre>
+                            </div>
+                        ))}
+                    </div>
+                </section>
+
             </main>
         </div>
     );
