@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff, Settings, ChevronDown as ChevronDownIcon } from 'lucide-react';
-
 // Importações do Firebase
 import { initializeApp } from 'firebase/app';
 import {
@@ -23,18 +22,20 @@ import {
     query,
     writeBatch,
     updateDoc,
-    getDoc
+    getDoc,
+    addDoc
 } from 'firebase/firestore';
 
 // --- Função utilitária para hash ---
 // helper: hash SHA-256 -> hex
 async function sha256Hex(message) {
-  const enc = new TextEncoder();
-  const data = enc.encode(message);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    const enc = new TextEncoder();
+    const data = enc.encode(message);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
+
 
 // --- Logo ---
 const raceBullLogoUrl = "https://firebasestorage.googleapis.com/v0/b/quadrodeproducao.firebasestorage.app/o/assets%2FLOGO%20PROPRIET%C3%81RIA.png?alt=media&token=a16d015f-e8ca-4b3c-b744-7cef3ab6504b";
@@ -95,229 +96,182 @@ const LotObservationModal = ({ isOpen, onClose, lot, onSave }) => {
         </div>
     );
 };
-
-// NOVO PasswordModal (sem senha hardcoded)
 const PasswordModal = ({ isOpen, onClose, onConfirm, adminConfig }) => {
-  const [passwordInput, setPasswordInput] = useState('');
-  const [checking, setChecking] = useState(false);
-
-  useEffect(() => {
-    if (!isOpen) {
-      setPasswordInput('');
-      setChecking(false);
-    }
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  const handleConfirm = async () => {
-    setChecking(true);
-    try {
-      if (!adminConfig || !adminConfig.passwordHash) {
-        alert('Configuração de administrador não encontrada. Peça para um administrador configurar a senha.');
-        onClose();
-        return;
-      }
-      const hash = await sha256Hex(passwordInput || '');
-      if (hash === adminConfig.passwordHash) {
-        onConfirm();
-      } else {
-        alert('Senha incorreta!');
-      }
-    } catch (e) {
-      console.error(e);
-      alert('Erro ao validar senha.');
-    } finally {
-      setPasswordInput('');
-      setChecking(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-      <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold">Confirmação de Senha</h2>
-          <button onClick={onClose}><XCircle /></button>
+    const [passwordInput, setPasswordInput] = useState('');
+    const [checking, setChecking] = useState(false);
+    if (!isOpen) return null;
+    const handleConfirm = async () => {
+        setChecking(true);
+        try {
+            if (!adminConfig || !adminConfig.passwordHash) {
+                alert('Configuração de administrador não encontrada. Peça para um administrador configurar a senha.');
+                setPasswordInput('');
+                onClose();
+                return;
+            }
+            const hash = await sha256Hex(passwordInput || '');
+            if (hash === adminConfig.passwordHash) {
+                onConfirm();
+            } else {
+                alert('Senha incorreta!');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Erro ao validar senha.');
+        } finally {
+            setPasswordInput('');
+            setChecking(false);
+            onClose(); 
+        }
+    };
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+            <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
+                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Confirmação de Senha</h2><button onClick={onClose}><XCircle /></button></div>
+                <div>
+                    <p className="mb-4">Para continuar, por favor insira a senha de administrador.</p>
+                    <input type="password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4" />
+                    <button onClick={handleConfirm} disabled={checking} className="w-full h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700">
+                        {checking ? 'Validando...' : 'Confirmar'}
+                    </button>
+                </div>
+            </div>
         </div>
-        <div>
-          <p className="mb-4">Para continuar, por favor insira a senha de administrador.</p>
-          <input
-            type="password"
-            value={passwordInput}
-            onChange={(e) => setPasswordInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleConfirm()}
-            className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4"
-            autoFocus
-          />
-          <button onClick={handleConfirm} disabled={checking} className="w-full h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-400">
-            {checking ? 'Validando...' : 'Confirmar'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+    );
 };
-
-// NOVO ReasonModal
 const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
-  const [reason, setReason] = useState('');
-  useEffect(() => { if (!isOpen) setReason(''); }, [isOpen]);
-  if (!isOpen) return null;
-  const handleConfirm = () => {
-    if (!reason.trim()) { alert('Informe o motivo para continuar.'); return; }
-    onConfirm(reason.trim());
-    onClose();
-  };
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-      <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Motivo da Exclusão</h2><button onClick={onClose}><XCircle/></button></div>
-        <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={5} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4" placeholder="Explique por que está removendo este item..." autoFocus/>
-        <button onClick={handleConfirm} className="w-full h-10 px-6 font-semibold rounded-md bg-red-600 text-white hover:bg-red-700">Confirmar Exclusão</button>
-      </div>
-    </div>
-  );
+    const [reason, setReason] = useState('');
+    useEffect(() => { if (!isOpen) setReason(''); }, [isOpen]);
+    if (!isOpen) return null;
+    const handleConfirm = () => {
+        if (!reason.trim()) { alert('Informe o motivo para continuar.'); return; }
+        onConfirm(reason.trim());
+        onClose();
+    };
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+            <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
+                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Motivo da Exclusão</h2><button onClick={onClose}><XCircle /></button></div>
+                <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={5} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4" placeholder="Explique por que está removendo este item..." />
+                <button onClick={handleConfirm} className="w-full h-10 px-6 font-semibold rounded-md bg-red-600 text-white hover:bg-red-700">Confirmar Exclusão</button>
+            </div>
+        </div>
+    );
 };
-
-// NOVO AdminSettingsModal
 const AdminSettingsModal = ({ isOpen, onClose, setAdminConfig }) => {
-  const [newPass, setNewPass] = useState('');
-  const [confirmPass, setConfirmPass] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-      if(!isOpen) {
-          setNewPass('');
-          setConfirmPass('');
-          setSaving(false);
-      }
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  const handleSave = async () => {
-    if (!newPass) { alert('Insira a nova senha.'); return; }
-    if (newPass !== confirmPass) { alert('As senhas não coincidem.'); return; }
-    setSaving(true);
-    try {
-      const hash = await sha256Hex(newPass);
-      const adminDocRef = doc(db, `artifacts/${projectId}/private/admin_config`, 'admin');
-      await setDoc(adminDocRef, { passwordHash: hash }, { merge: true });
-      setAdminConfig({ passwordHash: hash });
-      alert('Senha atualizada com sucesso.');
-      onClose();
-    } catch (e) {
-      console.error(e);
-      alert('Erro ao salvar nova senha.');
-    } finally { setSaving(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-      <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Configurações de Admin</h2><button onClick={onClose}><XCircle/></button></div>
-        <div className="space-y-4">
-            <div>
-                <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Nova Senha</label>
-                <input type="password" placeholder="Nova senha" value={newPass} onChange={(e) => setNewPass(e.target.value)} className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700" />
+    const [newPass, setNewPass] = useState('');
+    const [confirmPass, setConfirmPass] = useState('');
+    const [saving, setSaving] = useState(false);
+    if (!isOpen) return null;
+    const handleSave = async () => {
+        if (!newPass) { alert('Insira a nova senha.'); return; }
+        if (newPass !== confirmPass) { alert('As senhas não coincidem.'); return; }
+        setSaving(true);
+        try {
+            const hash = await sha256Hex(newPass);
+            const adminDocRef = doc(db, `artifacts/${projectId}/private/admin_config`, 'admin');
+            await setDoc(adminDocRef, { passwordHash: hash });
+            setAdminConfig({ passwordHash: hash });
+            alert('Senha atualizada com sucesso.');
+            onClose();
+        } catch (e) {
+            console.error(e);
+            alert('Erro ao salvar nova senha.');
+        } finally { setSaving(false); }
+    };
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+            <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
+                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Configurações de Admin</h2><button onClick={onClose}><XCircle /></button></div>
+                <div className="space-y-2">
+                    <input type="password" placeholder="Nova senha" value={newPass} onChange={(e) => setNewPass(e.target.value)} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700" />
+                    <input type="password" placeholder="Confirmar senha" value={confirmPass} onChange={(e) => setConfirmPass(e.target.value)} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700" />
+                    <button onClick={handleSave} disabled={saving} className="w-full h-10 px-6 font-semibold rounded-md bg-green-600 text-white hover:bg-green-700">
+                        {saving ? 'Salvando...' : 'Salvar nova senha'}
+                    </button>
+                </div>
             </div>
-            <div>
-                <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Confirmar Senha</label>
-                <input type="password" placeholder="Confirmar senha" value={confirmPass} onChange={(e) => setConfirmPass(e.target.value)} className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700" />
-            </div>
-          <button onClick={handleSave} disabled={saving} className="w-full h-10 px-6 font-semibold rounded-md bg-green-600 text-white hover:bg-green-700 disabled:bg-gray-400">
-            {saving ? 'Salvando...' : 'Salvar Nova Senha'}
-          </button>
         </div>
-      </div>
-    </div>
-  );
+    );
 };
 
-
-// --- TELA DE AUTENTICAÇÃO (sem alterações) ---
+// --- TELA DE AUTENTICAÇÃO ---
 const AuthScreen = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
-  const handleAuth = async (e) => {
-    e.preventDefault();
-    setError('');
-    try {
-      const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
-      await setPersistence(auth, persistence);
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (err) {
-      switch (err.code) {
-        case 'auth/user-not-found':
-        case 'auth/invalid-credential':
-        case 'auth/wrong-password':
-          setError('Email ou senha inválidos.');
-          break;
-        default:
-          setError('Ocorreu um erro. Tente novamente.');
-          break;
-      }
-    }
-  };
-  return (
-    <div className="min-h-screen bg-gray-100 dark:bg-black flex flex-col justify-center items-center p-4">
-      <div className="w-full max-w-md">
-        <div className="flex justify-center items-center mb-8">
-          <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-24 w-auto dark:invert" />
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [rememberMe, setRememberMe] = useState(true);
+    const handleAuth = async (e) => {
+        e.preventDefault();
+        setError('');
+        try {
+            const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
+            await setPersistence(auth, persistence);
+            await signInWithEmailAndPassword(auth, email, password);
+        } catch (err) {
+            switch (err.code) {
+                case 'auth/user-not-found':
+                case 'auth/invalid-credential':
+                case 'auth/wrong-password':
+                    setError('Email ou senha inválidos.');
+                    break;
+                default:
+                    setError('Ocorreu um erro. Tente novamente.');
+                    break;
+            }
+        }
+    };
+    return (
+        <div className="min-h-screen bg-gray-100 dark:bg-black flex flex-col justify-center items-center p-4">
+            <div className="w-full max-w-md">
+                <div className="flex justify-center items-center mb-8">
+                    <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-24 w-auto dark:invert" />
+                </div>
+                <div className="bg-white dark:bg-gray-900 p-8 rounded-2xl shadow-2xl">
+                    <h2 className="text-2xl font-bold text-center text-gray-800 dark:text-white mb-6">Acessar Painel</h2>
+                    <form onSubmit={handleAuth} className="space-y-6">
+                        <div>
+                            <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Email</label>
+                            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required className="mt-1 w-full p-3 rounded-md bg-gray-100 dark:bg-gray-800 border-transparent focus:border-blue-500 focus:ring-0" />
+                        </div>
+                        <div>
+                            <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Senha</label>
+                            <div className="relative">
+                                <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} required className="mt-1 w-full p-3 rounded-md bg-gray-100 dark:bg-gray-800 border-transparent focus:border-blue-500 focus:ring-0" />
+                                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500">{showPassword ? <EyeOff size={20} /> : <Eye size={20} />}</button>
+                            </div>
+                        </div>
+                        <div className="flex items-center">
+                            <input id="remember-me" name="remember-me" type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+                            <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900 dark:text-gray-300"> Manter-me conectado</label>
+                        </div>
+                        {error && <p className="text-sm text-red-500 text-center">{error}</p>}
+                        <button type="submit" className="w-full h-12 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors">Entrar</button>
+                    </form>
+                </div>
+            </div>
         </div>
-        <div className="bg-white dark:bg-gray-900 p-8 rounded-2xl shadow-2xl">
-          <h2 className="text-2xl font-bold text-center text-gray-800 dark:text-white mb-6">Acessar Painel</h2>
-          <form onSubmit={handleAuth} className="space-y-6">
-            <div>
-              <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Email</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} required className="mt-1 w-full p-3 rounded-md bg-gray-100 dark:bg-gray-800 border-transparent focus:border-blue-500 focus:ring-0" />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Senha</label>
-              <div className="relative">
-                <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} required className="mt-1 w-full p-3 rounded-md bg-gray-100 dark:bg-gray-800 border-transparent focus:border-blue-500 focus:ring-0" />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500">{showPassword ? <EyeOff size={20} /> : <Eye size={20} />}</button>
-              </div>
-            </div>
-            <div className="flex items-center">
-              <input id="remember-me" name="remember-me" type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900 dark:text-gray-300"> Manter-me conectado</label>
-            </div>
-            {error && <p className="text-sm text-red-500 text-center">{error}</p>}
-            <button type="submit" className="w-full h-12 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors">Entrar</button>
-          </form>
-        </div>
-      </div>
-    </div>
-  );
+    );
 };
 
 // --- COMPONENTE PRINCIPAL DO DASHBOARD ---
 const CronoanaliseDashboard = ({ user }) => {
-    // NOVA LÓGICA DE TEMA - Aprimorada
+    // LÓGICA DE TEMA
     const [theme, setTheme] = useState(() => {
         const savedTheme = localStorage.getItem('theme');
         if (savedTheme) return savedTheme;
         return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     });
-
     useEffect(() => {
         const root = window.document.documentElement;
-        if (theme === 'dark') {
-            root.classList.add('dark');
-        } else {
-            root.classList.remove('dark');
-        }
+        if (theme === 'dark') { root.classList.add('dark'); }
+        else { root.classList.remove('dark'); }
         localStorage.setItem('theme', theme);
     }, [theme]);
-
     const toggleTheme = () => setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
 
-    // ... (outros estados)
+    // ESTADOS GERAIS
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [calendarView, setCalendarView] = useState('day');
@@ -341,84 +295,135 @@ const CronoanaliseDashboard = ({ user }) => {
     const [editingEntryId, setEditingEntryId] = useState(null);
     const [editingEntryData, setEditingEntryData] = useState(null);
     const [showUrgent, setShowUrgent] = useState(false);
-    const [urgentProduction, setUrgentProduction] = useState({productId: '', produced: ''});
+    const [urgentProduction, setUrgentProduction] = useState({ productId: '', produced: '' });
     const [isNavOpen, setIsNavOpen] = useState(false);
-    
-    // NOVO estado para config de admin
     const [adminConfig, setAdminConfig] = useState(null);
 
-    // NOVO useEffect para carregar admin config
+    // --- CARREGAMENTO DE DADOS ---
     useEffect(() => {
-      let mounted = true;
-      const loadAdminConfig = async () => {
-        try {
-          const adminDocRef = doc(db, `artifacts/${projectId}/private/admin_config`, 'admin');
-          const adminSnap = await getDoc(adminDocRef);
-          if (mounted && adminSnap.exists()) {
-            setAdminConfig(adminSnap.data());
-          } else if (mounted) {
-            console.warn('Documento de configuração de admin não encontrado. A funcionalidade de exclusão segura pode não funcionar até que uma senha seja definida.');
-            setAdminConfig(null);
-          }
-        } catch (e) {
-          console.error('Erro ao carregar admin config:', e);
-          if (mounted) setAdminConfig(null);
-        }
-      };
-      if (projectId) loadAdminConfig();
-      return () => { mounted = false; };
+        if (!projectId) return;
+        let mounted = true;
+        const loadAdminConfig = async () => {
+            try {
+                const adminDocRef = doc(db, `artifacts/${projectId}/private/admin_config`, 'admin');
+                const adminSnap = await getDoc(adminDocRef);
+                if (mounted && adminSnap.exists()) {
+                    setAdminConfig(adminSnap.data());
+                } else { setAdminConfig(null); }
+            } catch (e) {
+                console.error('Erro ao carregar admin config:', e);
+                setAdminConfig(null);
+            }
+        };
+        loadAdminConfig();
+        return () => { mounted = false; };
     }, []);
 
-
-    // --- Lógica de Carregamento de Dados do Firebase ---
     useEffect(() => {
         if (!projectId) return;
         const basePath = `artifacts/${projectId}/public/data`;
-        
         const productsQuery = query(collection(db, `${basePath}/${currentDashboard.id}_products`));
-        const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
-            const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setProducts(productsData);
-        }, (error) => console.error("Erro ao carregar produtos:", error));
-
+        const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
         const lotsQuery = query(collection(db, `${basePath}/${currentDashboard.id}_lots`));
         const unsubscribeLots = onSnapshot(lotsQuery, (snapshot) => {
             const lotsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setLots(lotsData);
-            if (lotsData.length > 0) {
-                const maxId = Math.max(0, ...lotsData.map(l => l.sequentialId || 0));
-                setLotCounter(maxId + 1);
-            } else {
-                setLotCounter(1);
-            }
-        }, (error) => console.error("Erro ao carregar lotes:", error));
-
-        return () => {
-            unsubscribeProducts();
-            unsubscribeLots();
-        };
+            setLotCounter(lotsData.length > 0 ? Math.max(0, ...lotsData.map(l => l.sequentialId || 0)) + 1 : 1);
+        });
+        return () => { unsubscribeProducts(); unsubscribeLots(); };
     }, [currentDashboard.id]);
 
-    // Carregar Dados de Produção para o dia selecionado
     useEffect(() => {
         if (!projectId) return;
         const dateKey = selectedDate.toISOString().slice(0, 10);
         const productionDataPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`;
         const productionDocRef = doc(db, productionDataPath, dateKey);
-
         const unsubscribeProduction = onSnapshot(productionDocRef, (doc) => {
-            const entries = (doc.exists() && doc.data().entries) ? doc.data().entries : [];
-            setProductionData(prev => ({ ...prev, [dateKey]: entries }));
-        }, (error) => console.error("Erro ao carregar dados de produção:", error));
-
+            setProductionData(prev => ({ ...prev, [dateKey]: (doc.exists() && doc.data().entries) ? doc.data().entries : [] }));
+        });
         return () => unsubscribeProduction();
     }, [selectedDate, currentDashboard.id]);
 
-    const handleLogout = () => {
-        signOut(auth);
+    const handleLogout = () => signOut(auth);
+
+    // --- LÓGICA DE EXCLUSÃO (SOFT-DELETE) ---
+    const executeSoftDelete = async (info, reason) => {
+        try {
+            const originalRef = doc(db, info.itemDocPath);
+            const originalSnap = await getDoc(originalRef);
+            if (!originalSnap.exists()) {
+                alert('Documento não encontrado.');
+                return;
+            }
+            const trashCollectionRef = collection(db, `artifacts/${projectId}/private/trash`);
+            const trashDoc = {
+                originalPath: info.itemDocPath,
+                originalDoc: originalSnap.data(),
+                deletedByEmail: user?.email || 'unknown',
+                deletedAt: new Date().toISOString(),
+                reason,
+                itemType: info.itemType || null
+            };
+            await addDoc(trashCollectionRef, trashDoc);
+            await deleteDoc(originalRef);
+            alert('Item movido para Lixeira com sucesso.');
+        } catch (e) {
+            console.error('Erro ao mover item para lixeira:', e);
+            alert('Erro ao excluir item.');
+        }
     };
-    
-    // Efeito para pré-selecionar o produto do primeiro lote da fila
+    const openPasswordThenReasonAndDelete = (itemType, itemId, itemDocPath) => {
+        setModalState({
+            type: 'password',
+            data: { itemType, itemId, itemDocPath },
+            callback: () => {
+                setModalState({
+                    type: 'reason',
+                    data: { itemType, itemId, itemDocPath },
+                    callback: null
+                });
+            }
+        });
+    };
+    const handleDeleteLot = (lotId) => {
+        const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotId}`;
+        openPasswordThenReasonAndDelete('lot', lotId, itemDocPath);
+    };
+    const handleDeleteProduct = (productId) => {
+        const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_products/${productId}`;
+        openPasswordThenReasonAndDelete('product', productId, itemDocPath);
+    };
+    const handleDeleteEntry = async (entryId, dateKey) => {
+        setModalState({
+            type: 'password',
+            callback: async () => {
+                const dayDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`, dateKey);
+                const dayDoc = await getDoc(dayDocRef);
+                if (!dayDoc.exists()) return;
+                const entries = dayDoc.data().entries || [];
+                const entryToDelete = entries.find(e => e.id === entryId);
+                if (!entryToDelete) return;
+
+                const batch = writeBatch(db);
+                entryToDelete.productionDetails.forEach(detail => {
+                    const lotToUpdate = lots.find(l => l.productId === detail.productId);
+                    if (lotToUpdate) {
+                        const lotRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_lots`, lotToUpdate.id);
+                        const newProduced = Math.max(0, (lotToUpdate.produced || 0) - detail.produced);
+                        const newStatus = (lotToUpdate.produced >= lotToUpdate.target && newProduced < lotToUpdate.target) ? 'ongoing' : lotToUpdate.status;
+                        batch.update(lotRef, { produced: newProduced, status: newStatus });
+                    }
+                });
+                const updatedEntries = entries.filter(e => e.id !== entryId);
+                batch.set(dayDocRef, { entries: updatedEntries });
+                await batch.commit();
+                alert('Lançamento removido.');
+            }
+        })
+    };
+
+
+    // --- DEMAIS LÓGICAS DO COMPONENTE ---
     useEffect(() => {
         if (editingEntryId) return;
         const firstActiveLot = lots.filter(l => l.status === 'ongoing' || l.status === 'future').sort((a, b) => a.order - b.order)[0];
@@ -429,8 +434,6 @@ const CronoanaliseDashboard = ({ user }) => {
             setNewEntry(prev => ({...prev, productId: ''}));
         }
     }, [lots, editingEntryId, newEntry.productId]);
-
-    // Efeito para calcular a meta prevista dinâmica
     useEffect(() => {
         let timeConsumedByUrgent = 0;
         let urgentPrediction = null;
@@ -483,8 +486,6 @@ const CronoanaliseDashboard = ({ user }) => {
         setGoalPreview(allPredictions.map(p => p.producible || 0).join(' / ') || '0');
         setNewEntry(prev => ({ ...prev, productions: Array(normalPredictions.length).fill('') }));
     }, [newEntry.availableTime, newEntry.people, newEntry.productId, products, lots, urgentProduction, showUrgent]);
-    
-    // ... (useMemo e outras lógicas sem alteração) ...
     const dailyProductionData = useMemo(() => {
         const dateKey = selectedDate.toISOString().slice(0, 10);
         return productionData[dateKey] || [];
@@ -574,50 +575,6 @@ const CronoanaliseDashboard = ({ user }) => {
         if (lotFilter === 'completed') return sorted.filter(lot => lot.status.startsWith('completed'));
         return [];
     }, [lots, lotFilter]);
-
-    // --- NOVA LÓGICA DE EXCLUSÃO (SOFT-DELETE) ---
-    const executeSoftDelete = async (info, reason) => {
-        try {
-            const originalRef = doc(db, info.itemDocPath);
-            const originalSnap = await getDoc(originalRef);
-
-            if (!originalSnap.exists()) {
-                alert('Documento não encontrado. Pode já ter sido removido.');
-                return;
-            }
-            const originalData = originalSnap.data();
-    
-            const trashCollectionRef = collection(db, `artifacts/${projectId}/private/trash`);
-            const trashDoc = {
-                originalPath: info.itemDocPath,
-                originalDoc: originalData,
-                deletedByEmail: user?.email || 'unknown',
-                deletedAt: new Date().toISOString(),
-                reason,
-                itemType: info.itemType || null
-            };
-            await addDoc(trashCollectionRef, trashDoc);
-    
-            await deleteDoc(originalRef);
-    
-            alert('Item movido para a Lixeira com sucesso.');
-        } catch (e) {
-            console.error('Erro ao mover item para lixeira:', e);
-            alert('Erro ao excluir item.');
-        }
-    };
-    
-    const openPasswordThenReasonAndDelete = (itemType, itemId, itemDocPath) => {
-      setModalState({
-        type: 'password',
-        data: { itemType, itemId, itemDocPath },
-        callback: () => {
-          setModalState({ type: 'reason', data: { itemType, itemId, itemDocPath }, callback: null });
-        }
-      });
-    };
-
-    // --- FUNÇÕES DE MANIPULAÇÃO DE DADOS (Handlers) ---
     const handleAddEntry = async (e) => {
         e.preventDefault();
         const productionDetails = [];
@@ -633,7 +590,7 @@ const CronoanaliseDashboard = ({ user }) => {
         if (productionDetails.length === 0) { alert("Nenhuma produção foi inserida."); return; }
         const newEntryWithId = { id: Date.now().toString(), period: newEntry.period, people: newEntry.people, availableTime: newEntry.availableTime, productionDetails, observation: '', goalDisplay: goalPreview, primaryProductId: newEntry.productId, };
         const dateKey = selectedDate.toISOString().slice(0, 10);
-        const dayDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`, dateKey);
+        const dayDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData/${dateKey}`);
         const dayDoc = await getDoc(dayDocRef);
         const currentEntries = dayDoc.exists() && dayDoc.data().entries ? dayDoc.data().entries : [];
         const batch = writeBatch(db);
@@ -689,54 +646,6 @@ const CronoanaliseDashboard = ({ user }) => {
         await updateDoc(productRef, { ...editingProductData, standardTime: parseFloat(editingProductData.standardTime) });
         setEditingProductId(null);
     };
-    
-    // handleDelete... com soft-delete
-    const handleDeleteProduct = (productId) => {
-        const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_products/${productId}`;
-        openPasswordThenReasonAndDelete('product', productId, itemDocPath);
-    };
-
-    const handleDeleteEntry = (entryId, dateKey) => {
-        const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData/${dateKey}`;
-        // NOTE: Soft delete on sub-document/entry is more complex.
-        // This implementation will move the *entire day's document* to trash if confirmed.
-        // A more granular approach would require modifying the executeSoftDelete logic.
-        // For now, let's revert to a password-protected hard delete for individual entries, but with logging.
-        setModalState({
-            type: 'password',
-            data: { entryId, dateKey },
-            callback: async () => {
-                // Re-implementing hard delete for this specific case, but keeping the password prompt.
-                 const dayDocRef = doc(db, itemDocPath);
-                 const dayDoc = await getDoc(dayDocRef);
-                 if (!dayDoc.exists()) return;
-                 const entries = dayDoc.data().entries || [];
-                 const entryToDelete = entries.find(e => e.id === entryId);
-                 if (!entryToDelete) return;
-                 const batch = writeBatch(db);
-                 entryToDelete.productionDetails.forEach(detail => {
-                     const lotToUpdate = lots.find(l => l.productId === detail.productId);
-                     if (lotToUpdate) {
-                         const lotRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_lots`, lotToUpdate.id);
-                         const newProduced = Math.max(0, (lotToUpdate.produced || 0) - detail.produced);
-                         const newStatus = (lotToUpdate.produced >= lotToUpdate.target && newProduced < lotToUpdate.target) ? 'ongoing' : lotToUpdate.status;
-                         batch.update(lotRef, { produced: newProduced, status: newStatus });
-                     }
-                 });
-                 const updatedEntries = entries.filter(e => e.id !== entryId);
-                 batch.set(dayDocRef, { entries: updatedEntries });
-                 await batch.commit();
-                 alert("Lançamento removido.");
-            }
-        });
-    };
-
-    const handleDeleteLot = (lotId) => {
-      const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotId}`;
-      openPasswordThenReasonAndDelete('lot', lotId, itemDocPath);
-    };
-
-
     const handleSaveObservation = async (entryId, observation) => {
         const dateKey = selectedDate.toISOString().slice(0, 10);
         const dayDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`, dateKey);
@@ -758,7 +667,6 @@ const CronoanaliseDashboard = ({ user }) => {
         await setDoc(docRef, { sequentialId: lotCounter, productId: product.id, productName: product.name, customName: newLot.customName, target: parseInt(newLot.target, 10), produced: 0, status: 'future', order: Date.now(), observation: '', startDate: null, endDate: null });
         setNewLot({ productId: '', target: '', customName: '' });
     };
-    
     const handleStartEditLot = (lot) => {
         setEditingLotId(lot.id);
         setEditingLotData({ target: lot.target, customName: lot.customName });
@@ -847,6 +755,7 @@ const CronoanaliseDashboard = ({ user }) => {
         await batch.commit();
         handleCancelEditEntry();
     };
+    const closeModal = () => setModalState({ type: null, data: null, callback: null });
     const StatCard = ({ title, value, unit = '', isEfficiency = false }) => {
         const valueColor = isEfficiency ? (value < 65 ? 'text-red-500' : 'text-green-600') : 'text-gray-800 dark:text-white';
         return (
@@ -920,35 +829,13 @@ const CronoanaliseDashboard = ({ user }) => {
     };
     return (
         <div className="min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans">
-            {/* --- Renderização de Modais --- */}
-            <ObservationModal isOpen={modalState.type === 'observation'} onClose={() => setModalState({ type: null })} entry={modalState.data} onSave={handleSaveObservation} />
-            <LotObservationModal isOpen={modalState.type === 'lotObservation'} onClose={() => setModalState({ type: null })} lot={modalState.data} onSave={handleSaveLotObservation} />
-            
-            <PasswordModal
-                isOpen={modalState.type === 'password'}
-                onClose={() => setModalState({ type: null, data: null, callback: null })}
-                onConfirm={() => {
-                    if (modalState?.callback) modalState.callback(modalState.data);
-                }}
-                adminConfig={adminConfig}
-            />
+            <ObservationModal isOpen={modalState.type === 'observation'} onClose={closeModal} entry={modalState.data} onSave={handleSaveObservation} />
+            <LotObservationModal isOpen={modalState.type === 'lotObservation'} onClose={closeModal} lot={modalState.data} onSave={handleSaveLotObservation} />
+            <PasswordModal isOpen={modalState.type === 'password'} onClose={closeModal} onConfirm={modalState.callback} adminConfig={adminConfig} />
+            <ReasonModal isOpen={modalState.type === 'reason'} onClose={closeModal} onConfirm={(reason) => executeSoftDelete(modalState.data, reason)} />
+            <AdminSettingsModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} setAdminConfig={setAdminConfig} />
 
-            <ReasonModal
-                isOpen={modalState.type === 'reason'}
-                onClose={() => setModalState({ type: null, data: null, callback: null })}
-                onConfirm={async (reason) => {
-                    await executeSoftDelete(modalState.data, reason);
-                    setModalState({ type: null, data: null, callback: null });
-                }}
-            />
-
-            <AdminSettingsModal
-                isOpen={modalState.type === 'adminSettings'}
-                onClose={() => setModalState({ type: null, data: null, callback: null })}
-                setAdminConfig={setAdminConfig}
-            />
-
-            <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-40">
+            <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-10">
                 <div className="flex items-center gap-4">
                     <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
                     <div className="relative">
@@ -965,14 +852,13 @@ const CronoanaliseDashboard = ({ user }) => {
                 </div>
                 <div className="flex items-center space-x-2 sm:space-x-4">
                     <span className='text-sm text-gray-500 dark:text-gray-400 hidden md:block'>{user.email}</span>
-                    <button onClick={() => setModalState({ type: 'adminSettings' })} title="Configurações de Administrador" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700"><Settings size={20} /></button>
+                    <button onClick={() => setModalState({ type: 'adminSettings' })} title="Configurações" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"><Settings size={20} /></button>
                     <button onClick={handleLogout} title="Sair" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><LogOut size={20} /></button>
                     <button onClick={toggleTheme} title="Mudar Tema" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700">{theme === 'light' ? <Moon size={20}/> : <Sun size={20}/>}</button>
                 </div>
             </header>
             <main className="p-4 md:p-8 grid grid-cols-1 gap-8">
-            {/* O resto da sua UI continua aqui... */}
-            <section className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <section className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-1"><CalendarView /></div>
                     <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 content-start">
                         <div className="bg-white dark:bg-gray-900 p-4 rounded-2xl shadow-lg text-center"><h3 className="font-semibold">Resumo Mensal</h3><p>Produção: {monthlySummary.totalProduction.toLocaleString('pt-BR')} un.</p><p>Meta: {monthlySummary.totalGoal.toLocaleString('pt-BR')} un.</p><p>Eficiência Média: {monthlySummary.averageEfficiency}%</p></div>
@@ -1056,7 +942,7 @@ const CronoanaliseDashboard = ({ user }) => {
                                                 <td className="p-3"><button onClick={() => setModalState({ type: 'observation', data: d })} className="text-gray-500 hover:text-blue-500"><MessageSquare size={18}/></button></td>
                                                 <td className="p-3 flex gap-2">
                                                     <button onClick={() => handleStartEditEntry(d)} className="text-gray-500 hover:text-yellow-500"><Edit size={18}/></button>
-                                                    <button onClick={() => handleDeleteEntry(d.id, selectedDate.toISOString().slice(0, 10)) } className="text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
+                                                    <button onClick={() => handleDeleteEntry(d.id, selectedDate.toISOString().slice(0, 10))} className="text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
                                                 </td>
                                             </>
                                         )}
@@ -1234,9 +1120,10 @@ const App = () => {
         return () => unsubscribe();
     }, []);
     if (loading) {
-        return <div className="min-h-screen bg-gray-100 dark:bg-black flex justify-center items-center"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500"></div></div>;
+        return <div className="min-h-screen bg-gray-100 dark:bg-black flex justify-center items-center"><p>Carregando...</p></div>;
     }
     return user ? <CronoanaliseDashboard user={user} /> : <AuthScreen />;
 };
 
 export default App;
+
