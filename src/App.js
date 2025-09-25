@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff, ChevronDown as ChevronDownIcon } from 'lucide-react';
+import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff, ChevronDown as ChevronDownIcon, Archive } from 'lucide-react';
 // Importações do Firebase
 import { initializeApp } from 'firebase/app';
 import {
@@ -22,7 +22,8 @@ onSnapshot,
 query,
 writeBatch,
 updateDoc,
-getDoc
+getDoc,
+serverTimestamp
 } from 'firebase/firestore';
 
 // --- Logo ---
@@ -53,7 +54,7 @@ const dashboards = [
     { id: 'corte', name: 'Quadro do Corte' },
 ];
 
-// --- COMPONENTES MODAIS (sem alterações) ---
+// --- COMPONENTES MODAIS ---
 const ObservationModal = ({ isOpen, onClose, entry, onSave }) => {
     const [observation, setObservation] = useState('');
     useEffect(() => { if (entry) setObservation(entry.observation || ''); }, [entry]);
@@ -84,6 +85,31 @@ const LotObservationModal = ({ isOpen, onClose, lot, onSave }) => {
         </div>
     );
 };
+const DeletionReasonModal = ({ isOpen, onClose, onConfirm }) => {
+    const [reason, setReason] = useState('');
+    if (!isOpen) return null;
+    const handleConfirm = () => {
+        if (!reason.trim()) {
+            alert('A justificativa é obrigatória.');
+            return;
+        }
+        onConfirm(reason);
+        setReason('');
+        onClose();
+    };
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+            <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
+                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Justificar Exclusão</h2><button onClick={onClose}><XCircle /></button></div>
+                <div>
+                    <p className="mb-4">Por favor, descreva o motivo para excluir este item. Esta ação será registrada.</p>
+                    <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows="4" className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4" placeholder="Ex: Lote duplicado, erro de lançamento, etc."></textarea>
+                    <button onClick={handleConfirm} className="w-full h-10 px-6 font-semibold rounded-md bg-red-600 text-white hover:bg-red-700">Confirmar Exclusão</button>
+                </div>
+            </div>
+        </div>
+    );
+};
 const PasswordModal = ({ isOpen, onClose, onConfirm }) => {
     const [passwordInput, setPasswordInput] = useState('');
     if (!isOpen) return null;
@@ -106,7 +132,7 @@ const PasswordModal = ({ isOpen, onClose, onConfirm }) => {
     );
 };
 
-// --- TELA DE AUTENTICAÇÃO (sem alterações) ---
+// --- TELA DE AUTENTICAÇÃO ---
 const AuthScreen = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -168,26 +194,16 @@ const AuthScreen = () => {
 
 // --- COMPONENTE PRINCIPAL DO DASHBOARD ---
 const CronoanaliseDashboard = ({ user }) => {
-    // NOVA LÓGICA DE TEMA - Aprimorada
     const [theme, setTheme] = useState(() => {
-        // 1. Tenta pegar o tema salvo pelo usuário
         const savedTheme = localStorage.getItem('theme');
-        if (savedTheme) {
-            return savedTheme;
-        }
-        // 2. Se não houver, usa o tema do sistema operacional
+        if (savedTheme) { return savedTheme; }
         return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     });
 
     useEffect(() => {
         const root = window.document.documentElement;
-        // Adiciona ou remove a classe 'dark' do HTML
-        if (theme === 'dark') {
-            root.classList.add('dark');
-        } else {
-            root.classList.remove('dark');
-        }
-        // Salva a escolha do usuário na memória do navegador
+        if (theme === 'dark') { root.classList.add('dark'); } 
+        else { root.classList.remove('dark'); }
         localStorage.setItem('theme', theme);
     }, [theme]);
 
@@ -203,6 +219,7 @@ const CronoanaliseDashboard = ({ user }) => {
     const [productionData, setProductionData] = useState({});
     const [products, setProducts] = useState([]);
     const [lots, setLots] = useState([]);
+    const [deletedLots, setDeletedLots] = useState([]);
     const [lotCounter, setLotCounter] = useState(1);
     const [lotFilter, setLotFilter] = useState('ongoing');
     const [newLot, setNewLot] = useState({ productId: '', target: '', customName: '' });
@@ -228,8 +245,7 @@ const CronoanaliseDashboard = ({ user }) => {
         
         const productsQuery = query(collection(db, `${basePath}/${currentDashboard.id}_products`));
         const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
-            const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setProducts(productsData);
+            setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         }, (error) => console.error("Erro ao carregar produtos:", error));
 
         const lotsQuery = query(collection(db, `${basePath}/${currentDashboard.id}_lots`));
@@ -237,42 +253,40 @@ const CronoanaliseDashboard = ({ user }) => {
             const lotsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setLots(lotsData);
             if (lotsData.length > 0) {
-                const maxId = Math.max(0, ...lotsData.map(l => l.sequentialId || 0));
-                setLotCounter(maxId + 1);
+                setLotCounter(Math.max(0, ...lotsData.map(l => l.sequentialId || 0)) + 1);
             } else {
                 setLotCounter(1);
             }
         }, (error) => console.error("Erro ao carregar lotes:", error));
 
+        const deletedLotsQuery = query(collection(db, `${basePath}/${currentDashboard.id}_deletedLots`));
+        const unsubscribeDeletedLots = onSnapshot(deletedLotsQuery, (snapshot) => {
+            setDeletedLots(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (error) => console.error("Erro ao carregar lotes excluídos:", error));
+
+
         return () => {
             unsubscribeProducts();
             unsubscribeLots();
+            unsubscribeDeletedLots();
         };
-    }, [currentDashboard.id]);
+    }, [currentDashboard.id, projectId]);
 
-    // Carregar Dados de Produção para o dia selecionado
     useEffect(() => {
         if (!projectId) return;
         const dateKey = selectedDate.toISOString().slice(0, 10);
-        const productionDataPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`;
-        const productionDocRef = doc(db, productionDataPath, dateKey);
-
+        const productionDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`, dateKey);
         const unsubscribeProduction = onSnapshot(productionDocRef, (doc) => {
             const entries = (doc.exists() && doc.data().entries) ? doc.data().entries : [];
             setProductionData(prev => ({ ...prev, [dateKey]: entries }));
         }, (error) => console.error("Erro ao carregar dados de produção:", error));
-
         return () => unsubscribeProduction();
-    }, [selectedDate, currentDashboard.id]);
+    }, [selectedDate, currentDashboard.id, projectId]);
 
     const handleLogout = () => {
         signOut(auth);
     };
 
-    // ... O restante do seu componente continua aqui, sem mais alterações na lógica ...
-    // ... Apenas o código visual e de funcionalidades já existentes ...
-    
-    // Efeito para pré-selecionar o produto do primeiro lote da fila
     useEffect(() => {
         if (editingEntryId) return;
         const firstActiveLot = lots.filter(l => l.status === 'ongoing' || l.status === 'future').sort((a, b) => a.order - b.order)[0];
@@ -284,7 +298,6 @@ const CronoanaliseDashboard = ({ user }) => {
         }
     }, [lots, editingEntryId, newEntry.productId]);
 
-    // Efeito para calcular a meta prevista dinâmica
     useEffect(() => {
         let timeConsumedByUrgent = 0;
         let urgentPrediction = null;
@@ -420,12 +433,17 @@ const CronoanaliseDashboard = ({ user }) => {
         const averageMonthlyEfficiency = productiveDaysCount > 0 ? parseFloat((totalDailyAverageEfficiencies / productiveDaysCount).toFixed(2)) : 0;
         return { totalProduction: totalMonthlyProduction, totalGoal: totalMonthlyGoal, averageEfficiency: averageMonthlyEfficiency, };
     }, [productionData, currentMonth, products]);
+
     const filteredLots = useMemo(() => {
-        const sorted = [...lots].sort((a, b) => a.order - b.order);
-        if (lotFilter === 'ongoing') return sorted.filter(lot => lot.status === 'ongoing' || lot.status === 'future');
-        if (lotFilter === 'completed') return sorted.filter(lot => lot.status.startsWith('completed'));
+        if (lotFilter === 'deleted') {
+            return [...deletedLots].sort((a, b) => (b.deletedAt?.toMillis() || 0) - (a.deletedAt?.toMillis() || 0));
+        }
+        const activeLots = [...lots].sort((a, b) => a.order - b.order);
+        if (lotFilter === 'ongoing') return activeLots.filter(lot => lot.status === 'ongoing' || lot.status === 'future');
+        if (lotFilter === 'completed') return activeLots.filter(lot => lot.status.startsWith('completed'));
         return [];
-    }, [lots, lotFilter]);
+    }, [lots, lotFilter, deletedLots]);
+
     const handleAddEntry = async (e) => {
         e.preventDefault();
         const productionDetails = [];
@@ -544,9 +562,36 @@ const CronoanaliseDashboard = ({ user }) => {
         await setDoc(docRef, { sequentialId: lotCounter, productId: product.id, productName: product.name, customName: newLot.customName, target: parseInt(newLot.target, 10), produced: 0, status: 'future', order: Date.now(), observation: '', startDate: null, endDate: null });
         setNewLot({ productId: '', target: '', customName: '' });
     };
-    const handleDeleteLot = async (lotId) => {
-        await deleteDoc(doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_lots`, lotId));
+
+    const handleDeleteLot = async (lotId, reason) => {
+        const lotToDelete = lots.find(l => l.id === lotId);
+        if (!lotToDelete) return;
+
+        const basePath = `artifacts/${projectId}/public/data/${currentDashboard.id}`;
+        const originalDocRef = doc(db, `${basePath}_lots`, lotId);
+        const deletedDocRef = doc(db, `${basePath}_deletedLots`, lotId);
+
+        const deletedLotData = {
+            ...lotToDelete,
+            deletedAt: serverTimestamp(),
+            deletedBy: user.email,
+            deletionReason: reason,
+        };
+
+        const batch = writeBatch(db);
+        batch.set(deletedDocRef, deletedLotData);
+        batch.delete(originalDocRef);
+        
+        await batch.commit();
     };
+
+    const requestDeleteLot = (lotId) => {
+        setModalState({
+            type: 'deletionReason',
+            callback: (reason) => handleDeleteLot(lotId, reason)
+        });
+    };
+
     const handleStartEditLot = (lot) => {
         setEditingLotId(lot.id);
         setEditingLotData({ target: lot.target, customName: lot.customName });
@@ -712,6 +757,8 @@ const CronoanaliseDashboard = ({ user }) => {
             <ObservationModal isOpen={modalState.type === 'observation'} onClose={closeModal} entry={modalState.data} onSave={handleSaveObservation} />
             <LotObservationModal isOpen={modalState.type === 'lotObservation'} onClose={closeModal} lot={modalState.data} onSave={handleSaveLotObservation} />
             <PasswordModal isOpen={modalState.type === 'password'} onClose={closeModal} onConfirm={() => { modalState.callback(); closeModal(); }} />
+            <DeletionReasonModal isOpen={modalState.type === 'deletionReason'} onClose={closeModal} onConfirm={modalState.callback} />
+            
             <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-10">
                 <div className="flex items-center gap-4">
                     <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
@@ -722,19 +769,23 @@ const CronoanaliseDashboard = ({ user }) => {
                         </button>
                         {isNavOpen && (
                             <div className="absolute top-full mt-2 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-xl py-2 z-20">
-                                {dashboards.map((dash, index) => ( <button key={dash.id} onClick={() => handleDashboardChange(index)} className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">{dash.name}</button> ))}
+                                {dashboards.map((dash, index) => ( <button key={dash.id} onClick={() => handleDashboardChange(index)} className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">{dash.name}</button>))}
                             </div>
                         )}
                     </div>
                 </div>
                 <div className="flex items-center space-x-2 sm:space-x-4">
-                    <span className='text-sm text-gray-500 dark:text-gray-400 hidden md:block'>{user.email}</span>
+                    <span className='text-sm text-gray-500 dark:text-gray-400 hidden md:block'>
+                        {user.email}
+                        <span className={`ml-2 font-bold ${user.role === 'admin' ? 'text-red-500' : 'text-blue-500'}`}>
+                            ({user.role === 'admin' ? 'Admin' : 'Usuário'})
+                        </span>
+                    </span>
                     <button onClick={handleLogout} title="Sair" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><LogOut size={20} /></button>
                     <button onClick={toggleTheme} title="Mudar Tema" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700">{theme === 'light' ? <Moon size={20}/> : <Sun size={20}/>}</button>
                 </div>
             </header>
             <main className="p-4 md:p-8 grid grid-cols-1 gap-8">
-            {/* O resto da sua UI continua aqui... */}
             <section className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-1"><CalendarView /></div>
                     <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 content-start">
@@ -890,9 +941,33 @@ const CronoanaliseDashboard = ({ user }) => {
                     <div className="flex gap-2 mb-4 border-b pb-2 dark:border-gray-700 flex-wrap">
                         <button onClick={() => setLotFilter('ongoing')} className={`px-3 py-1 text-sm rounded-full ${lotFilter==='ongoing' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}>Em Andamento</button>
                         <button onClick={() => setLotFilter('completed')} className={`px-3 py-1 text-sm rounded-full ${lotFilter==='completed' ? 'bg-green-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}>Concluídos</button>
+                        {user.role === 'admin' && (
+                             <button onClick={() => setLotFilter('deleted')} className={`px-3 py-1 text-sm rounded-full ${lotFilter==='deleted' ? 'bg-red-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}>Lixeira</button>
+                        )}
                     </div>
                     <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
                         {filteredLots.map((lot, index, arr) => {
+                            if (lotFilter === 'deleted') {
+                                return (
+                                    <div key={lot.id} className="bg-red-100 dark:bg-red-900/50 p-4 rounded-lg">
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <h4 className="font-bold text-lg">{lot.productName}{lot.customName ? ` - ${lot.customName}` : ''}</h4>
+                                                <p className="text-sm text-gray-600 dark:text-gray-300">Lote #{lot.sequentialId} | Target: {lot.target}</p>
+                                            </div>
+                                            <div className="text-right text-xs text-red-800 dark:text-red-200">
+                                                <p>Excluído em: {lot.deletedAt?.toDate().toLocaleDateString('pt-BR')}</p>
+                                                <p>Por: {lot.deletedBy}</p>
+                                            </div>
+                                        </div>
+                                        <div className="mt-2 p-2 bg-white dark:bg-gray-800 rounded">
+                                            <p className="text-sm font-semibold">Motivo:</p>
+                                            <p className="text-sm text-gray-700 dark:text-gray-300">{lot.deletionReason}</p>
+                                        </div>
+                                    </div>
+                                )
+                            }
+                            
                             let lotBgClass = 'bg-gray-50 dark:bg-gray-700';
                             if (lot.status === 'completed') { lotBgClass = 'bg-green-100 dark:bg-green-900/50'; }
                             else if (lot.status === 'completed_missing' || lot.status === 'completed_exceeding') { lotBgClass = 'bg-gradient-to-r from-green-100 to-red-100 dark:from-green-900/50 dark:to-red-900/50'; }
@@ -917,8 +992,10 @@ const CronoanaliseDashboard = ({ user }) => {
                                             </select>
                                             <div className="flex gap-2">
                                                 <button onClick={() => setModalState({ type: 'lotObservation', data: lot })} className="text-gray-500 hover:text-blue-500"><MessageSquare size={18}/></button>
-                                                <button onClick={() => handleStartEditLot(lot)} className="text-gray-500 hover:text-yellow-500"><Edit size={18}/></button>
-                                                <button onClick={() => setModalState({ type: 'password', callback: () => handleDeleteLot(lot.id) })} className="text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
+                                                {user.role === 'admin' && <>
+                                                    <button onClick={() => handleStartEditLot(lot)} className="text-gray-500 hover:text-yellow-500"><Edit size={18}/></button>
+                                                    <button onClick={() => requestDeleteLot(lot.id)} className="text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
+                                                </>}
                                             </div>
                                         </div>
                                     </div>
@@ -985,21 +1062,44 @@ const CronoanaliseDashboard = ({ user }) => {
     );
 };
 
-// Componente Raiz que gerencia a autenticação
+// --- Componente Raiz que gerencia a autenticação ---
 const App = () => {
-    const [user, setUser] = useState(null);
+    const [user, setUser] = useState(null); 
     const [loading, setLoading] = useState(true);
+
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-            setUser(currentUser);
+        const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+            if (currentUser) {
+                // Usuário logado: buscar seu papel no Firestore
+                const userDocRef = doc(db, "users", currentUser.uid);
+                const userDoc = await getDoc(userDocRef);
+                
+                let userRole = 'user'; // Papel padrão
+                if (userDoc.exists() && userDoc.data().role) {
+                    userRole = userDoc.data().role;
+                }
+                
+                // Armazena todas as informações do usuário no estado
+                setUser({
+                    uid: currentUser.uid,
+                    email: currentUser.email,
+                    role: userRole,
+                });
+
+            } else {
+                setUser(null);
+            }
             setLoading(false);
         });
         return () => unsubscribe();
     }, []);
+    
     if (loading) {
         return <div className="min-h-screen bg-gray-100 dark:bg-black flex justify-center items-center"><p>Carregando...</p></div>;
     }
+    
     return user ? <CronoanaliseDashboard user={user} /> : <AuthScreen />;
 };
 
 export default App;
+
