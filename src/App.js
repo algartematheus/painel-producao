@@ -67,6 +67,16 @@ const dashboards = [
 // --- COMPONENTES MODAIS ---
 const ObservationModal = ({ isOpen, onClose, entry, onSave }) => {
     const [observation, setObservation] = useState('');
+const [trashItems, setTrashItems] = useState([]);
+useEffect(() => {
+  if (!projectId) return;
+  const trashQuery = query(collection(db, `artifacts/${projectId}/private/trash`));
+  const unsubscribe = onSnapshot(trashQuery, (snapshot) => {
+    setTrashItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+  });
+  return () => unsubscribe();
+}, []);
+
     useEffect(() => { if (entry) setObservation(entry.observation || ''); }, [entry]);
     if (!isOpen) return null;
     const handleSave = () => { onSave(entry.id, observation); onClose(); };
@@ -861,7 +871,11 @@ const CronoanaliseDashboard = ({ user }) => {
             <ReasonModal 
                 isOpen={modalState.type === 'reason'} 
                 onClose={closeModal} 
-                onConfirm={(reason) => executeSoftDelete(modalState.data, reason)} 
+                onConfirm={(reason) => {
+    if (modalState.nextAction === 'executeDelete') {
+      executeSoftDelete(modalState.data, reason);
+    }
+  }} 
             />
             <AdminSettingsModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} setAdminConfig={setAdminConfig} />
 
