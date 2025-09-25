@@ -882,7 +882,7 @@ const CronoanaliseDashboard = ({ user }) => {
                         </button>
                         {isNavOpen && (
                             <div className="absolute top-full mt-2 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-xl py-2 z-20">
-                                {dashboards.map((dash, index) => ( <button key={dash.id} onClick={() => handleDashboardChange(index)} className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">{dash.name}</button>))}
+                                {dashboards.map((dash, index) => ( <button key={dash.id} onClick={() => handleDashboardChange(index)} className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">{dash.name}</button> ))}
                             </div>
                         )}
                     </div>
