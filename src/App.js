@@ -58,22 +58,79 @@ const dashboards = [
 
 // --- COMPONENTES MODAIS ---
 
-const ObservationModal = ({ isOpen, onClose, entry, onSave }) => {
-    const [observation, setObservation] = useState('');
-    useEffect(() => { if (entry) setObservation(entry.observation || ''); }, [entry]);
-    if (!isOpen) return null;
-    const handleSave = () => { onSave(entry.id, observation); onClose(); };
+import { getIdTokenResult } from "firebase/auth";
 
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-            <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
-                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Observação do Período ({entry?.period})</h2><button onClick={onClose}><XCircle /></button></div>
-                <textarea value={observation} onChange={e => setObservation(e.target.value)} rows="4" className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4"></textarea>
-                <button onClick={handleSave} className="w-full h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600">Salvar</button>
-            </div>
+const PasswordModal = ({ isOpen, onClose, onConfirm }) => {
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  if (!isOpen) return null;
+
+  useEffect(() => {
+    const checkClaims = async () => {
+      if (auth.currentUser) {
+        const tokenResult = await getIdTokenResult(auth.currentUser);
+        setIsAdmin(!!tokenResult.claims.admin);
+      }
+    };
+    checkClaims();
+  }, []);
+
+  const handleConfirm = async () => {
+    setChecking(true);
+    setError('');
+
+    try {
+      const tokenResult = await getIdTokenResult(auth.currentUser);
+      if (tokenResult.claims.admin) {
+        onConfirm();
+        onClose();
+      } else {
+        setError('Você não tem permissão de administrador.');
+      }
+    } catch (err) {
+      setError('Erro ao validar permissões.');
+    }
+
+    setChecking(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+      <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold">Confirmação de Permissão</h2>
+          <button onClick={onClose}><XCircle /></button>
         </div>
-    );
+
+        <div>
+          <p className="mb-4">
+            Usuário atual: <b>{auth.currentUser?.email}</b>
+          </p>
+          {isAdmin ? (
+            <p className="text-green-600 text-sm mb-2">
+              ✅ Você tem permissão de administrador.
+            </p>
+          ) : (
+            <p className="text-red-500 text-sm mb-2">
+              ❌ Você não é administrador.
+            </p>
+          )}
+          {error && <p className="text-sm text-red-500 mb-2">{error}</p>}
+          <button
+            onClick={handleConfirm}
+            disabled={checking}
+            className="w-full h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700"
+          >
+            {checking ? "Verificando..." : "Confirmar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
+
 
 const LotObservationModal = ({ isOpen, onClose, lot, onSave }) => {
     const [observation, setObservation] = useState('');
@@ -117,85 +174,111 @@ const PasswordModal = ({ isOpen, onClose, onConfirm }) => {
 
 // --- TELA DE AUTENTICAÇÃO ---
 const AuthScreen = () => {
-    const [isLogin, setIsLogin] = useState(true);
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [error, setError] = useState('');
-    const [showPassword, setShowPassword] = useState(false);
-    const [rememberMe, setRememberMe] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
 
-    const handleAuth = async (e) => {
-        e.preventDefault();
-        setError('');
-        try {
-            const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
-            await setPersistence(auth, persistence);
-            
-            if (isLogin) {
-                await signInWithEmailAndPassword(auth, email, password);
-            } else {
-                // A lógica de criação de conta foi removida da interface,
-                // mas a função é mantida caso você decida reativá-la no futuro.
-                await createUserWithEmailAndPassword(auth, email, password);
-            }
-        } catch (err) {
-            switch (err.code) {
-                case 'auth/user-not-found':
-                case 'auth/invalid-credential':
-                    setError('Email ou senha inválidos.');
-                    break;
-                case 'auth/wrong-password':
-                    setError('Email ou senha inválidos.');
-                    break;
-                case 'auth/email-already-in-use':
-                    setError('Este email já está sendo utilizado.');
-                    break;
-                default:
-                    setError('Ocorreu um erro. Tente novamente.');
-                    break;
-            }
-        }
-    };
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setError('');
 
-    return (
-        <div className="min-h-screen bg-gray-100 dark:bg-black flex flex-col justify-center items-center p-4">
-            <div className="w-full max-w-md">
-                <div className="flex justify-center items-center mb-8">
-                    <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-24 w-auto dark:invert" />
-                </div>
-                <div className="bg-white dark:bg-gray-900 p-8 rounded-2xl shadow-2xl">
-                    <h2 className="text-2xl font-bold text-center text-gray-800 dark:text-white mb-6">
-                        Acessar Painel
-                    </h2>
-                    <form onSubmit={handleAuth} className="space-y-6">
-                        <div>
-                            <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Email</label>
-                            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required className="mt-1 w-full p-3 rounded-md bg-gray-100 dark:bg-gray-800 border-transparent focus:border-blue-500 focus:ring-0" />
-                        </div>
-                        <div>
-                            <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Senha</label>
-                             <div className="relative">
-                                <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} required className="mt-1 w-full p-3 rounded-md bg-gray-100 dark:bg-gray-800 border-transparent focus:border-blue-500 focus:ring-0" />
-                                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500">
-                                    {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                                </button>
-                            </div>
-                        </div>
+    try {
+      const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
+      await setPersistence(auth, persistence);
 
-                        <div className="flex items-center">
-                            <input id="remember-me" name="remember-me" type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-                            <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900 dark:text-gray-300">Manter-me conectado</label>
-                        </div>
+      // Apenas login
+      await signInWithEmailAndPassword(auth, email, password);
 
-                        {error && <p className="text-sm text-red-500 text-center">{error}</p>}
-                        <button type="submit" className="w-full h-12 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors">
-                            Entrar
-                        </button>
-                    </form>
-                </div>
-            </div>
+    } catch (err) {
+      switch (err.code) {
+        case 'auth/user-not-found':
+        case 'auth/invalid-credential':
+        case 'auth/wrong-password':
+          setError('Email ou senha inválidos.');
+          break;
+        case 'auth/email-already-in-use':
+          setError('Este email já está sendo utilizado.');
+          break;
+        default:
+          setError('Ocorreu um erro. Tente novamente.');
+          break;
+      }
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100 dark:bg-black flex flex-col justify-center items-center p-4">
+      <div className="w-full max-w-md">
+        <div className="flex justify-center items-center mb-8">
+          <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-24 w-auto dark:invert" />
         </div>
-    );
+
+        <div className="bg-white dark:bg-gray-900 p-8 rounded-2xl shadow-2xl">
+          <h2 className="text-2xl font-bold text-center text-gray-800 dark:text-white mb-6">
+            Acessar Painel
+          </h2>
+
+          <form onSubmit={handleAuth} className="space-y-6">
+            <div>
+              <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+                className="mt-1 w-full p-3 rounded-md bg-gray-100 dark:bg-gray-800 border-transparent focus:border-blue-500 focus:ring-0"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Senha</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  className="mt-1 w-full p-3 rounded-md bg-gray-100 dark:bg-gray-800 border-transparent focus:border-blue-500 focus:ring-0"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500"
+                >
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center">
+              <input
+                id="remember-me"
+                name="remember-me"
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+              />
+              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900 dark:text-gray-300">
+                Manter-me conectado
+              </label>
+            </div>
+
+            {error && <p className="text-sm text-red-500 text-center">{error}</p>}
+
+            <button
+              type="submit"
+              className="w-full h-12 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+            >
+              Entrar
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 
