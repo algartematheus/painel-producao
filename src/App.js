@@ -120,8 +120,6 @@ const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
             const hash = await sha256Hex(passwordInput || '');
             if (hash === adminConfig.passwordHash) {
                 if (onSuccess) onSuccess();
-                // Fecha o modal após o sucesso para iniciar o próximo (ReasonModal ou directAction)
-                // Não chama onClose aqui, pois o fluxo é controlado no onSuccess.
             } else {
                 alert('Senha incorreta!');
                 setPasswordInput('');
@@ -311,7 +309,10 @@ const CronoanaliseDashboard = ({ user }) => {
     const [newProduct, setNewProduct] = useState({ name: '', standardTime: '' });
     const [editingProductId, setEditingProductId] = useState(null);
     const [editingProductData, setEditingProductData] = useState({ name: '', standardTime: '' });
+    
+    // ESTADO INICIAL: Garante que period seja sempre '' para o <select>
     const [newEntry, setNewEntry] = useState({ period: '', people: '', availableTime: 60, productId: '', productions: [] });
+    
     const [goalPreview, setGoalPreview] = useState("0");
     const [predictedLots, setPredictedLots] = useState([]);
     const [modalState, setModalState] = useState({ type: null, data: null });
@@ -791,7 +792,7 @@ const CronoanaliseDashboard = ({ user }) => {
             if (productionDiff[productId] !== 0) {
                 const lotToUpdate = lots.find(l => l.productId === productId);
                 if (lotToUpdate) {
-                    const lotRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_lots`, lotToUpdate.id);
+                    const lotRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotToUpdate.id}`);
                     const newProduced = (lotToUpdate.produced || 0) + productionDiff[productId];
                     let newStatus = lotToUpdate.status;
                     if (newProduced >= lotToUpdate.target) {
@@ -1152,9 +1153,9 @@ const CronoanaliseDashboard = ({ user }) => {
                         <h3 className="text-lg font-medium mb-4">Criar Novo Lote</h3>
                         <form onSubmit={handleAddLot} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                             <div className="flex flex-col">
-                                <label htmlFor="lotProduct">Produto</label>
+                                <label htmlFor="newLotProduct">Produto</label>
                                 <select 
-                                    id="lotProduct" 
+                                    id="newLotProduct" 
                                     name="productId"
                                     value={newLot.productId} 
                                     onChange={e => setNewLot({...newLot, productId: e.target.value})} 
@@ -1167,10 +1168,10 @@ const CronoanaliseDashboard = ({ user }) => {
                                 </select>
                             </div>
                             <div className="flex flex-col">
-                                <label htmlFor="lotTarget">Quantidade Total</label>
+                                <label htmlFor="newLotTarget">Quantidade Total</label>
                                 <input 
                                     type="number" 
-                                    id="lotTarget" 
+                                    id="newLotTarget" 
                                     name="target"
                                     value={newLot.target} 
                                     onChange={e => setNewLot({...newLot, target: e.target.value})} 
@@ -1180,10 +1181,10 @@ const CronoanaliseDashboard = ({ user }) => {
                                 />
                             </div>
                             <div className="flex flex-col">
-                                <label htmlFor="lotCustomName">Nome do Lote (Opcional)</label>
+                                <label htmlFor="newLotCustomName">Nome do Lote (Opcional)</label>
                                 <input 
                                     type="text" 
-                                    id="lotCustomName" 
+                                    id="newLotCustomName" 
                                     name="customName"
                                     value={newLot.customName} 
                                     onChange={e => setNewLot({...newLot, customName: e.target.value})} 
