@@ -703,7 +703,7 @@ const CronoanaliseDashboard = ({ user }) => {
         setNewEntry(prev => ({ ...prev, productions: newProductions }));
     };
 
-    // --- FUNÇÕES DE CRUD DE PRODUTOS RESTAURADAS ---
+    // --- FUNÇÕES DE CRUD DE PRODUTOS ---
     const handleAddProduct = async (e) => {
         e.preventDefault();
         if (!newProduct.name || !newProduct.standardTime) { alert("Nome e tempo padrão são obrigatórios."); return; }
@@ -724,17 +724,11 @@ const CronoanaliseDashboard = ({ user }) => {
         await updateDoc(productRef, { ...editingProductData, standardTime: parseFloat(editingProductData.standardTime) });
         setEditingProductId(null);
     };
-    // --- FIM DAS FUNÇÕES DE CRUD DE PRODUTOS RESTAURADAS ---
+    // --- FIM DAS FUNÇÕES DE CRUD DE PRODUTOS ---
 
-    const handleDeleteProduct = (productId) => {
-        console.log('DEBUG: Iniciando fluxo de exclusão de lote/produto (PRODUCT)');
-        const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_products/${productId}`;
-        setModalState({
-            type: 'password',
-            data: { itemType: 'product', itemId: productId, itemDocPath },
-        });
-    };
-    
+    // A função handleDeleteProduct já estava declarada no bloco "LÓGICA DE EXCLUSÃO (SOFT-DELETE) E MODAIS"
+    // e foi removida daqui para evitar a duplicidade.
+
     const handleSaveObservation = async (entryId, observation) => {
         const dateKey = selectedDate.toISOString().slice(0, 10);
         const dayDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`, dateKey);
@@ -1376,7 +1370,7 @@ const CronoanaliseDashboard = ({ user }) => {
                 <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg mt-8">
                     <h2 className="text-xl font-semibold mb-4 flex items-center">
                         <Trash2 className="mr-2 text-red-500"/> Lixeira
-                    </p>
+                    </h2>
                     <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
                         {trashItems.length === 0 && (
                             <p className="text-gray-500">Nenhum item na lixeira.</p>
