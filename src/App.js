@@ -400,7 +400,7 @@ const CronoanaliseDashboard = ({ user }) => {
     useEffect(() => {
         if (!projectId) return;
         
-        // CORREÇÃO FIREBASE: Caminho da Lixeira corrigido para ser collection/document/collection
+        // CORREÇÃO FIREBASE: Caminho da Lixeira
         const trashQuery = query(collection(db, `artifacts/${projectId}/private/admin_docs/trash`));
         const unsubscribeTrash = onSnapshot(trashQuery, (snapshot) => {
             setTrashItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -409,7 +409,8 @@ const CronoanaliseDashboard = ({ user }) => {
         let mounted = true;
         const loadAdminConfig = async () => {
             try {
-                // CORREÇÃO FIREBASE: Garantindo o número par/ímpar de segmentos
+                // CORREÇÃO FIREBASE: Caminho correto para o Document Reference (ímpar)
+                // artifacts / {projectId} / private / admin_docs / admin_config
                 const adminDocRef = doc(db, 'artifacts', projectId, 'private', 'admin_docs', 'admin_config');
                 const adminSnap = await getDoc(adminDocRef);
                 if (mounted && adminSnap.exists()) {
@@ -1250,84 +1251,6 @@ const CronoanaliseDashboard = ({ user }) => {
                     </form>
                 </section>
 
-                {/* --- SEÇÃO DE GERENCIAMENTO DE PRODUTOS RESTAURADA --- */}
-                <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
-                    <h2 className="text-xl font-semibold mb-4 flex items-center">
-                        <Package className="mr-2 text-blue-500"/> Gerenciamento de Produtos
-                    </h2>
-                    
-                    {/* Formulário de Adição */}
-                    <div className="mb-6 border-b pb-6 dark:border-gray-700">
-                        <h3 className="text-lg font-medium mb-4">Adicionar Novo Produto</h3>
-                        <form onSubmit={handleAddProduct} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                            <div className="flex flex-col">
-                                <label htmlFor="newProductName">Nome do Produto</label>
-                                <input 
-                                    type="text" 
-                                    id="newProductName" 
-                                    value={newProduct.name} 
-                                    onChange={e => setNewProduct({...newProduct, name: e.target.value})} 
-                                    placeholder="Nome/Código" 
-                                    required 
-                                    className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                />
-                            </div>
-                            <div className="flex flex-col">
-                                <label htmlFor="newProductTime">Tempo Padrão (min/un)</label>
-                                <input 
-                                    type="number" 
-                                    id="newProductTime" 
-                                    value={newProduct.standardTime} 
-                                    onChange={e => setNewProduct({...newProduct, standardTime: e.target.value})} 
-                                    placeholder="ex: 0.75" 
-                                    step="0.01"
-                                    required 
-                                    className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                />
-                            </div>
-                            <button type="submit" className="h-10 px-6 font-semibold rounded-md bg-green-600 text-white hover:bg-green-700">Adicionar Produto</button>
-                        </form>
-                    </div>
-
-                    {/* Lista de Produtos */}
-                    <h3 className="text-lg font-medium mb-4">Lista de Produtos ({products.length})</h3>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-gray-50 dark:bg-gray-700"><tr>
-                                <th className="p-3">Nome do Produto</th>
-                                <th className="p-3">Tempo Padrão (min/un)</th>
-                                <th className="p-3">Ações</th>
-                            </tr></thead>
-                            <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
-                                {products.map((p) => (
-                                    <tr key={p.id}>
-                                        {editingProductId === p.id ? (
-                                            <>
-                                                <td className="p-1"><input type="text" value={editingProductData.name} onChange={(e) => setEditingProductData({...editingProductData, name: e.target.value})} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
-                                                <td className="p-1"><input type="number" step="0.01" value={editingProductData.standardTime} onChange={(e) => setEditingProductData({...editingProductData, standardTime: e.target.value})} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
-                                                <td className="p-3 flex gap-2">
-                                                    <button onClick={() => handleSaveProduct(p.id)} title="Salvar Produto" className="text-green-500 hover:text-green-400"><Save size={18}/></button>
-                                                    <button onClick={() => setEditingProductId(null)} title="Cancelar Edição" className="text-gray-500 hover:text-gray-400"><XCircle size={18}/></button>
-                                                </td>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <td className="p-3 font-semibold">{p.name}</td>
-                                                <td className="p-3">{p.standardTime}</td>
-                                                <td className="p-3 flex gap-2">
-                                                    <button onClick={() => handleStartEditProduct(p)} title="Editar Produto" className="text-gray-500 hover:text-yellow-500"><Edit size={18}/></button>
-                                                    <button onClick={() => handleDeleteProduct(p.id)} title="Excluir Produto (Enviar para Lixeira)" className="text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
-                                                </td>
-                                            </>
-                                        )}
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
-                {/* --- FIM DA SEÇÃO DE GERENCIAMENTO DE PRODUTOS --- */}
-                
                 <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
                     <h2 className="text-xl font-semibold mb-4 flex items-center"><Layers className="mr-2 text-blue-500"/> Controle de Lotes de Produção</h2>
                     <div className="mb-6 border-b pb-6 dark:border-gray-700">
@@ -1437,6 +1360,88 @@ const CronoanaliseDashboard = ({ user }) => {
                             )})}
                     </div>
                 </section>
+                
+                {/* --- SEÇÃO DE GERENCIAMENTO DE PRODUTOS RESTAURADA (AGORA ABAIXO DE LOTES) --- */}
+                <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
+                    <h2 className="text-xl font-semibold mb-4 flex items-center">
+                        <Package className="mr-2 text-blue-500"/> Gerenciamento de Produtos
+                    </h2>
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* Formulário de Adição */}
+                        <div className="space-y-4">
+                            <h3 className="text-lg font-medium">Cadastrar Novo Produto</h3>
+                            <form onSubmit={handleAddProduct} className="space-y-3">
+                                <div className="flex flex-col">
+                                    <label htmlFor="newProductName" className='mb-1 text-sm'>Nome do Produto</label>
+                                    <input 
+                                        type="text" 
+                                        id="newProductName" 
+                                        value={newProduct.name} 
+                                        onChange={e => setNewProduct({...newProduct, name: e.target.value})} 
+                                        placeholder="ex: Peça X-15" 
+                                        required 
+                                        className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                    />
+                                </div>
+                                <div className="flex flex-col">
+                                    <label htmlFor="newProductTime" className='mb-1 text-sm'>Tempo Padrão (minutos)</label>
+                                    <input 
+                                        type="number" 
+                                        id="newProductTime" 
+                                        value={newProduct.standardTime} 
+                                        onChange={e => setNewProduct({...newProduct, standardTime: e.target.value})} 
+                                        placeholder="ex: 1.25" 
+                                        step="0.01"
+                                        required 
+                                        className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                    />
+                                </div>
+                                <button type="submit" className="w-full h-10 px-6 font-semibold rounded-md bg-green-600 text-white hover:bg-green-700">Salvar Produto</button>
+                            </form>
+                        </div>
+                        
+                        {/* Lista de Produtos (Manteve o layout de tabela editável) */}
+                        <div className="space-y-4">
+                            <h3 className="text-lg font-medium">Produtos Cadastrados ({products.length})</h3>
+                            <div className="overflow-x-auto rounded-lg border dark:border-gray-700">
+                                <table className="w-full text-left">
+                                    <thead className="bg-gray-50 dark:bg-gray-700 border-b dark:border-gray-600"><tr>
+                                        <th className="p-3">Nome/Código</th>
+                                        <th className="p-3">Tempo Padrão</th>
+                                        <th className="p-3">Ações</th>
+                                    </tr></thead>
+                                    <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
+                                        {products.map((p) => (
+                                            <tr key={p.id}>
+                                                {editingProductId === p.id ? (
+                                                    <>
+                                                        <td className="p-2"><input type="text" value={editingProductData.name} onChange={(e) => setEditingProductData({...editingProductData, name: e.target.value})} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
+                                                        <td className="p-2"><input type="number" step="0.01" value={editingProductData.standardTime} onChange={(e) => setEditingProductData({...editingProductData, standardTime: e.target.value})} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
+                                                        <td className="p-2 flex gap-2">
+                                                            <button onClick={() => handleSaveProduct(p.id)} title="Salvar Produto" className="text-green-500 hover:text-green-400"><Save size={18}/></button>
+                                                            <button onClick={() => setEditingProductId(null)} title="Cancelar Edição" className="text-gray-500 hover:text-gray-400"><XCircle size={18}/></button>
+                                                        </td>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <td className="p-3 font-semibold">{p.name}</td>
+                                                        <td className="p-3">{p.standardTime} min</td>
+                                                        <td className="p-3 flex gap-2">
+                                                            <button onClick={() => handleStartEditProduct(p)} title="Editar Produto" className="text-gray-500 hover:text-yellow-500"><Edit size={18}/></button>
+                                                            <button onClick={() => handleDeleteProduct(p.id)} title="Excluir Produto (Enviar para Lixeira)" className="text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
+                                                        </td>
+                                                    </>
+                                                )}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                {/* --- FIM DA SEÇÃO DE GERENCIAMENTO DE PRODUTOS --- */}
                 
                 <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg mt-8">
                     <h2 className="text-xl font-semibold mb-4 flex items-center">
