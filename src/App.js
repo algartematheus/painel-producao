@@ -556,8 +556,9 @@ const CronoanaliseDashboard = ({ user }) => {
         const usedPeriods = new Set(dailyProductionData.map(entry => entry.period));
         
         // 2. Filtra os horários fixos
+        // REMOVIDO FIXED_PERIODS DA LISTA DE DEPENDÊNCIAS, pois ele é constante do escopo externo.
         return FIXED_PERIODS.filter(period => !usedPeriods.has(period));
-    }, [dailyProductionData, FIXED_PERIODS]);
+    }, [dailyProductionData]); 
     // --- FIM DA LÓGICA FILTRADA ---
 
     const processedData = useMemo(() => {
