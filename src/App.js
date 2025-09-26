@@ -659,7 +659,7 @@ const CronoanaliseDashboard = ({ user }) => {
         const dateKey = selectedDate.toISOString().slice(0, 10);
         const dayDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData/${dateKey}`);
         const dayDoc = await getDoc(dayDocRef);
-        const currentEntries = dayDoc.exists() && doc.data().entries ? doc.data().entries : [];
+        const currentEntries = dayDoc.exists() && dayDoc.data().entries ? dayDoc.data().entries : [];
         const batch = writeBatch(db);
         batch.set(dayDocRef, { entries: [...currentEntries, newEntryWithId] }, { merge: true });
         productionDetails.forEach(detail => {
@@ -897,16 +897,6 @@ const CronoanaliseDashboard = ({ user }) => {
         setCurrentDashboardIndex(index);
         setIsNavOpen(false);
     };
-    
-    // --- LÓGICA FILTRADA DE HORÁRIOS DISPONÍVEIS ---
-    const availablePeriods = useMemo(() => {
-        // 1. Coleta os horários já utilizados
-        const usedPeriods = new Set(dailyProductionData.map(entry => entry.period));
-        
-        // 2. Filtra os horários fixos
-        return FIXED_PERIODS.filter(period => !usedPeriods.has(period));
-    }, [dailyProductionData]);
-    // --- FIM DA LÓGICA FILTRADA ---
 
     return (
         <div className="min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans">
