@@ -1,5 +1,5 @@
 // Define um nome e uma versão para o cache
-const CACHE_NAME = 'painel-producao-cache-v1';
+const CACHE_NAME = 'painel-producao-cache-v2'; // MUDADO PARA V2
 // Lista de URLs para fazer cache inicial (arquivos estáticos essenciais)
 const urlsToCache = [
   '/',
@@ -88,4 +88,3 @@ self.addEventListener('activate', event => {
     })
   );
 });
-
