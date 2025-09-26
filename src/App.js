@@ -180,21 +180,56 @@ const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
         </div>
     );
 };
-const AdminSettingsModal = ({ isOpen, onClose, setAdminConfig }) => {
+
+// MODAL DE CONFIGURAÇÕES DE ADMIN ATUALIZADO PARA PEDIR A SENHA ANTERIOR
+const AdminSettingsModal = ({ isOpen, onClose, setAdminConfig, adminConfig }) => {
+    // Adicionado estado para a senha anterior
+    const [oldPass, setOldPass] = useState('');
     const [newPass, setNewPass] = useState('');
     const [confirmPass, setConfirmPass] = useState('');
     const [saving, setSaving] = useState(false);
+    
+    // Verifica se já existe uma senha configurada
+    const requiresOldPass = !!adminConfig?.passwordHash;
+
+    useEffect(() => {
+        if (!isOpen) {
+            setOldPass('');
+            setNewPass('');
+            setConfirmPass('');
+            setSaving(false);
+        }
+    }, [isOpen]);
+    
     if (!isOpen) return null;
+
     const handleSave = async () => {
+        if (requiresOldPass && !oldPass) {
+            alert('Insira a senha atual para continuar.'); 
+            return; 
+        }
         if (!newPass) { alert('Insira a nova senha.'); return; }
         if (newPass !== confirmPass) { alert('As senhas não coincidem.'); return; }
+        
         setSaving(true);
         try {
-            const hash = await sha256Hex(newPass);
+            // 1. CHECAGEM DA SENHA ANTERIOR (SE NECESSÁRIO)
+            if (requiresOldPass) {
+                const oldHash = await sha256Hex(oldPass);
+                if (oldHash !== adminConfig.passwordHash) {
+                    alert('A senha atual inserida está incorreta!');
+                    setOldPass('');
+                    setSaving(false);
+                    return;
+                }
+            }
+            
+            // 2. SALVAMENTO DA NOVA SENHA
+            const newHash = await sha256Hex(newPass);
             // Caminho de salvamento padronizado para admin_docs/admin_config
             const adminDocRef = doc(db, `artifacts/${projectId}/private/admin_docs`, 'admin_config');
-            await setDoc(adminDocRef, { passwordHash: hash });
-            setAdminConfig({ passwordHash: hash });
+            await setDoc(adminDocRef, { passwordHash: newHash });
+            setAdminConfig({ passwordHash: newHash });
             alert('Senha atualizada com sucesso.');
             onClose();
         } catch (e) {
@@ -202,13 +237,42 @@ const AdminSettingsModal = ({ isOpen, onClose, setAdminConfig }) => {
             alert('Erro ao salvar nova senha.');
         } finally { setSaving(false); }
     };
+    
+    // Mensagens dinâmicas
+    const title = requiresOldPass ? 'Alterar Senha de Admin' : 'Configurar Senha de Admin';
+    const oldPassPlaceholder = requiresOldPass ? 'Senha Atual' : 'Primeira Senha (Opcional)';
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
             <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
-                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Configurações de Admin</h2><button onClick={onClose} title="Fechar"><XCircle /></button></div>
-                <div className="space-y-2">
-                    <input type="password" placeholder="Nova senha" value={newPass} onChange={(e) => setNewPass(e.target.value)} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700" />
-                    <input type="password" placeholder="Confirmar senha" value={confirmPass} onChange={(e) => setConfirmPass(e.target.value)} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700" />
+                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">{title}</h2><button onClick={onClose} title="Fechar"><XCircle /></button></div>
+                <div className="space-y-3">
+                    {requiresOldPass && (
+                        <input 
+                            type="password" 
+                            placeholder={oldPassPlaceholder} 
+                            value={oldPass} 
+                            onChange={(e) => setOldPass(e.target.value)} 
+                            required={requiresOldPass}
+                            className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700" 
+                        />
+                    )}
+                    <input 
+                        type="password" 
+                        placeholder="Nova senha" 
+                        value={newPass} 
+                        onChange={(e) => setNewPass(e.target.value)} 
+                        required 
+                        className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700" 
+                    />
+                    <input 
+                        type="password" 
+                        placeholder="Confirmar nova senha" 
+                        value={confirmPass} 
+                        onChange={(e) => setConfirmPass(e.target.value)} 
+                        required 
+                        className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700" 
+                    />
                     <button onClick={handleSave} disabled={saving} className="w-full h-10 px-6 font-semibold rounded-md bg-green-600 text-white hover:bg-green-700">
                         {saving ? 'Salvando...' : 'Salvar nova senha'}
                     </button>
@@ -933,7 +997,13 @@ const CronoanaliseDashboard = ({ user }) => {
                 onClose={closeModal}
                 onConfirm={(reason) => executeSoftDelete(reason)}
             />
-            <AdminSettingsModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} setAdminConfig={setAdminConfig} />
+            {/* PASSANDO adminConfig para o modal de configurações */}
+            <AdminSettingsModal 
+                isOpen={modalState.type === 'adminSettings'} 
+                onClose={closeModal} 
+                setAdminConfig={setAdminConfig} 
+                adminConfig={adminConfig} // Passado para checar a senha anterior
+            />
 
             <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-10">
                 <div className="flex items-center gap-4">
