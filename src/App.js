@@ -308,7 +308,11 @@ const CronoanaliseDashboard = ({ user }) => {
     const [newLot, setNewLot] = useState({ productId: '', target: '', customName: '' });
     const [editingLotId, setEditingLotId] = useState(null);
     const [editingLotData, setEditingLotData] = useState({ target: '', customName: '' });
+
+    // ESTADOS DE PRODUTO RESTAURADOS
     const [newProduct, setNewProduct] = useState({ name: '', standardTime: '' });
+    const [editingProductId, setEditingProductId] = useState(null);
+    const [editingProductData, setEditingProductData] = useState({ name: '', standardTime: '' });
     
     // ESTADO INICIAL: Garante que period seja sempre '' para o <select>
     const [newEntry, setNewEntry] = useState({ period: '', people: '', availableTime: 60, productId: '', productions: [] });
@@ -435,6 +439,15 @@ const CronoanaliseDashboard = ({ user }) => {
         });
     };
 
+    const handleDeleteProduct = (productId) => {
+        console.log('DEBUG: Iniciando fluxo de exclusão de lote/produto (PRODUCT)');
+        const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_products/${productId}`;
+        setModalState({
+            type: 'password',
+            data: { itemType: 'product', itemId: productId, itemDocPath },
+        });
+    };
+
     const handleDeleteEntry = (entryId, dateKey) => {
         console.log('DEBUG: Iniciando fluxo de exclusão direta de Lançamento');
         const deleteAction = async () => {
@@ -543,7 +556,7 @@ const CronoanaliseDashboard = ({ user }) => {
         
         // 2. Filtra os horários fixos
         return FIXED_PERIODS.filter(period => !usedPeriods.has(period));
-    }, [dailyProductionData, FIXED_PERIODS]); // FIXED_PERIODS adicionado aqui para corrigir o warning do ESLint
+    }, [dailyProductionData, FIXED_PERIODS]);
     // --- FIM DA LÓGICA FILTRADA ---
 
     const processedData = useMemo(() => {
@@ -689,29 +702,29 @@ const CronoanaliseDashboard = ({ user }) => {
         setNewEntry(prev => ({ ...prev, productions: newProductions }));
     };
 
-    // REMOVIDO: handleAddProduct não estava sendo usado e gerava aviso do ESLint (Linha 702)
-    // const handleAddProduct = async (e) => {
-    //     e.preventDefault();
-    //     if (!newProduct.name || !newProduct.standardTime) return;
-    //     const newProductData = { ...newProduct, standardTime: parseFloat(newProduct.standardTime) };
-    //     const docRef = doc(collection(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_products`));
-    //     await setDoc(docRef, newProductData);
-    //     setNewProduct({ name: '', standardTime: '' });
-    // };
-    
-    // REMOVIDO: handleStartEditProduct não estava sendo usado e gerava aviso do ESLint (Linha 710)
-    // const handleStartEditProduct = (product) => {
-    //     setEditingProductId(product.id);
-    //     setEditingProductData({ name: product.name, standardTime: product.standardTime });
-    // };
-    
-    // REMOVIDO: handleSaveProduct não estava sendo usado e gerava aviso do ESLint (Linha 714)
-    // const handleSaveProduct = async (id) => {
-    //     const productRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_products`, id);
-    //     await updateDoc(productRef, { ...editingProductData, standardTime: parseFloat(editingProductData.standardTime) });
-    //     setEditingProductId(null);
-    // };
-    
+    // --- FUNÇÕES DE CRUD DE PRODUTOS RESTAURADAS ---
+    const handleAddProduct = async (e) => {
+        e.preventDefault();
+        if (!newProduct.name || !newProduct.standardTime) { alert("Nome e tempo padrão são obrigatórios."); return; }
+        const newProductData = { ...newProduct, standardTime: parseFloat(newProduct.standardTime) };
+        const docRef = doc(collection(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_products`));
+        await setDoc(docRef, newProductData);
+        setNewProduct({ name: '', standardTime: '' });
+    };
+
+    const handleStartEditProduct = (product) => {
+        setEditingProductId(product.id);
+        setEditingProductData({ name: product.name, standardTime: product.standardTime });
+    };
+
+    const handleSaveProduct = async (id) => {
+        if (!editingProductData.name || !editingProductData.standardTime) { alert("Nome e tempo padrão são obrigatórios."); return; }
+        const productRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_products`, id);
+        await updateDoc(productRef, { ...editingProductData, standardTime: parseFloat(editingProductData.standardTime) });
+        setEditingProductId(null);
+    };
+    // --- FIM DAS FUNÇÕES DE CRUD DE PRODUTOS RESTAURADAS ---
+
     const handleSaveObservation = async (entryId, observation) => {
         const dateKey = selectedDate.toISOString().slice(0, 10);
         const dayDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`, dateKey);
@@ -1161,6 +1174,85 @@ const CronoanaliseDashboard = ({ user }) => {
                         </div>
                     </form>
                 </section>
+
+                {/* --- SEÇÃO DE GERENCIAMENTO DE PRODUTOS RESTAURADA --- */}
+                <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
+                    <h2 className="text-xl font-semibold mb-4 flex items-center">
+                        <Package className="mr-2 text-blue-500"/> Gerenciamento de Produtos
+                    </h2>
+                    
+                    {/* Formulário de Adição */}
+                    <div className="mb-6 border-b pb-6 dark:border-gray-700">
+                        <h3 className="text-lg font-medium mb-4">Adicionar Novo Produto</h3>
+                        <form onSubmit={handleAddProduct} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                            <div className="flex flex-col">
+                                <label htmlFor="newProductName">Nome do Produto</label>
+                                <input 
+                                    type="text" 
+                                    id="newProductName" 
+                                    value={newProduct.name} 
+                                    onChange={e => setNewProduct({...newProduct, name: e.target.value})} 
+                                    placeholder="Nome/Código" 
+                                    required 
+                                    className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                            <div className="flex flex-col">
+                                <label htmlFor="newProductTime">Tempo Padrão (min/un)</label>
+                                <input 
+                                    type="number" 
+                                    id="newProductTime" 
+                                    value={newProduct.standardTime} 
+                                    onChange={e => setNewProduct({...newProduct, standardTime: e.target.value})} 
+                                    placeholder="ex: 0.75" 
+                                    step="0.01"
+                                    required 
+                                    className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                            <button type="submit" className="h-10 px-6 font-semibold rounded-md bg-green-600 text-white hover:bg-green-700">Adicionar Produto</button>
+                        </form>
+                    </div>
+
+                    {/* Lista de Produtos */}
+                    <h3 className="text-lg font-medium mb-4">Lista de Produtos ({products.length})</h3>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                            <thead className="bg-gray-50 dark:bg-gray-700"><tr>
+                                <th className="p-3">Nome do Produto</th>
+                                <th className="p-3">Tempo Padrão (min/un)</th>
+                                <th className="p-3">Ações</th>
+                            </tr></thead>
+                            <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
+                                {products.map((p) => (
+                                    <tr key={p.id}>
+                                        {editingProductId === p.id ? (
+                                            <>
+                                                <td className="p-1"><input type="text" value={editingProductData.name} onChange={(e) => setEditingProductData({...editingProductData, name: e.target.value})} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
+                                                <td className="p-1"><input type="number" step="0.01" value={editingProductData.standardTime} onChange={(e) => setEditingProductData({...editingProductData, standardTime: e.target.value})} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
+                                                <td className="p-3 flex gap-2">
+                                                    <button onClick={() => handleSaveProduct(p.id)} title="Salvar Produto" className="text-green-500 hover:text-green-400"><Save size={18}/></button>
+                                                    <button onClick={() => setEditingProductId(null)} title="Cancelar Edição" className="text-gray-500 hover:text-gray-400"><XCircle size={18}/></button>
+                                                </td>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <td className="p-3 font-semibold">{p.name}</td>
+                                                <td className="p-3">{p.standardTime}</td>
+                                                <td className="p-3 flex gap-2">
+                                                    <button onClick={() => handleStartEditProduct(p)} title="Editar Produto" className="text-gray-500 hover:text-yellow-500"><Edit size={18}/></button>
+                                                    <button onClick={() => handleDeleteProduct(p.id)} title="Excluir Produto (Enviar para Lixeira)" className="text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
+                                                </td>
+                                            </>
+                                        )}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+                {/* --- FIM DA SEÇÃO DE GERENCIAMENTO DE PRODUTOS --- */}
+                
                 <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
                     <h2 className="text-xl font-semibold mb-4 flex items-center"><Layers className="mr-2 text-blue-500"/> Controle de Lotes de Produção</h2>
                     <div className="mb-6 border-b pb-6 dark:border-gray-700">
