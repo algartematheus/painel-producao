@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff, Settings, ChevronDown as ChevronDownIcon } from 'lucide-react';
+// Ajustando as importações de ícones: removendo importações não utilizadas para evitar o aviso.
+import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff, Settings, ChevronDown as ChevronDownIcon, Package } from 'lucide-react';
 // Importações do Firebase
 import { initializeApp } from 'firebase/app';
 import {
@@ -725,6 +726,15 @@ const CronoanaliseDashboard = ({ user }) => {
     };
     // --- FIM DAS FUNÇÕES DE CRUD DE PRODUTOS RESTAURADAS ---
 
+    const handleDeleteProduct = (productId) => {
+        console.log('DEBUG: Iniciando fluxo de exclusão de lote/produto (PRODUCT)');
+        const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_products/${productId}`;
+        setModalState({
+            type: 'password',
+            data: { itemType: 'product', itemId: productId, itemDocPath },
+        });
+    };
+    
     const handleSaveObservation = async (entryId, observation) => {
         const dateKey = selectedDate.toISOString().slice(0, 10);
         const dayDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`, dateKey);
@@ -1366,7 +1376,7 @@ const CronoanaliseDashboard = ({ user }) => {
                 <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg mt-8">
                     <h2 className="text-xl font-semibold mb-4 flex items-center">
                         <Trash2 className="mr-2 text-red-500"/> Lixeira
-                    </h2>
+                    </p>
                     <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
                         {trashItems.length === 0 && (
                             <p className="text-gray-500">Nenhum item na lixeira.</p>
