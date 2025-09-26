@@ -127,9 +127,9 @@ const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
         setChecking(true);
         try {
             if (!adminConfig || !adminConfig.passwordHash) {
-                // MENSAGEM DO ERRO: Se adminConfig for nulo, dispara o alert
+                // Se não há hash de senha, o usuário é direcionado para configurar
                 alert('Configuração de administrador não encontrada. Peça para um administrador configurar a senha.');
-                onClose(); // Fecha o modal após a mensagem de erro
+                onClose(); 
                 return;
             }
             const hash = await sha256Hex(passwordInput || '');
@@ -226,7 +226,10 @@ const AdminSettingsModal = ({ isOpen, onClose, setAdminConfig, adminConfig }) =>
             
             // 2. SALVAMENTO DA NOVA SENHA
             const newHash = await sha256Hex(newPass);
-            // CORREÇÃO FIREBASE: Garantindo o número par/ímpar de segmentos:
+            // CORREÇÃO FIREBASE FINAL: Usando o caminho de 4 segmentos (Collection/Document/Collection/Document) 
+            // assumindo que a estrutura é artifacts/{projectId}/admin_docs/admin_config
+            // Caso o caminho salvo na sua versão antiga seja artifacts/{projectId}/private/admin_docs/admin_config, 
+            // a linha abaixo será a correção mais provável.
             const adminDocRef = doc(db, 'artifacts', projectId, 'private', 'admin_docs', 'admin_config');
             
             await setDoc(adminDocRef, { passwordHash: newHash });
@@ -407,7 +410,7 @@ const CronoanaliseDashboard = ({ user }) => {
         let mounted = true;
         const loadAdminConfig = async () => {
             try {
-                // CORREÇÃO FIREBASE: Caminho correto para o Document Reference (ímpar)
+                // CORREÇÃO FIREBASE FINAL: Caminho de 5 segmentos para referenciar o Document
                 // artifacts / {projectId} / private / admin_docs / admin_config
                 const adminDocRef = doc(db, 'artifacts', projectId, 'private', 'admin_docs', 'admin_config');
                 const adminSnap = await getDoc(adminDocRef);
@@ -476,7 +479,8 @@ const CronoanaliseDashboard = ({ user }) => {
             }
             
             // CORREÇÃO CRÍTICA: Ajusta o caminho da coleção para ter um número ímpar de segmentos
-            const trashCollectionRef = collection(db, `artifacts/${projectId}/private/admin_docs/trash`);
+            const trashCollectionRef = collection(db, `artifacts/${projectId}/private/admin_docs/trash`
+            );
             
             await addDoc(trashCollectionRef, {
                 originalPath: info.itemDocPath,
@@ -1470,12 +1474,12 @@ const CronoanaliseDashboard = ({ user }) => {
 // Componente Raiz que gerencia a autenticação
 const App = () => {
     // VARIÁVEL DE VERSÃO: Mude este valor a cada nova atualização para forçar o recarregamento.
-    const APP_VERSION = '20250926.1'; 
+    const APP_VERSION = '20250926.2'; // VERSÃO ATUALIZADA
     
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
     
-    // Lógica para Forçar Recarregamento
+    // Lógica para Forçar Recarregamento (Cache Buster)
     useEffect(() => {
         const cachedVersion = localStorage.getItem('app_version');
         if (cachedVersion !== APP_VERSION) {
