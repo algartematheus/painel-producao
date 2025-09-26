@@ -267,7 +267,7 @@ const AuthScreen = () => {
 // --- COMPONENTE PRINCIPAL DO DASHBOARD ---
 const CronoanaliseDashboard = ({ user }) => {
     
-    // NOVO: Lista de horários fixos para o campo "Período"
+    // Lista de horários fixos para o campo "Período"
     const FIXED_PERIODS = [
         "08:00",
         "09:00",
@@ -1021,7 +1021,7 @@ const CronoanaliseDashboard = ({ user }) => {
                     <form onSubmit={handleAddEntry} className="grid grid-cols-1 gap-4 items-end">
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                             
-                            {/* CAMPO PERÍODO MODIFICADO PARA SELECT */}
+                            {/* CAMPO PERÍODO CORRIGIDO PARA SELECT */}
                             <div className="flex flex-col">
                                 <label>Período</label>
                                 <select 
