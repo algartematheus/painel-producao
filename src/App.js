@@ -387,6 +387,8 @@ const CronoanaliseDashboard = ({ user }) => {
         const info = modalState.data;
 
         try {
+            console.log('DEBUG: Executando Soft Delete. Motivo:', reason);
+
             const pathSegments = info.itemDocPath.split('/');
             const docId = pathSegments.pop();
             const collectionPath = pathSegments.join('/');
@@ -421,6 +423,7 @@ const CronoanaliseDashboard = ({ user }) => {
     };
     
     const handleDeleteLot = (lotId) => {
+        console.log('DEBUG: Iniciando fluxo de exclusão de lote/produto (LOT)');
         const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotId}`;
         setModalState({
             type: 'password',
@@ -429,6 +432,7 @@ const CronoanaliseDashboard = ({ user }) => {
     };
 
     const handleDeleteProduct = (productId) => {
+        console.log('DEBUG: Iniciando fluxo de exclusão de lote/produto (PRODUCT)');
         const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_products/${productId}`;
         setModalState({
             type: 'password',
@@ -437,6 +441,7 @@ const CronoanaliseDashboard = ({ user }) => {
     };
 
     const handleDeleteEntry = (entryId, dateKey) => {
+        console.log('DEBUG: Iniciando fluxo de exclusão direta de Lançamento');
         const deleteAction = async () => {
             const dayDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`, dateKey);
             const dayDoc = await getDoc(dayDocRef);
@@ -786,7 +791,7 @@ const CronoanaliseDashboard = ({ user }) => {
             if (productionDiff[productId] !== 0) {
                 const lotToUpdate = lots.find(l => l.productId === productId);
                 if (lotToUpdate) {
-                    const lotRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_lots`, lotToUpdate.id);
+                    const lotRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotToUpdate.id}`);
                     const newProduced = (lotToUpdate.produced || 0) + productionDiff[productId];
                     let newStatus = lotToUpdate.status;
                     if (newProduced >= lotToUpdate.target) {
@@ -885,8 +890,10 @@ const CronoanaliseDashboard = ({ user }) => {
                 onClose={closeModal}
                 onSuccess={() => {
                     if (modalState.data?.directAction) {
+                        console.log('DEBUG: Senha validada com sucesso. Executando Ação Direta.');
                         modalState.data.directAction();
                     } else {
+                        console.log('DEBUG: Senha validada com sucesso. Avançando para ReasonModal');
                         setModalState(prev => ({ ...prev, type: 'reason' }));
                     }
                 }}
