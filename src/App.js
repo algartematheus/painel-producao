@@ -227,8 +227,6 @@ const AdminSettingsModal = ({ isOpen, onClose, setAdminConfig, adminConfig }) =>
             // 2. SALVAMENTO DA NOVA SENHA
             const newHash = await sha256Hex(newPass);
             // CORREÇÃO FIREBASE: Garantindo o número par/ímpar de segmentos:
-            // Caminho da Collection: 'artifacts' / {projectId} / 'private' / 'admin_docs'
-            // Caminho do Document: 'admin_config'
             const adminDocRef = doc(db, 'artifacts', projectId, 'private', 'admin_docs', 'admin_config');
             
             await setDoc(adminDocRef, { passwordHash: newHash });
@@ -1471,8 +1469,23 @@ const CronoanaliseDashboard = ({ user }) => {
 
 // Componente Raiz que gerencia a autenticação
 const App = () => {
+    // VARIÁVEL DE VERSÃO: Mude este valor a cada nova atualização para forçar o recarregamento.
+    const APP_VERSION = '20250926.1'; 
+    
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
+    
+    // Lógica para Forçar Recarregamento
+    useEffect(() => {
+        const cachedVersion = localStorage.getItem('app_version');
+        if (cachedVersion !== APP_VERSION) {
+            console.log(`Nova versão detectada (${APP_VERSION}). Forçando recarregamento e cache.`);
+            localStorage.setItem('app_version', APP_VERSION);
+            // Isso força o navegador a buscar a nova versão ignorando o cache agressivamente
+            window.location.reload(true); 
+        }
+    }, []); 
+    
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
             setUser(currentUser);
@@ -1480,6 +1493,7 @@ const App = () => {
         });
         return () => unsubscribe();
     }, []);
+    
     if (loading) {
         return <div className="min-h-screen bg-gray-100 dark:bg-black flex justify-center items-center"><p>Carregando...</p></div>;
     }
