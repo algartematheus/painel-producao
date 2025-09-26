@@ -659,7 +659,7 @@ const CronoanaliseDashboard = ({ user }) => {
         const dateKey = selectedDate.toISOString().slice(0, 10);
         const dayDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData/${dateKey}`);
         const dayDoc = await getDoc(dayDocRef);
-        const currentEntries = dayDoc.exists() && dayDoc.data().entries ? doc.data().entries : [];
+        const currentEntries = dayDoc.exists() && doc.data().entries ? doc.data().entries : [];
         const batch = writeBatch(db);
         batch.set(dayDocRef, { entries: [...currentEntries, newEntryWithId] }, { merge: true });
         productionDetails.forEach(detail => {
@@ -808,7 +808,7 @@ const CronoanaliseDashboard = ({ user }) => {
             if (productionDiff[productId] !== 0) {
                 const lotToUpdate = lots.find(l => l.productId === productId);
                 if (lotToUpdate) {
-                    const lotRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_lots`, lotToUpdate.id);
+                    const lotRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotToUpdate.id}`);
                     const newProduced = (lotToUpdate.produced || 0) + productionDiff[productId];
                     let newStatus = lotToUpdate.status;
                     if (newProduced >= lotToUpdate.target) {
