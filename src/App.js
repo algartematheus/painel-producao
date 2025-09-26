@@ -925,7 +925,7 @@ const CronoanaliseDashboard = ({ user }) => {
                     <span className='text-sm text-gray-500 dark:text-gray-400 hidden md:block'>{user.email}</span>
                     <button onClick={() => setModalState({ type: 'adminSettings' })} title="Configurações de Admin" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"><Settings size={20} /></button>
                     <button onClick={handleLogout} title="Sair" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><LogOut size={20} /></button>
-                    <button onClick={toggleTheme} title="Mudar Tema" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700">{theme === 'light' ? <Moon size={20}/> : <Sun size={20}/>}</button>
+                    <button onClick={toggleTheme} title={theme === 'light' ? "Mudar para Tema Escuro" : "Mudar para Tema Claro"} className="p-2 rounded-full bg-gray-200 dark:bg-gray-700">{theme === 'light' ? <Moon size={20}/> : <Sun size={20}/>}</button>
                 </div>
             </header>
             <main className="p-4 md:p-8 grid grid-cols-1 gap-8">
@@ -1038,7 +1038,7 @@ const CronoanaliseDashboard = ({ user }) => {
                                     onChange={handleInputChange} 
                                     required 
                                     className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                    title="Selecione o horário" // Adicionado para acessibilidade
+                                    title="Selecione o horário"
                                 >
                                     <option value="" disabled>Selecione a hora...</option>
                                     {FIXED_PERIODS.map(time => (
@@ -1087,7 +1087,7 @@ const CronoanaliseDashboard = ({ user }) => {
                                     onChange={handleInputChange} 
                                     required 
                                     className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                    title="Selecione o produto" // Adicionado para acessibilidade
+                                    title="Selecione o produto"
                                 >
                                     <option value="">Selecione...</option>
                                     {[...products].sort((a, b) => a.name.localeCompare(b.name)).map(p => (<option key={p.id} value={p.id}>{p.name}</option>))}
@@ -1152,24 +1152,26 @@ const CronoanaliseDashboard = ({ user }) => {
                         <h3 className="text-lg font-medium mb-4">Criar Novo Lote</h3>
                         <form onSubmit={handleAddLot} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                             <div className="flex flex-col">
-                                <label htmlFor="lotProduct" className="text-sm mb-1 text-gray-600 dark:text-gray-400">Produto</label>
+                                <label htmlFor="lotProduct">Produto</label>
                                 <select 
                                     id="lotProduct" 
+                                    name="productId"
                                     value={newLot.productId} 
                                     onChange={e => setNewLot({...newLot, productId: e.target.value})} 
                                     required 
                                     className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                    title="Selecione o produto para o lote" // Adicionado para acessibilidade
+                                    title="Selecione o produto para o lote"
                                 >
                                     <option value="">Selecione...</option>
                                     {[...products].sort((a, b) => a.name.localeCompare(b.name)).map(p => (<option key={p.id} value={p.id}>{p.name}</option>))}
                                 </select>
                             </div>
                             <div className="flex flex-col">
-                                <label htmlFor="lotTarget" className="text-sm mb-1 text-gray-600 dark:text-gray-400">Quantidade Total</label>
+                                <label htmlFor="lotTarget">Quantidade Total</label>
                                 <input 
                                     type="number" 
                                     id="lotTarget" 
+                                    name="target"
                                     value={newLot.target} 
                                     onChange={e => setNewLot({...newLot, target: e.target.value})} 
                                     placeholder="ex: 1500" 
@@ -1178,10 +1180,11 @@ const CronoanaliseDashboard = ({ user }) => {
                                 />
                             </div>
                             <div className="flex flex-col">
-                                <label htmlFor="lotCustomName" className="text-sm mb-1 text-gray-600 dark:text-gray-400">Nome do Lote (Opcional)</label>
+                                <label htmlFor="lotCustomName">Nome do Lote (Opcional)</label>
                                 <input 
                                     type="text" 
                                     id="lotCustomName" 
+                                    name="customName"
                                     value={newLot.customName} 
                                     onChange={e => setNewLot({...newLot, customName: e.target.value})} 
                                     placeholder="ex: Lote 01" 
@@ -1220,7 +1223,7 @@ const CronoanaliseDashboard = ({ user }) => {
                                                 value={lot.status} 
                                                 onChange={(e) => handleLotStatusChange(lot.id, e.target.value)} 
                                                 className="text-xs font-semibold p-1 rounded-full bg-gray-200 dark:bg-gray-600 border-none appearance-none text-center"
-                                                title="Mudar Status do Lote" // Adicionado para acessibilidade
+                                                title="Mudar Status do Lote"
                                             >
                                                 { (lot.status === 'ongoing' || lot.status === 'future') ? ( <> <option value={lot.status}>{lot.status === 'future' ? 'Na Fila' : 'Em Andamento'}</option> <option value="completed">Concluir</option> <option value="completed_missing">Concluir com Falta</option> <option value="completed_exceeding">Concluir com Sobra</option> </> ) : ( <> <option value="completed">Concluído</option> <option value="completed_missing">Com Falta</option> <option value="completed_exceeding">Com Sobra</option> <option value="ongoing">Reabrir (Em Andamento)</option> </> )}
                                             </select>
