@@ -113,8 +113,9 @@ const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
         setChecking(true);
         try {
             if (!adminConfig || !adminConfig.passwordHash) {
+                // MENSAGEM DO ERRO: Se adminConfig for nulo, dispara o alert
                 alert('Configuração de administrador não encontrada. Peça para um administrador configurar a senha.');
-                onClose();
+                onClose(); // Fecha o modal após a mensagem de erro
                 return;
             }
             const hash = await sha256Hex(passwordInput || '');
@@ -175,7 +176,7 @@ const AdminSettingsModal = ({ isOpen, onClose, setAdminConfig }) => {
         if (newPass !== confirmPass) { alert('As senhas não coincidem.'); return; }
         setSaving(true);
         try {
-            const hash = await sha256Hex(newPass);
+            // Caminho de salvamento padronizado para admin_config
             const adminDocRef = doc(db, `artifacts/${projectId}/private/admin_config`, 'admin');
             await setDoc(adminDocRef, { passwordHash: hash });
             setAdminConfig({ passwordHash: hash });
@@ -328,7 +329,7 @@ const CronoanaliseDashboard = ({ user }) => {
     useEffect(() => {
         if (!projectId) return;
         
-        // CORREÇÃO CRÍTICA: Ajusta o caminho da coleção para ter um número ímpar de segmentos (coleção dentro de documento)
+        // CORREÇÃO CRÍTICA DO FIREBASE: Caminho da Lixeira corrigido para ser collection/document/collection
         const trashQuery = query(collection(db, `artifacts/${projectId}/private/admin_docs/trash`));
         const unsubscribeTrash = onSnapshot(trashQuery, (snapshot) => {
             setTrashItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -337,8 +338,8 @@ const CronoanaliseDashboard = ({ user }) => {
         let mounted = true;
         const loadAdminConfig = async () => {
             try {
-                // Mantém o caminho do admin_config
-                const adminDocRef = doc(db, `artifacts/${projectId}/private/admin_config`, 'admin');
+                // CORREÇÃO FIREBASE: Caminho da Configuração de Admin padronizado para ser collection/document/collection
+                const adminDocRef = doc(db, `artifacts/${projectId}/private/admin_docs`, 'admin_config');
                 const adminSnap = await getDoc(adminDocRef);
                 if (mounted && adminSnap.exists()) {
                     setAdminConfig(adminSnap.data());
@@ -544,6 +545,17 @@ const CronoanaliseDashboard = ({ user }) => {
         const dateKey = selectedDate.toISOString().slice(0, 10);
         return productionData[dateKey] || [];
     }, [selectedDate, productionData]);
+    
+    // --- LÓGICA FILTRADA DE HORÁRIOS DISPONÍVEIS ---
+    const availablePeriods = useMemo(() => {
+        // 1. Coleta os horários já utilizados
+        const usedPeriods = new Set(dailyProductionData.map(entry => entry.period));
+        
+        // 2. Filtra os horários fixos
+        return FIXED_PERIODS.filter(period => !usedPeriods.has(period));
+    }, [dailyProductionData]);
+    // --- FIM DA LÓGICA FILTRADA ---
+
     const processedData = useMemo(() => {
         if (!dailyProductionData || dailyProductionData.length === 0) return [];
         let cumulativeProduction = 0;
@@ -884,6 +896,17 @@ const CronoanaliseDashboard = ({ user }) => {
         setCurrentDashboardIndex(index);
         setIsNavOpen(false);
     };
+    
+    // --- LÓGICA FILTRADA DE HORÁRIOS DISPONÍVEIS ---
+    const availablePeriods = useMemo(() => {
+        // 1. Coleta os horários já utilizados
+        const usedPeriods = new Set(dailyProductionData.map(entry => entry.period));
+        
+        // 2. Filtra os horários fixos
+        return FIXED_PERIODS.filter(period => !usedPeriods.has(period));
+    }, [dailyProductionData]);
+    // --- FIM DA LÓGICA FILTRADA ---
+
     return (
         <div className="min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans">
             <ObservationModal isOpen={modalState.type === 'observation'} onClose={closeModal} entry={modalState.data} onSave={handleSaveObservation} />
@@ -1032,7 +1055,7 @@ const CronoanaliseDashboard = ({ user }) => {
                     <form onSubmit={handleAddEntry} className="grid grid-cols-1 gap-4 items-end">
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                             
-                            {/* CAMPO PERÍODO (SELECT CORRIGIDO) */}
+                            {/* CAMPO PERÍODO (SELECT CORRIGIDO E FILTRADO) */}
                             <div className="flex flex-col">
                                 <label htmlFor="entry-period">Período</label>
                                 <select 
@@ -1045,7 +1068,8 @@ const CronoanaliseDashboard = ({ user }) => {
                                     title="Selecione o horário"
                                 >
                                     <option value="" disabled>Selecione a hora...</option>
-                                    {FIXED_PERIODS.map(time => (
+                                    {/* Mapeia apenas os horários disponíveis */}
+                                    {availablePeriods.map(time => (
                                         <option key={time} value={time}>
                                             {time}
                                         </option>
