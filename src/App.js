@@ -226,10 +226,7 @@ const AdminSettingsModal = ({ isOpen, onClose, setAdminConfig, adminConfig }) =>
             
             // 2. SALVAMENTO DA NOVA SENHA
             const newHash = await sha256Hex(newPass);
-            // CORREÇÃO FIREBASE FINAL: Usando o caminho de 4 segmentos (Collection/Document/Collection/Document) 
-            // assumindo que a estrutura é artifacts/{projectId}/admin_docs/admin_config
-            // Caso o caminho salvo na sua versão antiga seja artifacts/{projectId}/private/admin_docs/admin_config, 
-            // a linha abaixo será a correção mais provável.
+            // CORREÇÃO FIREBASE FINAL: Usando o caminho de 5 segmentos que deve ser o correto
             const adminDocRef = doc(db, 'artifacts', projectId, 'private', 'admin_docs', 'admin_config');
             
             await setDoc(adminDocRef, { passwordHash: newHash });
@@ -410,15 +407,26 @@ const CronoanaliseDashboard = ({ user }) => {
         let mounted = true;
         const loadAdminConfig = async () => {
             try {
-                // CORREÇÃO FIREBASE FINAL: Caminho de 5 segmentos para referenciar o Document
-                // artifacts / {projectId} / private / admin_docs / admin_config
-                const adminDocRef = doc(db, 'artifacts', projectId, 'private', 'admin_docs', 'admin_config');
-                const adminSnap = await getDoc(adminDocRef);
+                // Tenta o CAMINHO MAIS PROVÁVEL de 5 segmentos (Collection/Document/Collection/Document/Collection)
+                let adminDocRef = doc(db, 'artifacts', projectId, 'private', 'admin_docs', 'admin_config');
+                let adminSnap = await getDoc(adminDocRef);
+
+                // Se falhar (o caminho é inválido ou o documento não existe), tenta o CAMINHO SIMPLIFICADO de 3 segmentos (Collection/Document/Collection)
+                // Isso cobre cenários onde o documento foi salvo em um path mais curto
+                if (!adminSnap.exists() || adminSnap.data().passwordHash === undefined) {
+                    console.warn("Tentando fallback de caminho do admin_config...");
+                    // Tentativa 2: artifacts / {projectId} / admin_config
+                    adminDocRef = doc(db, 'artifacts', projectId, 'admin_config');
+                    adminSnap = await getDoc(adminDocRef);
+                }
+                
                 if (mounted && adminSnap.exists()) {
                     setAdminConfig(adminSnap.data());
-                } else { setAdminConfig(null); }
+                } else { 
+                    setAdminConfig(null); 
+                }
             } catch (e) {
-                console.error('Erro ao carregar admin config:', e);
+                console.error('Erro ao carregar admin config (Firebase path error):', e);
                 setAdminConfig(null);
             }
         };
@@ -478,9 +486,8 @@ const CronoanaliseDashboard = ({ user }) => {
                 return;
             }
             
-            // CORREÇÃO CRÍTICA: Ajusta o caminho da coleção para ter um número ímpar de segmentos
-            const trashCollectionRef = collection(db, `artifacts/${projectId}/private/admin_docs/trash`
-            );
+            // Caminho da Lixeira
+            const trashCollectionRef = collection(db, `artifacts/${projectId}/private/admin_docs/trash`);
             
             await addDoc(trashCollectionRef, {
                 originalPath: info.itemDocPath,
@@ -626,7 +633,6 @@ const CronoanaliseDashboard = ({ user }) => {
         const usedPeriods = new Set(dailyProductionData.map(entry => entry.period));
         
         // 2. Filtra os horários fixos
-        // REMOVIDO FIXED_PERIODS DA LISTA DE DEPENDÊNCIAS, pois ele é constante do escopo externo.
         return FIXED_PERIODS.filter(period => !usedPeriods.has(period));
     }, [dailyProductionData]); 
     // --- FIM DA LÓGICA FILTRADA ---
@@ -1443,6 +1449,7 @@ const CronoanaliseDashboard = ({ user }) => {
                         </div>
                     </div>
                 </section>
+                
                 {/* --- FIM DA SEÇÃO DE GERENCIAMENTO DE PRODUTOS --- */}
                 
                 <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg mt-8">
@@ -1474,7 +1481,7 @@ const CronoanaliseDashboard = ({ user }) => {
 // Componente Raiz que gerencia a autenticação
 const App = () => {
     // VARIÁVEL DE VERSÃO: Mude este valor a cada nova atualização para forçar o recarregamento.
-    const APP_VERSION = '20250926.2'; // VERSÃO ATUALIZADA
+    const APP_VERSION = '20250926.3'; 
     
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -1486,6 +1493,7 @@ const App = () => {
             console.log(`Nova versão detectada (${APP_VERSION}). Forçando recarregamento e cache.`);
             localStorage.setItem('app_version', APP_VERSION);
             // Isso força o navegador a buscar a nova versão ignorando o cache agressivamente
+            // A flag 'true' para reload ignora o cache
             window.location.reload(true); 
         }
     }, []); 
