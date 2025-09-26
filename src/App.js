@@ -66,6 +66,19 @@ const dashboards = [
     { id: 'corte', name: 'Quadro do Corte' },
 ];
 
+// --- CONSTANTE MOVIDA PARA FORA DO COMPONENTE PARA ESTABILIDADE DO USEMEMO ---
+const FIXED_PERIODS = [
+    "08:00",
+    "09:00",
+    "10:00",
+    "11:00",
+    "11:45",
+    "14:00",
+    "15:00",
+    "16:00",
+    "17:00"
+];
+
 // --- COMPONENTES MODAIS ---
 const ObservationModal = ({ isOpen, onClose, entry, onSave }) => {
     const [observation, setObservation] = useState('');
@@ -268,19 +281,6 @@ const AuthScreen = () => {
 // --- COMPONENTE PRINCIPAL DO DASHBOARD ---
 const CronoanaliseDashboard = ({ user }) => {
     
-    // Lista de horários fixos para o campo "Período"
-    const FIXED_PERIODS = [
-        "08:00",
-        "09:00",
-        "10:00",
-        "11:00",
-        "11:45",
-        "14:00",
-        "15:00",
-        "16:00",
-        "17:00"
-    ];
-
     // LÓGICA DE TEMA
     const [theme, setTheme] = useState(() => {
         const savedTheme = localStorage.getItem('theme');
@@ -725,9 +725,6 @@ const CronoanaliseDashboard = ({ user }) => {
         setEditingProductId(null);
     };
     // --- FIM DAS FUNÇÕES DE CRUD DE PRODUTOS ---
-
-    // A função handleDeleteProduct já estava declarada no bloco "LÓGICA DE EXCLUSÃO (SOFT-DELETE) E MODAIS"
-    // e foi removida daqui para evitar a duplicidade.
 
     const handleSaveObservation = async (entryId, observation) => {
         const dateKey = selectedDate.toISOString().slice(0, 10);
