@@ -74,7 +74,7 @@ const ObservationModal = ({ isOpen, onClose, entry, onSave }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
             <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
-                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Observação do Período ({entry?.period})</h2><button onClick={onClose}><XCircle /></button></div>
+                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Observação do Período ({entry?.period})</h2><button onClick={onClose} title="Fechar"><XCircle /></button></div>
                 <textarea value={observation} onChange={e => setObservation(e.target.value)} rows="4" className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4"></textarea>
                 <button onClick={handleSave} className="w-full h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600">Salvar</button>
             </div>
@@ -89,7 +89,7 @@ const LotObservationModal = ({ isOpen, onClose, lot, onSave }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
             <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
-                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Observação do Lote ({lot?.productName} #{lot?.sequentialId})</h2><button onClick={onClose}><XCircle /></button></div>
+                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Observação do Lote ({lot?.productName} #{lot?.sequentialId})</h2><button onClick={onClose} title="Fechar"><XCircle /></button></div>
                 <textarea value={observation} onChange={e => setObservation(e.target.value)} rows="4" className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4"></textarea>
                 <button onClick={handleSave} className="w-full h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600">Salvar</button>
             </div>
@@ -136,7 +136,7 @@ const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
             <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
-                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Confirmação de Senha</h2><button onClick={onClose}><XCircle /></button></div>
+                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Confirmação de Senha</h2><button onClick={onClose} title="Fechar"><XCircle /></button></div>
                 <div>
                     <p className="mb-4">Para continuar, por favor insira a senha de administrador.</p>
                     <input type="password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4" />
@@ -160,7 +160,7 @@ const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
             <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
-                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Motivo da Exclusão</h2><button onClick={onClose}><XCircle /></button></div>
+                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Motivo da Exclusão</h2><button onClick={onClose} title="Fechar"><XCircle /></button></div>
                 <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={5} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4" placeholder="Explique por que está removendo este item..." />
                 <button onClick={handleConfirm} className="w-full h-10 px-6 font-semibold rounded-md bg-red-600 text-white hover:bg-red-700">Confirmar Exclusão</button>
             </div>
@@ -191,7 +191,7 @@ const AdminSettingsModal = ({ isOpen, onClose, setAdminConfig }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
             <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md">
-                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Configurações de Admin</h2><button onClick={onClose}><XCircle /></button></div>
+                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Configurações de Admin</h2><button onClick={onClose} title="Fechar"><XCircle /></button></div>
                 <div className="space-y-2">
                     <input type="password" placeholder="Nova senha" value={newPass} onChange={(e) => setNewPass(e.target.value)} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700" />
                     <input type="password" placeholder="Confirmar senha" value={confirmPass} onChange={(e) => setConfirmPass(e.target.value)} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700" />
@@ -248,7 +248,7 @@ const AuthScreen = () => {
                             <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Senha</label>
                             <div className="relative">
                                 <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} required className="mt-1 w-full p-3 rounded-md bg-gray-100 dark:bg-gray-800 border-transparent focus:border-blue-500 focus:ring-0" />
-                                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500">{showPassword ? <EyeOff size={20} /> : <Eye size={20} />}</button>
+                                <button type="button" onClick={() => setShowPassword(!showPassword)} title={showPassword ? "Ocultar Senha" : "Mostrar Senha"} className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500">{showPassword ? <EyeOff size={20} /> : <Eye size={20} />}</button>
                             </div>
                         </div>
                         <div className="flex items-center">
@@ -791,7 +791,7 @@ const CronoanaliseDashboard = ({ user }) => {
             if (productionDiff[productId] !== 0) {
                 const lotToUpdate = lots.find(l => l.productId === productId);
                 if (lotToUpdate) {
-                    const lotRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotToUpdate.id}`);
+                    const lotRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_lots`, lotToUpdate.id);
                     const newProduced = (lotToUpdate.produced || 0) + productionDiff[productId];
                     let newStatus = lotToUpdate.status;
                     if (newProduced >= lotToUpdate.target) {
@@ -866,9 +866,9 @@ const CronoanaliseDashboard = ({ user }) => {
         return (
             <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
                 <div className="flex justify-between items-center mb-4">
-                    <button onClick={() => handleNavigation(-1)} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"><ChevronLeft/></button>
+                    <button onClick={() => handleNavigation(-1)} title="Mês Anterior" className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"><ChevronLeft/></button>
                     {renderHeader()}
-                    <button onClick={() => handleNavigation(1)} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"><ChevronRight/></button>
+                    <button onClick={() => handleNavigation(1)} title="Próximo Mês" className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"><ChevronRight/></button>
                 </div>
                 {calendarView === 'day' && renderDayView()}
                 {calendarView === 'month' && renderMonthView()}
@@ -910,7 +910,7 @@ const CronoanaliseDashboard = ({ user }) => {
                 <div className="flex items-center gap-4">
                     <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
                     <div className="relative">
-                        <button onClick={() => setIsNavOpen(!isNavOpen)} className="flex items-center gap-2 p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
+                        <button onClick={() => setIsNavOpen(!isNavOpen)} title="Mudar Quadro" className="flex items-center gap-2 p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
                             <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white tracking-wider text-center">{currentDashboard.name}</h1>
                             <ChevronDownIcon size={20} className={`transition-transform ${isNavOpen ? 'rotate-180' : ''}`} />
                         </button>
@@ -923,7 +923,7 @@ const CronoanaliseDashboard = ({ user }) => {
                 </div>
                 <div className="flex items-center space-x-2 sm:space-x-4">
                     <span className='text-sm text-gray-500 dark:text-gray-400 hidden md:block'>{user.email}</span>
-                    <button onClick={() => setModalState({ type: 'adminSettings' })} title="Configurações" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"><Settings size={20} /></button>
+                    <button onClick={() => setModalState({ type: 'adminSettings' })} title="Configurações de Admin" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"><Settings size={20} /></button>
                     <button onClick={handleLogout} title="Sair" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><LogOut size={20} /></button>
                     <button onClick={toggleTheme} title="Mudar Tema" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700">{theme === 'light' ? <Moon size={20}/> : <Sun size={20}/>}</button>
                 </div>
@@ -996,8 +996,8 @@ const CronoanaliseDashboard = ({ user }) => {
                                                 </td>
                                                 <td>...</td><td>...</td><td>...</td><td>...</td><td>...</td>
                                                 <td className="p-3 flex gap-2">
-                                                    <button onClick={handleSaveEntryEdit} className="text-green-500 hover:text-green-400"><Save size={18}/></button>
-                                                    <button onClick={handleCancelEditEntry} className="text-gray-500 hover:text-gray-400"><XCircle size={18}/></button>
+                                                    <button onClick={handleSaveEntryEdit} title="Salvar Edição" className="text-green-500 hover:text-green-400"><Save size={18}/></button>
+                                                    <button onClick={handleCancelEditEntry} title="Cancelar Edição" className="text-gray-500 hover:text-gray-400"><XCircle size={18}/></button>
                                                 </td>
                                             </>
                                         ) : (
@@ -1010,10 +1010,10 @@ const CronoanaliseDashboard = ({ user }) => {
                                                 <td>{d.cumulativeGoal}</td>
                                                 <td>{d.cumulativeProduction}</td>
                                                 <td className={`font-semibold ${d.cumulativeEfficiency < 65 ? 'text-red-500' : 'text-green-600'}`}>{d.cumulativeEfficiency}%</td>
-                                                <td className="p-3"><button onClick={() => setModalState({ type: 'observation', data: d })} className="text-gray-500 hover:text-blue-500"><MessageSquare size={18}/></button></td>
+                                                <td className="p-3"><button onClick={() => setModalState({ type: 'observation', data: d })} title="Adicionar Observação" className="text-gray-500 hover:text-blue-500"><MessageSquare size={18}/></button></td>
                                                 <td className="p-3 flex gap-2">
-                                                    <button onClick={() => handleStartEditEntry(d)} className="text-gray-500 hover:text-yellow-500"><Edit size={18}/></button>
-                                                    <button onClick={() => handleDeleteEntry(d.id, selectedDate.toISOString().slice(0, 10))} className="text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
+                                                    <button onClick={() => handleStartEditEntry(d)} title="Editar Lançamento" className="text-gray-500 hover:text-yellow-500"><Edit size={18}/></button>
+                                                    <button onClick={() => handleDeleteEntry(d.id, selectedDate.toISOString().slice(0, 10))} title="Excluir Lançamento" className="text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
                                                 </td>
                                             </>
                                         )}
@@ -1028,15 +1028,17 @@ const CronoanaliseDashboard = ({ user }) => {
                     <form onSubmit={handleAddEntry} className="grid grid-cols-1 gap-4 items-end">
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                             
-                            {/* CAMPO PERÍODO CORRIGIDO PARA SELECT */}
+                            {/* CAMPO PERÍODO (SELECT CORRIGIDO) */}
                             <div className="flex flex-col">
-                                <label>Período</label>
+                                <label htmlFor="entry-period">Período</label>
                                 <select 
+                                    id="entry-period"
                                     name="period" 
                                     value={newEntry.period} 
                                     onChange={handleInputChange} 
                                     required 
                                     className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                    title="Selecione o horário" // Adicionado para acessibilidade
                                 >
                                     <option value="" disabled>Selecione a hora...</option>
                                     {FIXED_PERIODS.map(time => (
@@ -1047,36 +1049,96 @@ const CronoanaliseDashboard = ({ user }) => {
                                 </select>
                             </div>
                             
-                            <div className="flex flex-col"><label>Nº Pessoas</label><input type="number" name="people" value={newEntry.people} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                            <div className="flex flex-col"><label>Tempo Disp.</label><input type="number" name="availableTime" value={newEntry.availableTime} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                            <div className="flex flex-col"><label>Produto (Prioridade)</label>
-                                <select name="productId" value={newEntry.productId} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
+                            {/* CAMPO PESSOAS (CORRIGIDO A11Y) */}
+                            <div className="flex flex-col">
+                                <label htmlFor="entry-people">Nº Pessoas</label>
+                                <input 
+                                    id="entry-people"
+                                    type="number" 
+                                    name="people" 
+                                    value={newEntry.people} 
+                                    onChange={handleInputChange} 
+                                    required 
+                                    className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+
+                            {/* CAMPO TEMPO (CORRIGIDO A11Y) */}
+                            <div className="flex flex-col">
+                                <label htmlFor="entry-available-time">Tempo Disp.</label>
+                                <input 
+                                    id="entry-available-time"
+                                    type="number" 
+                                    name="availableTime" 
+                                    value={newEntry.availableTime} 
+                                    onChange={handleInputChange} 
+                                    required 
+                                    className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                            
+                            {/* CAMPO PRODUTO (CORRIGIDO A11Y) */}
+                            <div className="flex flex-col">
+                                <label htmlFor="entry-product">Produto (Prioridade)</label>
+                                <select 
+                                    id="entry-product"
+                                    name="productId" 
+                                    value={newEntry.productId} 
+                                    onChange={handleInputChange} 
+                                    required 
+                                    className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                    title="Selecione o produto" // Adicionado para acessibilidade
+                                >
                                     <option value="">Selecione...</option>
                                     {[...products].sort((a, b) => a.name.localeCompare(b.name)).map(p => (<option key={p.id} value={p.id}>{p.name}</option>))}
                                 </select>
                             </div>
                         </div>
                         <div className="mt-4">
-                            <button type="button" onClick={() => setShowUrgent(prev => !prev)} className="text-sm text-blue-500 hover:underline mb-2 flex items-center gap-1">
+                            <button type="button" onClick={() => setShowUrgent(prev => !prev)} title={showUrgent ? "Remover campo de item fora de ordem" : "Adicionar campo de item fora de ordem"} className="text-sm text-blue-500 hover:underline mb-2 flex items-center gap-1">
                                 <PlusCircle size={14} />{showUrgent ? 'Remover item fora de ordem' : 'Adicionar item fora de ordem'}
                             </button>
                             {showUrgent && (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-blue-50 dark:bg-gray-800 rounded-lg">
-                                    <div className="flex flex-col"><label>Lote Urgente</label>
-                                        <select name="productId" value={urgentProduction.productId} onChange={handleUrgentChange} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
+                                    <div className="flex flex-col">
+                                        <label htmlFor="urgent-lot">Lote Urgente</label>
+                                        <select 
+                                            id="urgent-lot"
+                                            name="productId" 
+                                            value={urgentProduction.productId} 
+                                            onChange={handleUrgentChange} 
+                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                            title="Selecione o lote urgente"
+                                        >
                                             <option value="">Selecione o lote...</option>
                                             {lots.filter(l=> l.status === 'ongoing' || l.status === 'future').map(l => (<option key={l.id} value={l.productId}>{l.productName}{l.customName ? ` - ${l.customName}` : ''}</option>))}
                                         </select>
                                     </div>
-                                    <div className="flex flex-col"><label>Produzido (Urgente)</label><input type="number" name="produced" value={urgentProduction.produced} onChange={handleUrgentChange} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
+                                    <div className="flex flex-col">
+                                        <label htmlFor="urgent-produced">Produzido (Urgente)</label>
+                                        <input 
+                                            id="urgent-produced"
+                                            type="number" 
+                                            name="produced" 
+                                            value={urgentProduction.produced} 
+                                            onChange={handleUrgentChange} 
+                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                        />
+                                    </div>
                                 </div>
                             )}
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 items-end mt-4">
                             {predictedLots.filter(p => !p.isUrgent).map((lot, index) => (
                                 <div key={lot.id || index} className="flex flex-col">
-                                    <label className="text-sm truncate">Produzido ({lot.productName})</label>
-                                    <input type="number" value={newEntry.productions[index] || ''} onChange={(e) => handleProductionChange(index, e.target.value)} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700" />
+                                    <label className="text-sm truncate" htmlFor={`prod-input-${index}`}>Produzido ({lot.productName})</label>
+                                    <input 
+                                        id={`prod-input-${index}`}
+                                        type="number" 
+                                        value={newEntry.productions[index] || ''} 
+                                        onChange={(e) => handleProductionChange(index, e.target.value)} 
+                                        className="p-2 rounded-md bg-gray-100 dark:bg-gray-700" 
+                                    />
                                 </div>
                             ))}
                             <div className="flex flex-col p-2 rounded-md bg-blue-50 dark:bg-gray-700 text-center"><label>Meta Prevista</label><span className="font-bold text-lg text-blue-600 dark:text-blue-400">{goalPreview || '0'}</span></div>
@@ -1089,14 +1151,43 @@ const CronoanaliseDashboard = ({ user }) => {
                     <div className="mb-6 border-b pb-6 dark:border-gray-700">
                         <h3 className="text-lg font-medium mb-4">Criar Novo Lote</h3>
                         <form onSubmit={handleAddLot} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                            <div className="flex flex-col"><label htmlFor="lotProduct" className="text-sm mb-1 text-gray-600 dark:text-gray-400">Produto</label>
-                                <select id="lotProduct" value={newLot.productId} onChange={e => setNewLot({...newLot, productId: e.target.value})} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
+                            <div className="flex flex-col">
+                                <label htmlFor="lotProduct" className="text-sm mb-1 text-gray-600 dark:text-gray-400">Produto</label>
+                                <select 
+                                    id="lotProduct" 
+                                    value={newLot.productId} 
+                                    onChange={e => setNewLot({...newLot, productId: e.target.value})} 
+                                    required 
+                                    className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                    title="Selecione o produto para o lote" // Adicionado para acessibilidade
+                                >
                                     <option value="">Selecione...</option>
                                     {[...products].sort((a, b) => a.name.localeCompare(b.name)).map(p => (<option key={p.id} value={p.id}>{p.name}</option>))}
                                 </select>
                             </div>
-                            <div className="flex flex-col"><label htmlFor="lotTarget" className="text-sm mb-1 text-gray-600 dark:text-gray-400">Quantidade Total</label><input type="number" id="lotTarget" value={newLot.target} onChange={e => setNewLot({...newLot, target: e.target.value})} placeholder="ex: 1500" required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                            <div className="flex flex-col"><label htmlFor="lotCustomName" className="text-sm mb-1 text-gray-600 dark:text-gray-400">Nome do Lote (Opcional)</label><input type="text" id="lotCustomName" value={newLot.customName} onChange={e => setNewLot({...newLot, customName: e.target.value})} placeholder="ex: Lote 01" className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
+                            <div className="flex flex-col">
+                                <label htmlFor="lotTarget" className="text-sm mb-1 text-gray-600 dark:text-gray-400">Quantidade Total</label>
+                                <input 
+                                    type="number" 
+                                    id="lotTarget" 
+                                    value={newLot.target} 
+                                    onChange={e => setNewLot({...newLot, target: e.target.value})} 
+                                    placeholder="ex: 1500" 
+                                    required 
+                                    className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                            <div className="flex flex-col">
+                                <label htmlFor="lotCustomName" className="text-sm mb-1 text-gray-600 dark:text-gray-400">Nome do Lote (Opcional)</label>
+                                <input 
+                                    type="text" 
+                                    id="lotCustomName" 
+                                    value={newLot.customName} 
+                                    onChange={e => setNewLot({...newLot, customName: e.target.value})} 
+                                    placeholder="ex: Lote 01" 
+                                    className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
                             <button type="submit" className="h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600">Criar Lote</button>
                         </form>
                     </div>
@@ -1115,8 +1206,8 @@ const CronoanaliseDashboard = ({ user }) => {
                                         <div className="flex items-center gap-2">
                                             {(lot.status === 'ongoing' || lot.status === 'future') && (
                                                 <div className="flex flex-col">
-                                                    <button onClick={() => handleMoveLot(lot.id, 'up')} disabled={index === 0} className="disabled:opacity-20 disabled:cursor-not-allowed"><ChevronUp size={16}/></button>
-                                                    <button onClick={() => handleMoveLot(lot.id, 'down')} disabled={index === arr.length - 1} className="disabled:opacity-20 disabled:cursor-not-allowed"><ChevronDown size={16}/></button>
+                                                    <button onClick={() => handleMoveLot(lot.id, 'up')} disabled={index === 0} title="Subir Prioridade" className="disabled:opacity-20 disabled:cursor-not-allowed"><ChevronUp size={16}/></button>
+                                                    <button onClick={() => handleMoveLot(lot.id, 'down')} disabled={index === arr.length - 1} title="Descer Prioridade" className="disabled:opacity-20 disabled:cursor-not-allowed"><ChevronDown size={16}/></button>
                                                 </div>
                                             )}
                                             <div>
@@ -1125,13 +1216,18 @@ const CronoanaliseDashboard = ({ user }) => {
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-4">
-                                            <select value={lot.status} onChange={(e) => handleLotStatusChange(lot.id, e.target.value)} className="text-xs font-semibold p-1 rounded-full bg-gray-200 dark:bg-gray-600 border-none appearance-none text-center">
+                                            <select 
+                                                value={lot.status} 
+                                                onChange={(e) => handleLotStatusChange(lot.id, e.target.value)} 
+                                                className="text-xs font-semibold p-1 rounded-full bg-gray-200 dark:bg-gray-600 border-none appearance-none text-center"
+                                                title="Mudar Status do Lote" // Adicionado para acessibilidade
+                                            >
                                                 { (lot.status === 'ongoing' || lot.status === 'future') ? ( <> <option value={lot.status}>{lot.status === 'future' ? 'Na Fila' : 'Em Andamento'}</option> <option value="completed">Concluir</option> <option value="completed_missing">Concluir com Falta</option> <option value="completed_exceeding">Concluir com Sobra</option> </> ) : ( <> <option value="completed">Concluído</option> <option value="completed_missing">Com Falta</option> <option value="completed_exceeding">Com Sobra</option> <option value="ongoing">Reabrir (Em Andamento)</option> </> )}
                                             </select>
                                             <div className="flex gap-2">
-                                                <button onClick={() => setModalState({ type: 'lotObservation', data: lot })} className="text-gray-500 hover:text-blue-500"><MessageSquare size={18}/></button>
-                                                <button onClick={() => handleStartEditLot(lot)} className="text-gray-500 hover:text-yellow-500"><Edit size={18}/></button>
-                                                <button onClick={() => handleDeleteLot(lot.id)} className="text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
+                                                <button onClick={() => setModalState({ type: 'lotObservation', data: lot })} title="Ver Observação" className="text-gray-500 hover:text-blue-500"><MessageSquare size={18}/></button>
+                                                <button onClick={() => handleStartEditLot(lot)} title="Editar Lote" className="text-gray-500 hover:text-yellow-500"><Edit size={18}/></button>
+                                                <button onClick={() => handleDeleteLot(lot.id)} title="Excluir Lote (Enviar para Lixeira)" className="text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
                                             </div>
                                         </div>
                                     </div>
@@ -1143,8 +1239,8 @@ const CronoanaliseDashboard = ({ user }) => {
                                                     <span>{lot.produced || 0} / </span>
                                                     <input type="number" value={editingLotData.target} onChange={e => setEditingLotData({...editingLotData, target: e.target.value})} className="p-1 text-sm rounded-md bg-white dark:bg-gray-600 w-24 text-right"/>
                                                     <input type="text" placeholder="Nome do Lote" value={editingLotData.customName} onChange={e => setEditingLotData({...editingLotData, customName: e.target.value})} className="p-1 text-sm rounded-md bg-white dark:bg-gray-600 w-32"/>
-                                                    <button onClick={() => handleSaveLotEdit(lot.id)} className="text-green-500 hover:text-green-400"><Save size={16}/></button>
-                                                    <button onClick={() => setEditingLotId(null)} className="text-gray-500 hover:text-gray-400"><XCircle size={16}/></button>
+                                                    <button onClick={() => handleSaveLotEdit(lot.id)} title="Salvar Alterações do Lote" className="text-green-500 hover:text-green-400"><Save size={16}/></button>
+                                                    <button onClick={() => setEditingLotId(null)} title="Cancelar Edição" className="text-gray-500 hover:text-gray-400"><XCircle size={16}/></button>
                                                 </div>
                                             ) : ( <span>{lot.produced || 0} / {(lot.target || 0).toLocaleString('pt-BR')}</span> )}
                                         </div>
@@ -1160,8 +1256,8 @@ const CronoanaliseDashboard = ({ user }) => {
                     <div>
                         <h2 className="text-xl font-semibold mb-4 flex items-center"><Package className="mr-2 text-blue-500"/> Cadastrar Novo Produto</h2>
                         <form onSubmit={handleAddProduct} className="space-y-4">
-                            <div className="flex flex-col"><label>Nome do Produto</label><input type="text" name="name" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} placeholder="ex: Peça X-15" required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                            <div className="flex flex-col"><label>Tempo Padrão (minutos)</label><input type="number" step="0.01" name="standardTime" value={newProduct.standardTime} onChange={e => setNewProduct({...newProduct, standardTime: e.target.value})} placeholder="ex: 1.25" required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
+                            <div className="flex flex-col"><label htmlFor="product-name">Nome do Produto</label><input id="product-name" type="text" name="name" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} placeholder="ex: Peça X-15" required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
+                            <div className="flex flex-col"><label htmlFor="standard-time">Tempo Padrão (minutos)</label><input id="standard-time" type="number" step="0.01" name="standardTime" value={newProduct.standardTime} onChange={e => setNewProduct({...newProduct, standardTime: e.target.value})} placeholder="ex: 1.25" required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
                             <button type="submit" className="w-full h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600">Salvar Produto</button>
                         </form>
                     </div>
@@ -1175,16 +1271,16 @@ const CronoanaliseDashboard = ({ user }) => {
                                             <input type="text" value={editingProductData.name} onChange={e => setEditingProductData({...editingProductData, name: e.target.value})} className="p-1 rounded-md bg-white dark:bg-gray-600 w-2/5"/>
                                             <input type="number" step="0.01" value={editingProductData.standardTime} onChange={e => setEditingProductData({...editingProductData, standardTime: e.target.value})} className="p-1 rounded-md bg-white dark:bg-gray-600 w-1/4"/>
                                             <div className="flex gap-2">
-                                                <button onClick={() => handleSaveProduct(p.id)} className="text-green-500 hover:text-green-400"><Save size={18}/></button>
-                                                <button onClick={() => setEditingProductId(null)} className="text-gray-500 hover:text-gray-400"><XCircle size={18}/></button>
+                                                <button onClick={() => handleSaveProduct(p.id)} title="Salvar Produto" className="text-green-500 hover:text-green-400"><Save size={18}/></button>
+                                                <button onClick={() => setEditingProductId(null)} title="Cancelar Edição" className="text-gray-500 hover:text-gray-400"><XCircle size={18}/></button>
                                             </div>
                                         </>
                                     ) : (
                                         <>
                                             <div><span className="font-semibold">{p.name}</span><span className="text-sm text-gray-500 dark:text-gray-400 ml-2">({p.standardTime} min)</span></div>
                                             <div className="flex gap-2">
-                                                <button onClick={() => handleStartEditProduct(p)} className="text-gray-500 hover:text-yellow-500"><Edit size={18}/></button>
-                                                <button onClick={() => handleDeleteProduct(p.id)} className="text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
+                                                <button onClick={() => handleStartEditProduct(p)} title="Editar Produto" className="text-gray-500 hover:text-yellow-500"><Edit size={18}/></button>
+                                                <button onClick={() => handleDeleteProduct(p.id)} title="Excluir Produto (Enviar para Lixeira)" className="text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
                                             </div>
                                         </>
                                     )}
