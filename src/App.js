@@ -659,7 +659,7 @@ const CronoanaliseDashboard = ({ user }) => {
         const dateKey = selectedDate.toISOString().slice(0, 10);
         const dayDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData/${dateKey}`);
         const dayDoc = await getDoc(dayDocRef);
-        const currentEntries = dayDoc.exists() && dayDoc.data().entries ? dayDoc.data().entries : [];
+        const currentEntries = dayDoc.exists() && dayDoc.data().entries ? doc.data().entries : [];
         const batch = writeBatch(db);
         batch.set(dayDocRef, { entries: [...currentEntries, newEntryWithId] }, { merge: true });
         productionDetails.forEach(detail => {
@@ -1282,43 +1282,6 @@ const CronoanaliseDashboard = ({ user }) => {
                                     </div>
                                 </div>
                             )})}
-                    </div>
-                </section>
-                <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div>
-                        <h2 className="text-xl font-semibold mb-4 flex items-center"><Package className="mr-2 text-blue-500"/> Cadastrar Novo Produto</h2>
-                        <form onSubmit={handleAddProduct} className="space-y-4">
-                            <div className="flex flex-col"><label htmlFor="product-name">Nome do Produto</label><input id="product-name" type="text" name="name" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} placeholder="ex: Peça X-15" required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                            <div className="flex flex-col"><label htmlFor="standard-time">Tempo Padrão (minutos)</label><input id="standard-time" type="number" step="0.01" name="standardTime" value={newProduct.standardTime} onChange={e => setNewProduct({...newProduct, standardTime: e.target.value})} placeholder="ex: 1.25" required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                            <button type="submit" className="w-full h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600">Salvar Produto</button>
-                        </form>
-                    </div>
-                    <div>
-                        <h2 className="text-xl font-semibold mb-4 flex items-center"><List className="mr-2 text-blue-500"/> Produtos Cadastrados</h2>
-                        <div className="space-y-2 max-h-[220px] overflow-y-auto pr-2">
-                            {[...products].sort((a, b) => a.name.localeCompare(b.name)).map(p => (
-                                <div key={p.id} className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg flex items-center justify-between">
-                                    {editingProductId === p.id ? (
-                                        <>
-                                            <input type="text" value={editingProductData.name} onChange={e => setEditingProductData({...editingProductData, name: e.target.value})} className="p-1 rounded-md bg-white dark:bg-gray-600 w-2/5"/>
-                                            <input type="number" step="0.01" value={editingProductData.standardTime} onChange={e => setEditingProductData({...editingProductData, standardTime: e.target.value})} className="p-1 rounded-md bg-white dark:bg-gray-600 w-1/4"/>
-                                            <div className="flex gap-2">
-                                                <button onClick={() => handleSaveProduct(p.id)} title="Salvar Produto" className="text-green-500 hover:text-green-400"><Save size={18}/></button>
-                                                <button onClick={() => setEditingProductId(null)} title="Cancelar Edição" className="text-gray-500 hover:text-gray-400"><XCircle size={18}/></button>
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <div><span className="font-semibold">{p.name}</span><span className="text-sm text-gray-500 dark:text-gray-400 ml-2">({p.standardTime} min)</span></div>
-                                            <div className="flex gap-2">
-                                                <button onClick={() => handleStartEditProduct(p)} title="Editar Produto" className="text-gray-500 hover:text-yellow-500"><Edit size={18}/></button>
-                                                <button onClick={() => handleDeleteProduct(p.id)} title="Excluir Produto (Enviar para Lixeira)" className="text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
                     </div>
                 </section>
                 
