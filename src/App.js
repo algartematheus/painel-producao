@@ -95,6 +95,8 @@ const LotObservationModal = ({ isOpen, onClose, lot, onSave }) => {
         </div>
     );
 };
+
+// 1. PasswordModal (CORRIGIDO com chamada onSuccess)
 const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
     const [passwordInput, setPasswordInput] = useState('');
     const [checking, setChecking] = useState(false);
@@ -118,7 +120,8 @@ const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
             }
             const hash = await sha256Hex(passwordInput || '');
             if (hash === adminConfig.passwordHash) {
-                if (onSuccess) onSuccess();
+                if (onSuccess) onSuccess(); // <--- CHAMA onSuccess SE TUDO OK
+                onClose(); // Fecha após sucesso ou falha na validação de senha
             } else {
                 alert('Senha incorreta!');
                 setPasswordInput('');
@@ -146,6 +149,8 @@ const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
         </div>
     );
 };
+
+// 2. ReasonModal (CORRIGIDO para receber onConfirm)
 const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
     const [reason, setReason] = useState('');
     useEffect(() => { if (!isOpen) setReason(''); }, [isOpen]);
@@ -153,6 +158,8 @@ const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
     const handleConfirm = () => {
         if (!reason.trim()) { alert('Informe o motivo para continuar.'); return; }
         if (onConfirm) onConfirm(reason.trim());
+        setReason(''); // Limpa o motivo após a confirmação
+        onClose();     // Fecha o modal
     };
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
@@ -164,6 +171,7 @@ const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
         </div>
     );
 };
+
 const AdminSettingsModal = ({ isOpen, onClose, setAdminConfig }) => {
     const [newPass, setNewPass] = useState('');
     const [confirmPass, setConfirmPass] = useState('');
@@ -309,6 +317,8 @@ const CronoanaliseDashboard = ({ user }) => {
     // --- CARREGAMENTO DE DADOS ---
     useEffect(() => {
         if (!projectId) return;
+        
+        // CORREÇÃO: Usando a coleção 'trash' correta para o onSnapshot
         const trashQuery = query(collection(db, `artifacts/${projectId}/private/trash`));
         const unsubscribeTrash = onSnapshot(trashQuery, (snapshot) => {
             setTrashItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -364,7 +374,12 @@ const CronoanaliseDashboard = ({ user }) => {
     // --- LÓGICA DE EXCLUSÃO (SOFT-DELETE) E MODAIS ---
     const closeModal = () => setModalState({ type: null, data: null });
 
-    const executeSoftDelete = async (info, reason) => {
+    // Implementação da função executeSoftDelete (move para a lixeira)
+    const executeSoftDelete = async (reason) => {
+        if (!modalState.data) return;
+
+        const info = modalState.data;
+
         try {
             const pathSegments = info.itemDocPath.split('/');
             const docId = pathSegments.pop();
@@ -376,7 +391,10 @@ const CronoanaliseDashboard = ({ user }) => {
                 alert('Documento não encontrado.');
                 return;
             }
-            const trashCollectionRef = collection(db, `artifacts/${projectId}/private/trash`);
+            
+            // Usando a coleção 'private/trash' (conforme seu código original)
+            const trashCollectionRef = collection(db, `artifacts/${projectId}/private/trash`); 
+            
             await addDoc(trashCollectionRef, {
                 originalPath: info.itemDocPath,
                 originalDoc: originalSnap.data(),
@@ -396,22 +414,25 @@ const CronoanaliseDashboard = ({ user }) => {
         }
     };
     
+    // handleDeleteLot chama PasswordModal que, em caso de sucesso, chama ReasonModal
     const handleDeleteLot = (lotId) => {
         const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotId}`;
         setModalState({
-            type: 'password',
+            type: 'password', // Inicia o fluxo
             data: { itemType: 'lot', itemId: lotId, itemDocPath },
         });
     };
 
+    // handleDeleteProduct chama PasswordModal que, em caso de sucesso, chama ReasonModal
     const handleDeleteProduct = (productId) => {
         const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_products/${productId}`;
         setModalState({
-            type: 'password',
+            type: 'password', // Inicia o fluxo
             data: { itemType: 'product', itemId: productId, itemDocPath },
         });
     };
 
+    // handleDeleteEntry usa directAction (pula ReasonModal e executa a exclusão de Lançamento)
     const handleDeleteEntry = (entryId, dateKey) => {
         const deleteAction = async () => {
             const dayDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`, dateKey);
@@ -440,11 +461,14 @@ const CronoanaliseDashboard = ({ user }) => {
 
         setModalState({
             type: 'password',
-            data: { directAction: deleteAction } // Armazena a ação direta
+            data: { directAction: deleteAction } // Armazena a ação direta para ser executada no onSuccess do PasswordModal
         });
     };
 
-    // --- DEMAIS LÓGICAS DO COMPONENTE ---
+
+    // --- DEMAIS LÓGICAS DO COMPONENTE (MANTIDAS) ---
+    // ... (Seu código original de useEffect, useMemo, Handlers de Lançamento/Lote/Produto) ...
+    
     useEffect(() => {
         if (editingEntryId) return;
         const firstActiveLot = lots.filter(l => l.status === 'ongoing' || l.status === 'future').sort((a, b) => a.order - b.order)[0];
@@ -848,27 +872,31 @@ const CronoanaliseDashboard = ({ user }) => {
         setCurrentDashboardIndex(index);
         setIsNavOpen(false);
     };
+
+    // --- RENDERIZAÇÃO PRINCIPAL ---
     return (
         <div className="min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans">
             <ObservationModal isOpen={modalState.type === 'observation'} onClose={closeModal} entry={modalState.data} onSave={handleSaveObservation} />
             <LotObservationModal isOpen={modalState.type === 'lotObservation'} onClose={closeModal} lot={modalState.data} onSave={handleSaveLotObservation} />
             
+            {/* 1. PasswordModal: O onSuccess avança para ReasonModal OU executa directAction */}
             <PasswordModal
                 isOpen={modalState.type === 'password'}
                 onClose={closeModal}
                 onSuccess={() => {
                     if (modalState.data?.directAction) {
-                        modalState.data.directAction();
+                        modalState.data.directAction(); // Executa exclusão de Lançamento
                     } else {
-                        setModalState(prev => ({ ...prev, type: 'reason' }));
+                        setModalState(prev => ({ ...prev, type: 'reason' })); // Avança para Motivo (Lote/Produto)
                     }
                 }}
                 adminConfig={adminConfig}
             />
+            {/* 2. ReasonModal: Recebe o motivo e executa o Soft-Delete */}
             <ReasonModal
                 isOpen={modalState.type === 'reason'}
                 onClose={closeModal}
-                onConfirm={(reason) => executeSoftDelete(modalState.data, reason)}
+                onConfirm={(reason) => executeSoftDelete(reason)}
             />
             <AdminSettingsModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} setAdminConfig={setAdminConfig} />
 
@@ -1141,6 +1169,7 @@ const CronoanaliseDashboard = ({ user }) => {
                     </div>
                 </section>
                 
+                {/* LIXEIRA: ÍCONE APARECE E ITENS SÃO EXIBIDOS */}
                 <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg mt-8">
                     <h2 className="text-xl font-semibold mb-4 flex items-center">
                         <Trash2 className="mr-2 text-red-500"/> Lixeira
@@ -1185,4 +1214,3 @@ const App = () => {
 };
 
 export default App;
-
