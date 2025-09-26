@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Sun, Moon, PlusCircle, Package, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff, Settings, ChevronDown as ChevronDownIcon } from 'lucide-react';
+import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff, Settings, ChevronDown as ChevronDownIcon } from 'lucide-react';
 // Importações do Firebase
 import { initializeApp } from 'firebase/app';
 import {
@@ -309,8 +309,6 @@ const CronoanaliseDashboard = ({ user }) => {
     const [editingLotId, setEditingLotId] = useState(null);
     const [editingLotData, setEditingLotData] = useState({ target: '', customName: '' });
     const [newProduct, setNewProduct] = useState({ name: '', standardTime: '' });
-    const [editingProductId, setEditingProductId] = useState(null);
-    const [editingProductData, setEditingProductData] = useState({ name: '', standardTime: '' });
     
     // ESTADO INICIAL: Garante que period seja sempre '' para o <select>
     const [newEntry, setNewEntry] = useState({ period: '', people: '', availableTime: 60, productId: '', productions: [] });
@@ -437,15 +435,6 @@ const CronoanaliseDashboard = ({ user }) => {
         });
     };
 
-    const handleDeleteProduct = (productId) => {
-        console.log('DEBUG: Iniciando fluxo de exclusão de lote/produto (PRODUCT)');
-        const itemDocPath = `artifacts/${projectId}/public/data/${currentDashboard.id}_products/${productId}`;
-        setModalState({
-            type: 'password',
-            data: { itemType: 'product', itemId: productId, itemDocPath },
-        });
-    };
-
     const handleDeleteEntry = (entryId, dateKey) => {
         console.log('DEBUG: Iniciando fluxo de exclusão direta de Lançamento');
         const deleteAction = async () => {
@@ -554,7 +543,7 @@ const CronoanaliseDashboard = ({ user }) => {
         
         // 2. Filtra os horários fixos
         return FIXED_PERIODS.filter(period => !usedPeriods.has(period));
-    }, [dailyProductionData]);
+    }, [dailyProductionData, FIXED_PERIODS]); // FIXED_PERIODS adicionado aqui para corrigir o warning do ESLint
     // --- FIM DA LÓGICA FILTRADA ---
 
     const processedData = useMemo(() => {
@@ -699,23 +688,30 @@ const CronoanaliseDashboard = ({ user }) => {
         newProductions[index] = value;
         setNewEntry(prev => ({ ...prev, productions: newProductions }));
     };
-    const handleAddProduct = async (e) => {
-        e.preventDefault();
-        if (!newProduct.name || !newProduct.standardTime) return;
-        const newProductData = { ...newProduct, standardTime: parseFloat(newProduct.standardTime) };
-        const docRef = doc(collection(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_products`));
-        await setDoc(docRef, newProductData);
-        setNewProduct({ name: '', standardTime: '' });
-    };
-    const handleStartEditProduct = (product) => {
-        setEditingProductId(product.id);
-        setEditingProductData({ name: product.name, standardTime: product.standardTime });
-    };
-    const handleSaveProduct = async (id) => {
-        const productRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_products`, id);
-        await updateDoc(productRef, { ...editingProductData, standardTime: parseFloat(editingProductData.standardTime) });
-        setEditingProductId(null);
-    };
+
+    // REMOVIDO: handleAddProduct não estava sendo usado e gerava aviso do ESLint (Linha 702)
+    // const handleAddProduct = async (e) => {
+    //     e.preventDefault();
+    //     if (!newProduct.name || !newProduct.standardTime) return;
+    //     const newProductData = { ...newProduct, standardTime: parseFloat(newProduct.standardTime) };
+    //     const docRef = doc(collection(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_products`));
+    //     await setDoc(docRef, newProductData);
+    //     setNewProduct({ name: '', standardTime: '' });
+    // };
+    
+    // REMOVIDO: handleStartEditProduct não estava sendo usado e gerava aviso do ESLint (Linha 710)
+    // const handleStartEditProduct = (product) => {
+    //     setEditingProductId(product.id);
+    //     setEditingProductData({ name: product.name, standardTime: product.standardTime });
+    // };
+    
+    // REMOVIDO: handleSaveProduct não estava sendo usado e gerava aviso do ESLint (Linha 714)
+    // const handleSaveProduct = async (id) => {
+    //     const productRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_products`, id);
+    //     await updateDoc(productRef, { ...editingProductData, standardTime: parseFloat(editingProductData.standardTime) });
+    //     setEditingProductId(null);
+    // };
+    
     const handleSaveObservation = async (entryId, observation) => {
         const dateKey = selectedDate.toISOString().slice(0, 10);
         const dayDocRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_productionData`, dateKey);
