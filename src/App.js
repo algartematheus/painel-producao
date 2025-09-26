@@ -176,8 +176,9 @@ const AdminSettingsModal = ({ isOpen, onClose, setAdminConfig }) => {
         if (newPass !== confirmPass) { alert('As senhas não coincidem.'); return; }
         setSaving(true);
         try {
-            // Caminho de salvamento padronizado para admin_config
-            const adminDocRef = doc(db, `artifacts/${projectId}/private/admin_config`, 'admin');
+            const hash = await sha256Hex(newPass);
+            // Caminho de salvamento padronizado para admin_docs/admin_config
+            const adminDocRef = doc(db, `artifacts/${projectId}/private/admin_docs`, 'admin_config');
             await setDoc(adminDocRef, { passwordHash: hash });
             setAdminConfig({ passwordHash: hash });
             alert('Senha atualizada com sucesso.');
@@ -329,7 +330,7 @@ const CronoanaliseDashboard = ({ user }) => {
     useEffect(() => {
         if (!projectId) return;
         
-        // CORREÇÃO CRÍTICA DO FIREBASE: Caminho da Lixeira corrigido para ser collection/document/collection
+        // CORREÇÃO FIREBASE: Caminho da Lixeira corrigido para ser collection/document/collection
         const trashQuery = query(collection(db, `artifacts/${projectId}/private/admin_docs/trash`));
         const unsubscribeTrash = onSnapshot(trashQuery, (snapshot) => {
             setTrashItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
