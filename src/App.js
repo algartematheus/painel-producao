@@ -226,8 +226,11 @@ const AdminSettingsModal = ({ isOpen, onClose, setAdminConfig, adminConfig }) =>
             
             // 2. SALVAMENTO DA NOVA SENHA
             const newHash = await sha256Hex(newPass);
-            // Caminho de salvamento padronizado para admin_docs/admin_config
-            const adminDocRef = doc(db, `artifacts/${projectId}/private/admin_docs`, 'admin_config');
+            // CORREÇÃO FIREBASE: Garantindo o número par/ímpar de segmentos:
+            // Caminho da Collection: 'artifacts' / {projectId} / 'private' / 'admin_docs'
+            // Caminho do Document: 'admin_config'
+            const adminDocRef = doc(db, 'artifacts', projectId, 'private', 'admin_docs', 'admin_config');
+            
             await setDoc(adminDocRef, { passwordHash: newHash });
             setAdminConfig({ passwordHash: newHash });
             alert('Senha atualizada com sucesso.');
@@ -406,8 +409,8 @@ const CronoanaliseDashboard = ({ user }) => {
         let mounted = true;
         const loadAdminConfig = async () => {
             try {
-                // CORREÇÃO FIREBASE: Caminho da Configuração de Admin padronizado para ser collection/document/collection
-                const adminDocRef = doc(db, `artifacts/${projectId}/private/admin_docs`, 'admin_config');
+                // CORREÇÃO FIREBASE: Garantindo o número par/ímpar de segmentos
+                const adminDocRef = doc(db, 'artifacts', projectId, 'private', 'admin_docs', 'admin_config');
                 const adminSnap = await getDoc(adminDocRef);
                 if (mounted && adminSnap.exists()) {
                     setAdminConfig(adminSnap.data());
@@ -474,7 +477,7 @@ const CronoanaliseDashboard = ({ user }) => {
             }
             
             // CORREÇÃO CRÍTICA: Ajusta o caminho da coleção para ter um número ímpar de segmentos
-            const trashCollectionRef = collection(db, `artifacts/${projectId}/private/admin_docs/trash`); 
+            const trashCollectionRef = collection(db, `artifacts/${projectId}/private/admin_docs/trash`);
             
             await addDoc(trashCollectionRef, {
                 originalPath: info.itemDocPath,
