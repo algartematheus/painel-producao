@@ -327,7 +327,9 @@ const CronoanaliseDashboard = ({ user }) => {
     // --- CARREGAMENTO DE DADOS ---
     useEffect(() => {
         if (!projectId) return;
-        const trashQuery = query(collection(db, `artifacts/${projectId}/private/trash`));
+        
+        // CORREÇÃO CRÍTICA: Ajusta o caminho da coleção para ter um número ímpar de segmentos (coleção dentro de documento)
+        const trashQuery = query(collection(db, `artifacts/${projectId}/private/admin_docs/trash`));
         const unsubscribeTrash = onSnapshot(trashQuery, (snapshot) => {
             setTrashItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         });
@@ -335,6 +337,7 @@ const CronoanaliseDashboard = ({ user }) => {
         let mounted = true;
         const loadAdminConfig = async () => {
             try {
+                // Mantém o caminho do admin_config
                 const adminDocRef = doc(db, `artifacts/${projectId}/private/admin_config`, 'admin');
                 const adminSnap = await getDoc(adminDocRef);
                 if (mounted && adminSnap.exists()) {
@@ -401,8 +404,8 @@ const CronoanaliseDashboard = ({ user }) => {
                 return;
             }
             
-            // Usando a coleção 'private/trash' (conforme seu código original)
-            const trashCollectionRef = collection(db, `artifacts/${projectId}/private/trash`); 
+            // CORREÇÃO CRÍTICA: Ajusta o caminho da coleção para ter um número ímpar de segmentos
+            const trashCollectionRef = collection(db, `artifacts/${projectId}/private/admin_docs/trash`); 
             
             await addDoc(trashCollectionRef, {
                 originalPath: info.itemDocPath,
@@ -792,7 +795,7 @@ const CronoanaliseDashboard = ({ user }) => {
             if (productionDiff[productId] !== 0) {
                 const lotToUpdate = lots.find(l => l.productId === productId);
                 if (lotToUpdate) {
-                    const lotRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_lots/${lotToUpdate.id}`);
+                    const lotRef = doc(db, `artifacts/${projectId}/public/data/${currentDashboard.id}_lots`, lotToUpdate.id);
                     const newProduced = (lotToUpdate.produced || 0) + productionDiff[productId];
                     let newStatus = lotToUpdate.status;
                     if (newProduced >= lotToUpdate.target) {
