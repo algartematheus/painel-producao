@@ -14,5 +14,5 @@ root.render(
 // Se você quer que seu aplicativo funcione offline e carregue mais rápido,
 // você pode mudar unregister() para register() abaixo. Note que isso vem com algumas armadilhas.
 // Saiba mais sobre service workers: https://cra.link/PWA
-serviceWorkerRegistration.register();
+serviceWorkerRegistration.unregister();
 
