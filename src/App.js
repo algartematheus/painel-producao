@@ -189,30 +189,14 @@ const LoginPage = () => {
 // #                                                                     #
 // #######################################################################
 
-// --- ESTRUTURA DE DADOS E ESTADO GLOBAL (React Context) ---
 const mockData = {
     users: [{ id: 'user1', name: 'Usuário Padrão' }, { id: 'user2', name: 'Admin' }],
     currentUser: 'user1',
     categories: [
         { id: 'cat1', name: 'Zíperes', createdBy: 'user1' },
         { id: 'cat2', name: 'Linhas', createdBy: 'user1' },
-        { id: 'cat3', name: 'Etiquetas', createdBy: 'user1' },
-        { id: 'cat4', name: 'Acabamento e Estoque', createdBy: 'user1' },
-        { id: 'cat5', name: 'Tecidos', createdBy: 'user1' },
     ],
     products: [
-        { 
-            id: 'prod_tecido1', 
-            name: 'Tecido Orfeu', 
-            categoryId: 'cat5', 
-            minStock: 20000, 
-            leadTimeInMonths: 2,
-            isDeleted: false,
-            variations: [
-                { id: 'var_t1a', name: 'Largura 1,57m', initialStock: 15000, currentStock: 8000 },
-                { id: 'var_t1b', name: 'Largura 1,58m', initialStock: 15000, currentStock: 12500 }
-            ]
-        },
         { 
             id: 'prod1', 
             name: 'ZÍPER AZUL', 
@@ -222,30 +206,14 @@ const mockData = {
             isDeleted: false,
             variations: [
                 { id: 'var_z1a', name: '18cm', initialStock: 31000, currentStock: 17052 },
-                { id: 'var_z1b', name: '16cm', initialStock: 28000, currentStock: 14031 },
             ]
         },
-        { 
-            id: 'prod3', 
-            name: 'LINHA OCRE 660', 
-            categoryId: 'cat2', 
-            minStock: 30, 
-            leadTimeInMonths: 0.5,
-            isDeleted: false,
-            variations: [
-                 { id: 'var_l1a', name: '0.36', initialStock: 320, currentStock: 360 }
-            ]
-        },
-        { id: 'prod5', name: 'TAG RACE BULL MASC. ADULTO', categoryId: 'cat4', minStock: 4000, isDeleted: true, leadTimeInMonths: 3, variations: [{id: 'var_tg1', name: 'Padrão', initialStock: 42315, currentStock: 18833}] },
     ],
     stockMovements: [
         { id: 'mov1', productId: 'prod1', variationId: 'var_z1a', quantity: 100, type: 'Saída', timestamp: new Date(2025, 9, 1, 10, 0, 0).toISOString(), user: 'user1' },
-        { id: 'mov2', productId: 'prod1', variationId: 'var_z1b', quantity: 50, type: 'Saída', timestamp: new Date(2025, 9, 1, 11, 0, 0).toISOString(), user: 'user1' },
-        { id: 'mov3', productId: 'prod3', variationId: 'var_l1a', quantity: 200, type: 'Entrada', timestamp: new Date(2025, 8, 30, 14, 0, 0).toISOString(), user: 'user2' },
     ],
     auditLog: [
         { id: 'log1', action: 'STOCK_UPDATED', details: { productName: 'ZÍPER AZUL (18cm)', change: -100, type: 'Saída' }, timestamp: new Date(2025, 9, 1, 10, 0, 0).toISOString(), user: 'user1' },
-        { id: 'log2', action: 'PRODUCT_DELETED', details: { productName: 'TAG RACE BULL MASC. ADULTO' }, timestamp: new Date(2025, 8, 29, 10, 0, 0).toISOString(), user: 'user2' },
     ]
 };
 
@@ -371,10 +339,8 @@ const StockProvider = ({ children }) => {
     return <StockContext.Provider value={value}>{children}</StockContext.Provider>;
 };
 
-// --- HOOK DE ABSTRAÇÃO DE DADOS ---
 const useStock = () => useContext(StockContext);
 
-// --- COMPONENTES DA UI DE ESTOQUE ---
 const StockHeader = ({ onNavigateToCrono }) => {
     const { logout } = useAuth();
     return (
@@ -449,7 +415,6 @@ const StockDashboardPage = () => {
         <div className="p-8">
             <h1 className="text-3xl font-bold mb-6">Visão Geral do Estoque</h1>
 
-            {/* Controls: Filter and Sort */}
             <div className="bg-white dark:bg-gray-900 p-4 mb-6 rounded-2xl shadow-lg flex flex-wrap items-center justify-between gap-4">
                 <div className="flex-grow">
                     <label htmlFor="category-filter" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Filtrar por Categoria</label>
@@ -615,12 +580,10 @@ const StockMovementsPage = () => {
             .filter(m => new Date(m.timestamp).toDateString() === selectedDate.toDateString());
     }, [stockMovements, selectedDate]);
 
-    // Reset product/variation selection when category changes
     useEffect(() => {
         setMovement(m => ({ ...m, productId: '', variationId: '' }));
     }, [selectedCategoryId]);
 
-    // Reset variation when product changes
     useEffect(() => {
         setMovement(m => ({ ...m, variationId: '' }));
     }, [movement.productId]);
@@ -791,27 +754,23 @@ const ProductModal = ({ isOpen, onClose, productToEdit }) => {
         }
     }, [isOpen, productToEdit, categories]);
 
-    // Lógica para recalcular o estoque mínimo quando o tempo de entrega muda
     useEffect(() => {
-        if (!productToEdit) return; // Só funciona no modo de edição
+        if (!productToEdit) return;
 
         const newLeadTime = parseFloat(productData.leadTimeInMonths);
         const originalLeadTime = productToEdit.leadTimeInMonths;
         const originalMinStock = productToEdit.minStock;
 
-        // Verifica se os valores são válidos para o cálculo
         if (isNaN(newLeadTime) || newLeadTime <= 0 || isNaN(originalLeadTime) || originalLeadTime <= 0 || isNaN(originalMinStock) || originalMinStock <= 0) {
             return;
         }
         
-        // Compara o tempo de entrega atual do formulário com o original do produto
         if (newLeadTime !== originalLeadTime) {
              const impliedConsumptionPerMonth = originalMinStock / originalLeadTime;
              const newMinStock = Math.round(impliedConsumptionPerMonth * newLeadTime);
              
              setProductData(prev => ({ ...prev, minStock: newMinStock.toString() }));
         }
-    // A dependência é apenas o tempo de entrega do formulário, para disparar a cada alteração nele.
     }, [productData.leadTimeInMonths, productToEdit]);
 
 
@@ -1114,7 +1073,6 @@ const defaultRoles = {
     'viewer': { id: 'viewer', name: 'Visualizador', permissions: [] },
 };
 
-// ... (Todos os componentes modais do CronoanaliseDashboard são mantidos aqui sem alteração)
 const DashboardActionModal = ({ isOpen, onClose, onConfirm, mode, initialName = '' }) => {
     const [name, setName] = useState('');
     const title = mode === 'create' ? 'Criar Novo Quadro' : 'Renomear Quadro';
@@ -1347,7 +1305,6 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
     
-    // Simplificado pois a lógica agora é mais complexa e gerenciada pelo Firebase
     useEffect(() => {
         if (!isOpen) {
             // Limpa estados se necessário
@@ -1442,7 +1399,7 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
     );
 };
 
-const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMode, dashboards, currentDashboardIndex, setCurrentDashboardIndex }) => {
+const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMode, dashboards, users, roles, currentDashboardIndex, setCurrentDashboardIndex }) => {
     const { logout } = useAuth();
     const [theme, setTheme] = useState(() => localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
     useEffect(() => {
@@ -1459,10 +1416,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     const [products, setProducts] = useState([]);
     const [lots, setLots] = useState([]);
     const [allProductionData, setAllProductionData] = useState({});
-    // const [tvPredictions, setTvPredictions] = useState({}); // Removido pois não está sendo salvo no DB
     const [trashItems, setTrashItems] = useState([]);
     
-     // Efeito para carregar dados do Firestore
     useEffect(() => {
         if (!user || !currentDashboard) return;
 
@@ -1521,8 +1476,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
     const closeModal = () => setModalState({ type: null, data: null });
     
-    // --- FUNÇÕES DE MANIPULAÇÃO DE DADOS (FIRESTORE) ---
-
     const executeSoftDelete = async (reason, itemId, itemType, itemDoc) => {
         try {
             const trashId = Date.now().toString();
@@ -1549,7 +1502,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 const updatedProdData = { ...allProductionData, [dateKey]: updatedDayData };
                 batch.set(doc(db, `dashboards/${currentDashboard.id}/productionData`, "data"), updatedProdData, { merge: true });
                 
-                // Atualizar lotes
                 for (const detail of itemDoc.productionDetails) {
                     const lotToUpdate = lots.find(l => l.productId === detail.productId);
                     if(lotToUpdate){
@@ -1586,7 +1538,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             const updatedProdData = { ...allProductionData, [entryDateKey]: restoredDayEntries };
             batch.set(doc(db, `dashboards/${dashboardId}/productionData`, "data"), updatedProdData, { merge: true });
             
-            // Reverter atualização dos lotes
             for (const detail of originalDoc.productionDetails) {
                 const lotToUpdate = lots.find(l => l.productId === detail.productId);
                  if(lotToUpdate){
@@ -1597,7 +1548,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             }
         }
     
-        batch.delete(doc(db, "trash", trashId)); // Remove da lixeira
+        batch.delete(doc(db, "trash", trashId));
         await batch.commit();
     };
 
@@ -1621,7 +1572,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     const handleDeleteProduct = (productId) => handleDeleteItemFlow(productId, 'product');
     const handleDeleteEntry = (entryId) => handleDeleteItemFlow(entryId, 'entry');
 
-    // --- LÓGICA DE GERENCIAMENTO DE QUADROS (Firestore) ---
     const handleAddDashboard = async (name) => {
         if (dashboards.some(d => d.name.toLowerCase() === name.toLowerCase())) return false;
         const id = Date.now().toString();
@@ -1992,6 +1942,20 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
         await updateDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, lotId), updatePayload);
     };
+    const handleMoveLot = async (lotId, direction) => {
+        const sorted = lots.filter(l => ['ongoing', 'future'].includes(l.status)).sort((a, b) => a.order - b.order);
+        const currentIndex = sorted.findIndex(l => l.id === lotId);
+        if ((direction === 'up' && currentIndex > 0) || (direction === 'down' && currentIndex < sorted.length - 1)) {
+            const swapIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+            const currentLot = sorted[currentIndex];
+            const swapLot = sorted[swapIndex];
+            
+            const batch = writeBatch(db);
+            batch.update(doc(db, `dashboards/${currentDashboard.id}/lots`, currentLot.id), { order: swapLot.order });
+            batch.update(doc(db, `dashboards/${currentDashboard.id}/lots`, swapLot.id), { order: currentLot.order });
+            await batch.commit();
+        }
+    };
         
     if (!currentDashboard) {
         return <div className="min-h-screen bg-gray-100 dark:bg-black flex justify-center items-center"><p className="text-xl">Carregando quadros...</p></div>;
@@ -2006,7 +1970,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             <LotObservationModal isOpen={modalState.type === 'lotObservation'} onClose={closeModal} lot={modalState.data} onSave={handleSaveLotObservation} />
             <PasswordModal isOpen={modalState.type === 'password'} onClose={closeModal} onSuccess={modalState.data?.onSuccess} adminConfig={{}} />
             <ReasonModal isOpen={modalState.type === 'reason'} onClose={closeModal} onConfirm={modalState.data?.onConfirm} />
-            <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={defaultRoles} />
+            <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={roles} />
             <TvSelectorModal isOpen={modalState.type === 'tvSelector'} onClose={closeModal} onSelect={startTvMode} onStartCarousel={startTvMode} dashboards={dashboards} />
 
             <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-20">
@@ -2104,7 +2068,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                         </td>
                                         <td className="p-3">
                                             <div className="flex gap-2 justify-center">
-                                                {permissions.EDIT_ENTRIES && <button onClick={() => {}} title="Editar Lançamento" className="text-gray-400 cursor-not-allowed"><Edit size={18} /></button>}
+                                                {permissions.EDIT_ENTRIES && <button onClick={() => {}} title="Editar Lançamento (desativado)" className="text-gray-400 cursor-not-allowed"><Edit size={18} /></button>}
                                                 {permissions.DELETE_ENTRIES && <button onClick={() => handleDeleteEntry(d.id)} title="Excluir Lançamento"><Trash2 size={18} className="text-red-500 hover:text-red-400"/></button>}
                                             </div>
                                         </td>
@@ -2209,7 +2173,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                 <div className="flex justify-between items-start">
                                     <div className="flex items-center gap-2">
                                         {permissions.MANAGE_LOTS && !lot.status.startsWith('completed') && (
-                                            <div className="flex flex-col"><button onClick={() => {}} title="Mover para cima" className="disabled:opacity-20"><ChevronUp size={16}/></button><button onClick={() => {}} title="Mover para baixo" className="disabled:opacity-20"><ChevronDown size={16}/></button></div>
+                                            <div className="flex flex-col"><button onClick={() => handleMoveLot(lot.id, 'up')} disabled={index===0} className="disabled:opacity-20"><ChevronUp size={16}/></button><button onClick={() => handleMoveLot(lot.id, 'down')} disabled={index===arr.length-1} className="disabled:opacity-20"><ChevronDown size={16}/></button></div>
                                         )}
                                         <div>
                                             <h4 className="font-bold text-lg">{lot.productName}{lot.customName?` - ${lot.customName}`:''}</h4>
@@ -2362,234 +2326,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     );
 };
 
-// ... (Todos os componentes auxiliares e de TV Mode do CronoanaliseDashboard são mantidos aqui)
-const StatCard = ({ title, value, unit = '', isEfficiency = false }) => {
-    const valueColor = isEfficiency ? (value < 65 ? 'text-red-500' : 'text-green-600') : 'text-gray-800 dark:text-white';
-    return (
-        <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
-            <h3 className="text-lg font-medium text-gray-500 dark:text-gray-400">{title}</h3>
-            <p className={`text-4xl font-bold ${valueColor} mt-2`}>{value}<span className="text-2xl ml-2">{unit}</span></p>
-        </div>
-    );
-};
-
-const CalendarView = ({ selectedDate, setSelectedDate, currentMonth, setCurrentMonth, calendarView, setCalendarView, allProductionData }) => {
-    const handleNavigation = (offset) => {
-        if (calendarView === 'day') setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
-        else if (calendarView === 'month') setCurrentMonth(prev => new Date(prev.getFullYear() + offset, prev.getMonth(), 1));
-        else if (calendarView === 'year') setCurrentMonth(prev => new Date(prev.getFullYear() + offset * 10, prev.getMonth(), 1));
-    };
-    const handleHeaderClick = () => {
-        if (calendarView === 'day') setCalendarView('month');
-        if (calendarView === 'month') setCalendarView('year');
-    };
-    const handleMonthSelect = (monthIndex) => { setCurrentMonth(new Date(currentMonth.getFullYear(), monthIndex, 1)); setCalendarView('day'); };
-    const handleYearSelect = (year) => { setCurrentMonth(new Date(year, currentMonth.getMonth(), 1)); setCalendarView('month'); };
-    const renderHeader = () => {
-        let text = '';
-        if (calendarView === 'day') text = currentMonth.toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
-        else if (calendarView === 'month') text = currentMonth.getFullYear();
-        else { const startYear = Math.floor(currentMonth.getFullYear() / 10) * 10; text = `${startYear} - ${startYear + 9}`; }
-        return <button onClick={handleHeaderClick} className="text-xl font-semibold hover:text-blue-500">{text}</button>;
-    };
-    const renderDayView = () => {
-        const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
-        const startDate = new Date(startOfMonth);
-        startDate.setDate(startDate.getDate() - startOfMonth.getDay());
-        const days = Array.from({ length: 42 }, (_, i) => { const day = new Date(startDate); day.setDate(day.getDate() + i); return day; });
-        return (
-            <div className="grid grid-cols-7 gap-2 text-center">
-                {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((day, i) => <div key={i} className="font-medium text-gray-500 text-sm">{day}</div>)}
-                {days.map((day, i) => {
-                    const isSelected = day.toDateString() === selectedDate.toDateString();
-                    const isCurrentMonth = day.getMonth() === currentMonth.getMonth();
-                    const hasData = !!(allProductionData[day.toISOString().slice(0, 10)] && allProductionData[day.toISOString().slice(0, 10)].length > 0);
-                    return (<button key={i} onClick={() => setSelectedDate(day)} className={`p-2 rounded-full text-sm relative ${isCurrentMonth ? '' : 'text-gray-400 dark:text-gray-600'} ${isSelected ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}>{day.getDate()}{hasData && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-green-500 rounded-full"></span>}</button>)
-                })}
-            </div>
-        );
-    };
-    const renderMonthView = () => {
-        const months = Array.from({length: 12}, (_, i) => new Date(0, i).toLocaleString('pt-BR', {month: 'short'}));
-        return ( <div className="grid grid-cols-4 gap-2 text-center">{months.map((month, i) => (<button key={month} onClick={() => handleMonthSelect(i)} className="p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">{month}</button>))}</div> );
-    };
-    const renderYearView = () => {
-        const startYear = Math.floor(currentMonth.getFullYear() / 10) * 10;
-        const years = Array.from({ length: 10 }, (_, i) => startYear + i);
-        return ( <div className="grid grid-cols-4 gap-2 text-center">{years.map(year => (<button key={year} onClick={() => handleYearSelect(year)} className="p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">{year}</button>))}</div> );
-    };
-    return (
-        <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
-            <div className="flex justify-between items-center mb-4">
-                <button onClick={() => handleNavigation(-1)} title="Anterior"><ChevronLeft/></button>
-                {renderHeader()}
-                <button onClick={() => handleNavigation(1)} title="Próximo"><ChevronRight/></button>
-            </div>
-            {calendarView === 'day' && renderDayView()}
-            {calendarView === 'month' && renderMonthView()}
-            {calendarView === 'year' && renderYearView()}
-        </div>
-    );
-};
-
-const TrashItemDisplay = ({ item, products, user, onRestore, canRestore }) => {
-    const date = new Date(item.deletedAt).toLocaleString('pt-BR');
-    
-    const commonHeader = (
-      <div className="flex justify-between items-start">
-        <div>
-            <p className="font-bold text-lg mb-1">{item.itemType === 'product' ? 'PRODUTO DELETADO' : (item.itemType === 'lot' ? 'LOTE DELETADO' : 'LANÇAMENTO DELETADO')}</p>
-            <p className="text-sm">Deletado por: <span className="font-semibold">{item.deletedByEmail}</span> em <span className="font-semibold">{date}</span></p>
-            <p className="mt-2">Motivo: <span className="italic font-medium">{item.reason || 'Nenhum motivo fornecido.'}</span></p>
-        </div>
-        {canRestore && <button onClick={() => onRestore(item)} className="p-2 bg-green-500 text-white rounded-md text-sm">Restaurar</button>}
-      </div>
-    );
-
-    const getStatusText = (status) => {
-        switch(status) {
-            case 'future': return 'Na Fila';
-            case 'ongoing': return 'Em Andamento';
-            case 'completed': return 'Concluído';
-            case 'completed_missing': return 'Concluído (com Falta)';
-            case 'completed_exceeding': return 'Concluído (com Sobra)';
-            default: return status;
-        }
-    };
-
-    if (item.itemType === 'product') {
-        const doc = item.originalDoc;
-        const lastKnownTime = doc.standardTimeHistory?.[doc.standardTimeHistory.length - 1]?.time || 'N/A';
-        return (
-            <div className="p-4 bg-red-50 dark:bg-red-900/30 rounded-lg border-2 border-red-500/50">
-                {commonHeader}
-                <div className="mt-3 p-3 bg-red-100 dark:bg-red-900/80 rounded-md">
-                    <p className="font-bold">Detalhes do Produto:</p>
-                    <p>Nome/Código: <span className="font-semibold">{doc.name}</span></p>
-                    <p>Tempo Padrão (na exclusão): <span className="font-semibold">{lastKnownTime} min</span></p>
-                </div>
-            </div>
-        );
-    }
-
-    if (item.itemType === 'lot') {
-        const doc = item.originalDoc;
-        return (
-            <div className="p-4 bg-red-50 dark:bg-red-900/30 rounded-lg border-2 border-red-500/50">
-                {commonHeader}
-                <div className="mt-3 p-3 bg-red-100 dark:bg-red-900/80 rounded-md">
-                    <p className="font-bold">Detalhes do Lote:</p>
-                    <p>Produto: <span className="font-semibold">{doc.productName}</span> {doc.customName && `(${doc.customName})`}</p>
-                    <p>Lote Sequencial #: <span className="font-semibold">{doc.sequentialId}</span></p>
-                    <p>Meta Total: <span className="font-semibold">{doc.target} un.</span></p>
-                    <p>Produzido até a Exclusão: <span className="font-semibold">{doc.produced} un.</span></p>
-                    <p>Status na Exclusão: <span className="font-semibold">{getStatusText(doc.status)}</span></p>
-                </div>
-            </div>
-        );
-    }
-    
-    if (item.itemType === 'entry') {
-        const doc = item.originalDoc;
-        const productionList = doc.productionDetails.map(d => {
-            const product = products.find(p => p.id === d.productId);
-            return `${d.produced} un. (${product?.name || 'Produto Excluído'})`
-        }).join(', ');
-
-        return (
-             <div className="p-4 bg-red-50 dark:bg-red-900/30 rounded-lg border-2 border-red-500/50">
-                {commonHeader}
-                <div className="mt-3 p-3 bg-red-100 dark:bg-red-900/80 rounded-md">
-                    <p className="font-bold">Detalhes do Lançamento:</p>
-                    <p>Período: <span className="font-semibold">{doc.period}</span></p>
-                    <p>Pessoas / Tempo: <span className="font-semibold">{doc.people} / {doc.availableTime} min</span></p>
-                    <p>Meta Registrada: <span className="font-semibold">{doc.goalDisplay}</span></p>
-                    <p>Produção Registrada: <span className="font-semibold">{productionList}</span></p>
-                </div>
-            </div>
-        );
-    }
-
-    return null;
-};
-
-const LotReport = ({ lots }) => {
-    const reportData = useMemo(() => {
-        const completedLots = lots.filter(l => l.status.startsWith('completed') && l.startDate && l.endDate);
-        if (completedLots.length === 0) {
-            return { lotDetails: [], overallAverage: 0 };
-        }
-
-        let totalPieces = 0;
-        let totalDays = 0;
-
-        const lotDetails = completedLots.map(lot => {
-            const startDate = new Date(lot.startDate);
-            const endDate = new Date(lot.endDate);
-            const durationMillis = endDate - startDate;
-            const durationDays = Math.max(1, durationMillis / (1000 * 60 * 60 * 24));
-            
-            const averageDaily = lot.produced > 0 ? (lot.produced / durationDays) : 0;
-
-            totalPieces += lot.produced;
-            totalDays += durationDays;
-
-            return {
-                ...lot,
-                duration: durationDays.toFixed(1),
-                averageDaily: averageDaily.toFixed(2),
-            };
-        });
-
-        const overallAverage = totalDays > 0 ? (totalPieces / totalDays) : 0;
-
-        return { lotDetails, overallAverage: overallAverage.toFixed(2) };
-    }, [lots]);
-
-    return (
-        <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
-            <h2 className="text-xl font-semibold mb-4 flex items-center">
-                <BarChart className="mr-2 text-blue-500"/> Relatório de Lotes Concluídos
-            </h2>
-            {reportData.lotDetails.length === 0 ? (
-                <p className="text-gray-500 dark:text-gray-400">Nenhum lote concluído para exibir o relatório.</p>
-            ) : (
-                <>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                    <div className="md:col-span-4 bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg text-center">
-                        <h3 className="font-bold text-lg text-blue-800 dark:text-blue-300">Média Geral de Produção Diária</h3>
-                        <p className="text-3xl font-extrabold text-blue-600 dark:text-blue-400">{reportData.overallAverage} <span className="text-lg">peças/dia</span></p>
-                    </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                        <thead className="bg-gray-50 dark:bg-gray-800">
-                            <tr>
-                                <th className="p-3">Lote</th>
-                                <th className="p-3 text-center">Total Produzido</th>
-                                <th className="p-3 text-center">Duração (dias)</th>
-                                <th className="p-3 text-center">Média Diária (peças)</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
-                            {reportData.lotDetails.map(lot => (
-                                <tr key={lot.id}>
-                                    <td className="p-3 font-semibold">{lot.productName}{lot.customName ? ` - ${lot.customName}` : ''} (#{lot.sequentialId})</td>
-                                    <td className="p-3 text-center">{lot.produced} / {lot.target}</td>
-                                    <td className="p-3 text-center">{lot.duration}</td>
-                                    <td className="p-3 text-center font-bold text-green-600 dark:text-green-400">{lot.averageDaily}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-                </>
-            )}
-        </section>
-    );
-};
-
 const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
     const [transitioning, setTransitioning] = useState(false);
@@ -2600,15 +2336,14 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
 
     const [currentDashboardId, setCurrentDashboardId] = useState(initialDashboardId);
     
-    // Estado para controlar os alertas visuais
-    const [alertInfo, setAlertInfo] = useState({ period: null, type: null }); // type: 'emoji' | 'blink'
+    const [alertInfo, setAlertInfo] = useState({ period: null, type: null });
 
     const changeDashboard = useCallback((newId) => {
         setTransitioning(true);
         setTimeout(() => {
             setCurrentDashboardId(newId);
             setTransitioning(false);
-        }, 300); // Duração da animação de fade-out
+        }, 300);
     }, []);
 
     useEffect(() => {
@@ -2628,7 +2363,6 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     const [products, setProducts] = useState([]);
     const [allProductionData, setAllProductionData] = useState({});
     
-    // Efeito para carregar dados do Firestore
     useEffect(() => {
         if (!currentDashboard) return;
 
@@ -2645,7 +2379,6 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         };
 
     }, [currentDashboard]);
-
 
     
     const today = useMemo(() => new Date(), []);
@@ -2694,21 +2427,17 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         });
     }, [productionData, productMapForToday]);
     
-    // Efeito para detectar novos lançamentos e disparar alertas
     const prevProductionData = usePrevious(productionData);
     useEffect(() => {
         if (prevProductionData && productionData.length > prevProductionData.length) {
             const newEntry = processedData.find(d => !prevProductionData.some(pd => pd.id === d.id));
             if (newEntry && newEntry.produced < newEntry.goal) {
-                // Etapa 1: Mostrar emoji
                 setAlertInfo({ period: newEntry.period, type: 'emoji' });
                 
-                // Etapa 2: Trocar para piscar após 5 segundos
                 const blinkTimer = setTimeout(() => {
                     setAlertInfo({ period: newEntry.period, type: 'blink' });
                 }, 5000);
 
-                // Etapa 3: Limpar tudo após mais 5 segundos
                 const clearTimer = setTimeout(() => {
                     setAlertInfo({ period: null, type: null });
                 }, 10000);
@@ -2782,15 +2511,11 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         const getMetaValue = (period) => {
             const launched = dataByPeriod[period];
             if (launched) return { value: launched.goalForDisplay, isLaunched: true };
-            // const predicted = dailyPredictions[period]; // Predictions não estão disponíveis no modo TV
-            // if (predicted) return { value: predicted.goalDisplay, isLaunched: false };
             return { value: '-', isLaunched: false };
         };
         const getPeopleTimeValue = (period) => {
             const launched = dataByPeriod[period];
             if (launched) return `${launched.people} / ${launched.availableTime} min`;
-            // const predicted = dailyPredictions[period];
-            // if (predicted) return `${predicted.people} / ${predicted.availableTime} min`;
             return '- / -';
         };
         const getAlteracaoValue = (period) => {
@@ -2798,8 +2523,6 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             if (launched && launched.productionDetails?.length > 0) {
                 return launched.productionDetails.map(d => productMapForToday.get(d.productId)?.name).filter(Boolean).join(' / ');
             }
-            // const predicted = dailyPredictions[period];
-            // if (predicted) return predicted.primaryProductName;
             return '-';
         };
         const getProductionValue = (p) => dataByPeriod[p]?.producedForDisplay || '-';
@@ -2900,14 +2623,13 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
 
 const AppContent = () => {
     const { user, loading } = useAuth();
-    const [currentApp, setCurrentApp] = useState('cronoanalise'); // 'cronoanalise' ou 'stock'
+    const [currentApp, setCurrentApp] = useState('cronoanalise');
     const [tvMode, setTvMode] = useState(null);
     const [currentDashboardIndex, setCurrentDashboardIndex] = useState(() => {
         const savedIndex = localStorage.getItem('lastDashboardIndex');
         return savedIndex ? parseInt(savedIndex, 10) : 0;
     });
 
-    // Hooks de dados do Firestore
     const [dashboards, setDashboards] = useState([]);
     const [usersWithRoles, setUsersWithRoles] = useState([]);
     const [userPermissions, setUserPermissions] = useState({});
@@ -2916,13 +2638,12 @@ const AppContent = () => {
         localStorage.setItem('lastDashboardIndex', currentDashboardIndex);
     }, [currentDashboardIndex]);
 
-    // Carrega dashboards
     useEffect(() => {
         const unsub = onSnapshot(query(collection(db, "dashboards"), orderBy("name")), (snap) => {
             const fetchedDashboards = snap.docs.map(d => d.data());
             if (fetchedDashboards.length > 0) {
                 setDashboards(fetchedDashboards);
-            } else { // Caso inicial, cria o dashboard padrão
+            } else { 
                 const defaultDash = { id: 'producao', name: 'Quadro da Produção' };
                 setDoc(doc(db, "dashboards", "producao"), defaultDash);
                 setDashboards([defaultDash]);
@@ -2931,29 +2652,26 @@ const AppContent = () => {
         return () => unsub();
     }, []);
     
-    // Carrega usuários e permissões
     useEffect(() => {
         if (!user) {
             setUserPermissions({});
             return;
         };
 
-        const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
-            const usersData = snap.docs.map(d => ({uid: d.id, ...d.data()}));
+        const unsubUsers = onSnapshot(collection(db, "users"), (usersSnap) => {
+            const usersData = usersSnap.docs.map(d => ({uid: d.id, ...d.data()}));
             
              const unsubRoles = onSnapshot(collection(db, "roles"), (rolesSnap) => {
                 const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data().role]));
                 const combined = usersData.map(u => ({...u, role: rolesData.get(u.uid) || 'viewer' }));
                 setUsersWithRoles(combined);
 
-                // Define permissões do usuário logado
                 const currentUserRole = rolesData.get(user.uid) || 'viewer';
-                const permissions = defaultRoles[currentUserRole]?.permissions || [];
+                const permissionsList = defaultRoles[currentUserRole]?.permissions || [];
                 const permissionsMap = {};
                 for (const key in ALL_PERMISSIONS) {
-                   permissionsMap[key] = permissions.includes(key);
+                   permissionsMap[key] = permissionsList.includes(key);
                 }
-                 // Admin tem todas as permissões
                 if (currentUserRole === 'admin') {
                    Object.keys(ALL_PERMISSIONS).forEach(key => permissionsMap[key] = true);
                 }
@@ -2992,9 +2710,10 @@ const AppContent = () => {
         permissions={userPermissions}
         startTvMode={startTvMode} 
         dashboards={dashboards}
+        users={usersWithRoles}
+        roles={defaultRoles}
         currentDashboardIndex={currentDashboardIndex}
         setCurrentDashboardIndex={setCurrentDashboardIndex}
-        // As funções de manipulação de dados foram movidas para dentro do componente
     />;
 };
 
