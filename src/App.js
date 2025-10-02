@@ -1,6 +1,26 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext } from 'react';
 import { BarChart as RechartsBarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, ShieldCheck, Users, BarChart, Film, Warehouse, Home, ArrowUpDown, Box, Trash, Folder, Calendar as CalendarIcon, User, MinusCircle } from 'lucide-react';
+import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, ShieldCheck, Users, BarChart, Film, Warehouse, Home, ArrowUpDown, Box, Trash, Folder, Calendar as CalendarIcon, User, MinusCircle, AlertTriangle } from 'lucide-react';
+import { db, auth } from './firebase'; // Importação do Firebase
+import {
+  collection,
+  doc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  writeBatch,
+  query,
+  orderBy
+} from 'firebase/firestore';
+import {
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  updateProfile
+} from 'firebase/auth';
+
 
 // --- ESTILOS GLOBAIS E ANIMAÇÕES ---
 const GlobalStyles = () => (
@@ -8,13 +28,21 @@ const GlobalStyles = () => (
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes scaleUp { from { transform: scale(0.95) translateY(10px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
         @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes blinking-red {
+            0% { background-color: transparent; }
+            50% { background-color: rgba(239, 68, 68, 0.5); }
+            100% { background-color: transparent; }
+        }
+        .blinking-red {
+            animation: blinking-red 1s infinite;
+        }
         .modal-backdrop { animation: fadeIn 0.2s ease-out forwards; }
         .modal-content { animation: scaleUp 0.2s ease-out forwards; }
         .dropdown-content { animation: slideDown 0.2s ease-out forwards; }
     `}</style>
 );
 
-// --- HOOK PARA CLICAR FORA ---
+// --- HOOKS CUSTOMIZADOS ---
 const useClickOutside = (ref, handler) => {
     useEffect(() => {
         const listener = (event) => {
@@ -30,6 +58,15 @@ const useClickOutside = (ref, handler) => {
     }, [ref, handler]);
 };
 
+const usePrevious = (value) => {
+    const ref = useRef();
+    useEffect(() => {
+        ref.current = value;
+    });
+    return ref.current;
+}
+
+
 // --- FUNÇÃO DE HASH ---
 async function sha256Hex(message) {
     const data = new TextEncoder().encode(message);
@@ -39,6 +76,113 @@ async function sha256Hex(message) {
 }
 
 const raceBullLogoUrl = "https://firebasestorage.googleapis.com/v0/b/quadrodeproducao.firebasestorage.app/o/assets%2FLOGO%20PROPRIET%C3%81RIA.png?alt=media&token=a16d015f-e8ca-4b3c-b744-7cef3ab6504b";
+
+// #####################################################################
+// #                                                                   #
+// #                       INÍCIO: AUTENTICAÇÃO                        #
+// #                                                                   #
+// #####################################################################
+
+const AuthContext = createContext();
+
+export const AuthProvider = ({ children }) => {
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+            setUser(currentUser);
+            setLoading(false);
+        });
+        return unsubscribe;
+    }, []);
+
+    const login = (email, password) => signInWithEmailAndPassword(auth, email, password);
+    const logout = () => signOut(auth);
+
+    const value = useMemo(() => ({
+        user,
+        loading,
+        login,
+        logout,
+    }), [user, loading]);
+
+    return (
+        <AuthContext.Provider value={value}>
+            {!loading && children}
+        </AuthContext.Provider>
+    );
+};
+
+export const useAuth = () => useContext(AuthContext);
+
+const LoginPage = () => {
+    const { login } = useAuth();
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+
+    const handleLogin = async (e) => {
+        e.preventDefault();
+        setError('');
+        try {
+            await login(email, password);
+        } catch (err) {
+            setError('Falha no login. Verifique seu e-mail e senha.');
+            console.error(err);
+        }
+    };
+
+    return (
+        <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
+            <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-lg dark:bg-gray-800">
+                <div className="text-center">
+                    <img src={raceBullLogoUrl} alt="Race Bull Logo" className="w-32 h-auto mx-auto mb-4 dark:invert" />
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Acessar Sistema</h2>
+                </div>
+                <form className="mt-8 space-y-6" onSubmit={handleLogin}>
+                    <div className="rounded-md shadow-sm -space-y-px">
+                        <div>
+                            <input
+                                id="email-address"
+                                name="email"
+                                type="email"
+                                autoComplete="email"
+                                required
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                className="relative block w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-gray-50 border border-gray-300 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
+                                placeholder="Email"
+                            />
+                        </div>
+                        <div>
+                            <input
+                                id="password"
+                                name="password"
+                                type="password"
+                                autoComplete="current-password"
+                                required
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                className="relative block w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-gray-50 border border-gray-300 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
+                                placeholder="Senha"
+                            />
+                        </div>
+                    </div>
+
+                    {error && <p className="mt-2 text-sm text-center text-red-600">{error}</p>}
+
+                    <div>
+                        <button type="submit" className="group relative flex justify-center w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                            Entrar
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
 
 
 // #######################################################################
@@ -166,7 +310,7 @@ const StockProvider = ({ children }) => {
             const newAuditLog = { id: generateId('log'), action: 'PRODUCT_UPDATED', details: { productName: updatedProduct.name }, timestamp: new Date().toISOString(), user: prev.currentUser };
             return { ...prev, products, auditLog: [...prev.auditLog, newAuditLog] };
         });
-    }, [generateId]);
+    }, []);
 
     const deleteProduct = useCallback((productId) => {
         setState(prev => {
@@ -175,7 +319,7 @@ const StockProvider = ({ children }) => {
             const newAuditLog = { id: generateId('log'), action: 'PRODUCT_DELETED', details: { productName: deletedProduct.name }, timestamp: new Date().toISOString(), user: prev.currentUser };
             return { ...prev, products, auditLog: [...prev.auditLog, newAuditLog] };
         });
-    }, [generateId]);
+    }, []);
 
     const restoreProduct = useCallback((productId) => {
         setState(prev => {
@@ -184,7 +328,7 @@ const StockProvider = ({ children }) => {
             const newAuditLog = { id: generateId('log'), action: 'PRODUCT_RESTORED', details: { productName: restoredProduct.name }, timestamp: new Date().toISOString(), user: prev.currentUser };
             return { ...prev, products, auditLog: [...prev.auditLog, newAuditLog] };
         });
-    }, [generateId]);
+    }, []);
 
     const addStockMovement = useCallback(({ productId, variationId, quantity, type }) => {
         setState(prev => {
@@ -234,7 +378,7 @@ const useStock = () => useContext(StockContext);
 
 // --- COMPONENTES DA UI DE ESTOQUE ---
 const StockHeader = ({ onNavigateToCrono }) => {
-    const { users, currentUser, setCurrentUser } = useStock();
+    const { logout } = useAuth();
     return (
         <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-40">
             <div className="flex items-center gap-4">
@@ -246,11 +390,10 @@ const StockHeader = ({ onNavigateToCrono }) => {
                     <Home size={20} />
                     <span className="hidden sm:inline">Quadro de Produção</span>
                 </button>
-                <div className="relative">
-                    <select value={currentUser} onChange={(e) => setCurrentUser(e.target.value)} className="p-2 rounded-md bg-gray-100 dark:bg-gray-800 appearance-none">
-                        {users.map(user => <option key={user.id} value={user.id}>{user.name}</option>)}
-                    </select>
-                </div>
+                <button onClick={logout} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 text-red-500">
+                    <LogOut size={20} />
+                    <span className="hidden sm:inline">Sair</span>
+                </button>
             </div>
         </header>
     );
@@ -642,13 +785,37 @@ const ProductModal = ({ isOpen, onClose, productToEdit }) => {
                     categoryId: productToEdit.categoryId,
                     minStock: productToEdit.minStock,
                     leadTimeInMonths: productToEdit.leadTimeInMonths || '',
-                    variations: productToEdit.variations.map(v => ({...v})) // Make a copy
+                    variations: productToEdit.variations.map(v => ({...v}))
                 });
             } else {
                 setProductData({ ...initialProductState, categoryId: categories[0]?.id || '' });
             }
         }
-    }, [isOpen, productToEdit]);
+    }, [isOpen, productToEdit, categories]);
+
+    // Lógica para recalcular o estoque mínimo quando o tempo de entrega muda
+    useEffect(() => {
+        if (!productToEdit) return; // Só funciona no modo de edição
+
+        const newLeadTime = parseFloat(productData.leadTimeInMonths);
+        const originalLeadTime = productToEdit.leadTimeInMonths;
+        const originalMinStock = productToEdit.minStock;
+
+        // Verifica se os valores são válidos para o cálculo
+        if (isNaN(newLeadTime) || newLeadTime <= 0 || isNaN(originalLeadTime) || originalLeadTime <= 0 || isNaN(originalMinStock) || originalMinStock <= 0) {
+            return;
+        }
+        
+        // Compara o tempo de entrega atual do formulário com o original do produto
+        if (newLeadTime !== originalLeadTime) {
+             const impliedConsumptionPerMonth = originalMinStock / originalLeadTime;
+             const newMinStock = Math.round(impliedConsumptionPerMonth * newLeadTime);
+             
+             setProductData(prev => ({ ...prev, minStock: newMinStock.toString() }));
+        }
+    // A dependência é apenas o tempo de entrega do formulário, para disparar a cada alteração nele.
+    }, [productData.leadTimeInMonths, productToEdit]);
+
 
     if (!isOpen) return null;
 
@@ -708,17 +875,17 @@ const ProductModal = ({ isOpen, onClose, productToEdit }) => {
                     <h2 className="text-2xl font-bold mb-2">{productToEdit ? 'Editar Produto' : 'Criar Novo Produto'}</h2>
                     
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
+                        <div className="md:col-span-1">
                             <label htmlFor="name">Nome do Produto</label>
                             <input id="name" name="name" type="text" value={productData.name} onChange={handleChange} required className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mt-1"/>
                         </div>
                          <div>
-                            <label htmlFor="minStock">Estoque Mínimo (Total)</label>
-                            <input id="minStock" name="minStock" type="number" min="0" value={productData.minStock} onChange={handleChange} required className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mt-1"/>
-                        </div>
-                        <div>
                             <label htmlFor="leadTimeInMonths">Tempo de Entrega (meses)</label>
                             <input id="leadTimeInMonths" name="leadTimeInMonths" type="number" step="0.5" min="0" value={productData.leadTimeInMonths} onChange={handleChange} required className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mt-1"/>
+                        </div>
+                        <div>
+                            <label htmlFor="minStock">Estoque Mínimo (Total)</label>
+                            <input id="minStock" name="minStock" type="number" min="0" value={productData.minStock} onChange={handleChange} required className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mt-1"/>
                         </div>
                     </div>
                      <div>
@@ -947,6 +1114,7 @@ const ALL_PERMISSIONS = {
     EDIT_ENTRIES: 'Editar Lançamentos de Produção',
     DELETE_ENTRIES: 'Excluir Lançamentos de Produção',
     VIEW_TRASH: 'Visualizar Lixeira',
+    RESTORE_TRASH: 'Restaurar Itens da Lixeira',
     MANAGE_SETTINGS: 'Acessar e Gerenciar Configurações de Administrador',
 };
 
@@ -954,88 +1122,6 @@ const defaultRoles = {
     'admin': { id: 'admin', name: 'Administrador', permissions: Object.keys(ALL_PERMISSIONS) },
     'editor': { id: 'editor', name: 'Editor', permissions: ['MANAGE_PRODUCTS', 'MANAGE_LOTS', 'ADD_ENTRIES', 'EDIT_ENTRIES', 'DELETE_ENTRIES'] },
     'viewer': { id: 'viewer', name: 'Visualizador', permissions: [] },
-};
-
-const LS_PREFIX = 'cronoanalise_local_';
-const LS_KEYS = {
-    DASHBOARDS: `${LS_PREFIX}dashboards`,
-    LAST_DASHBOARD_INDEX: `${LS_PREFIX}lastDashboardIndex`,
-    PRODUCTS: (dashId) => `${LS_PREFIX}${dashId}_products`,
-    LOTS: (dashId) => `${LS_PREFIX}${dashId}_lots`,
-    PRODUCTION_DATA: (dashId) => `${LS_PREFIX}${dashId}_productionData`,
-    ADMIN_CONFIG: `${LS_PREFIX}admin_config`,
-    ROLES: `${LS_PREFIX}roles`,
-    USERS: `${LS_PREFIX}users`,
-    CURRENT_USER_EMAIL: `${LS_PREFIX}currentUserEmail`,
-    TV_PREDICTIONS: (dashId) => `${LS_PREFIX}${dashId}_tv_predictions`,
-    TRASH: `${LS_PREFIX}trash`
-};
-
-const loadArray = (key) => { try { const d = localStorage.getItem(key); return d ? JSON.parse(d) : []; } catch (e) { console.error(e); return []; } };
-const saveArray = (key, data) => { try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { console.error(e); } };
-const loadObject = (key, fallback = {}) => { try { const d = localStorage.getItem(key); return d ? JSON.parse(d) : fallback; } catch (e) { console.error(e); return fallback; } };
-const saveObject = (key, data) => { try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { console.error(e); } };
-
-const useLocalCollection = (key) => { 
-    const [data, setData] = useState(() => key ? loadArray(key) : []);
-    useEffect(() => { setData(key ? loadArray(key) : []); }, [key]);
-    
-    useEffect(() => {
-        const handleStorageChange = (e) => {
-            if (e.key === key) setData(loadArray(key));
-        };
-        window.addEventListener('storage', handleStorageChange);
-        return () => window.removeEventListener('storage', handleStorageChange);
-    }, [key]);
-
-    const save = useCallback((newData) => { if (key) { saveArray(key, newData); setData(newData); } }, [key]);
-    return [data, save];
-};
-const useLocalConfig = (key, fallback = {}) => {
-    const [config, setConfig] = useState(() => key ? loadObject(key, fallback) : fallback);
-    useEffect(() => { setConfig(key ? loadObject(key, fallback) : fallback); }, [key]);
-    
-    useEffect(() => {
-        const handleStorageChange = (e) => {
-            if (e.key === key) setConfig(loadObject(key, fallback));
-        };
-        window.addEventListener('storage', handleStorageChange);
-        return () => window.removeEventListener('storage', handleStorageChange);
-    }, [key, JSON.stringify(fallback)]);
-
-    const save = useCallback((newConfig) => { if (key) { saveObject(key, newConfig); setConfig(newConfig); } }, [key]);
-    return [config, save];
-};
-
-const useDashboards = () => {
-    const [dashboards, setDashboards] = useState(() => loadArray(LS_KEYS.DASHBOARDS).length > 0 ? loadArray(LS_KEYS.DASHBOARDS) : initialDashboards);
-    const saveDashboards = (newDashboards) => { saveArray(LS_KEYS.DASHBOARDS, newDashboards); setDashboards(newDashboards); };
-    const addDashboard = (name) => {
-        if (dashboards.some(d => d.name.toLowerCase() === name.toLowerCase())) { return false; }
-        saveDashboards([...dashboards, { id: Date.now().toString(), name }]);
-        return true;
-    };
-    const renameDashboard = (id, newName) => {
-        if (dashboards.some(d => d.id !== id && d.name.toLowerCase() === newName.toLowerCase())) { return false; }
-        saveDashboards(dashboards.map(d => d.id === id ? { ...d, name: newName } : d));
-        return true;
-    };
-    const deleteDashboard = (id) => {
-        if (dashboards.length <= 1) return;
-        ['PRODUCTS', 'LOTS', 'PRODUCTION_DATA', 'TV_PREDICTIONS'].forEach(key => localStorage.removeItem(LS_KEYS[key](id)));
-        saveDashboards(dashboards.filter(d => d.id !== id));
-    };
-    const moveDashboard = (id, direction) => {
-        const index = dashboards.findIndex(d => d.id === id);
-        const newIndex = direction === 'up' ? index - 1 : index + 1;
-        if (newIndex >= 0 && newIndex < dashboards.length) {
-            const newDashboards = [...dashboards];
-            const [item] = newDashboards.splice(index, 1);
-            newDashboards.splice(newIndex, 0, item);
-            saveDashboards(newDashboards);
-        }
-    };
-    return [dashboards, addDashboard, renameDashboard, deleteDashboard, moveDashboard];
 };
 
 // ... (Todos os componentes modais do CronoanaliseDashboard são mantidos aqui sem alteração)
@@ -1141,7 +1227,11 @@ const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
     const handleConfirm = async () => {
         setChecking(true);
         try {
-            if (!adminConfig || !adminConfig.passwordHash) { onClose(); return; }
+            if (!adminConfig || !adminConfig.passwordHash) {
+                onSuccess();
+                onClose(); 
+                return;
+            }
             const hash = await sha256Hex(passwordInput || '');
             if (hash === adminConfig.passwordHash) { if (onSuccess) onSuccess(); } 
             else { setPasswordInput(''); }
@@ -1161,23 +1251,26 @@ const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
         </div>
     );
 };
-const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
+const ReasonModal = ({ isOpen, onClose, onConfirm, title="Motivo da Exclusão" }) => {
     const [reason, setReason] = useState('');
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
     useEffect(() => { if (!isOpen) setReason(''); }, [isOpen]);
     if (!isOpen) return null;
     const handleConfirm = () => {
-        if (!reason.trim()) return;
-        if (onConfirm) onConfirm(reason.trim());
+        if (!reason.trim()) { 
+          onConfirm("Nenhum motivo fornecido.");
+        } else {
+          if (onConfirm) onConfirm(reason.trim());
+        }
         onClose(); 
     };
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 modal-backdrop">
             <div ref={modalRef} className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-md modal-content">
-                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Motivo da Exclusão</h2><button onClick={onClose} title="Fechar"><XCircle /></button></div>
-                <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={5} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4" placeholder="Explique por que está removendo este item..." />
-                <button onClick={handleConfirm} className="w-full h-10 px-6 font-semibold rounded-md bg-red-600 text-white hover:bg-red-700">Confirmar Exclusão</button>
+                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">{title}</h2><button onClick={onClose} title="Fechar"><XCircle /></button></div>
+                <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={5} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4" placeholder="Explique o motivo (opcional)..." />
+                <button onClick={handleConfirm} className="w-full h-10 px-6 font-semibold rounded-md bg-red-600 text-white hover:bg-red-700">Confirmar</button>
             </div>
         </div>
     );
@@ -1270,7 +1363,6 @@ const AdminPanelModal = ({ isOpen, onClose, adminConfig, setAdminConfig, users, 
 
     // States for Roles Tab
     const [newRoleName, setNewRoleName] = useState('');
-    const [editingRole, setEditingRole] = useState(null);
 
     // States for Password Tab
     const [oldPass, setOldPass] = useState('');
@@ -1284,65 +1376,47 @@ const AdminPanelModal = ({ isOpen, onClose, adminConfig, setAdminConfig, users, 
             setConfirmPass('');
             setNewUserEmail('');
             setNewRoleName('');
-            setEditingRole(null);
         }
     }, [isOpen]);
     
     // --- Handlers for Users ---
-    const handleAddUser = () => {
+    const handleAddUser = async () => {
         if (newUserEmail && !users.find(u => u.email === newUserEmail)) {
-            setUsers([...users, { email: newUserEmail, roleId: newUserRole }]);
-            setNewUserEmail('');
+           // No Firebase, a criação de usuários é geralmente feita através do serviço de autenticação
+           // Esta função precisaria de uma lógica mais complexa (ex: Cloud Function) para criar um usuário
+           // e adicionar seu email/role ao Firestore. Simplificando aqui.
+           alert("A adição de usuários deve ser feita pelo console do Firebase Authentication por enquanto.");
         }
     };
-    const handleDeleteUser = (email) => {
-        if (email === 'admin@local.com') return; // Cannot delete admin
-        setUsers(users.filter(u => u.email !== email));
+    const handleDeleteUser = async (uid) => {
+        if (uid === auth.currentUser.uid) { // Não pode deletar a si mesmo
+            alert("Você não pode deletar sua própria conta.");
+            return;
+        }
+        // No Firebase, a exclusão de usuários deve ser feita através de uma função de back-end (Cloud Function)
+        // por razões de segurança. Por agora, apenas removemos da lista de roles.
+        await deleteDoc(doc(db, "users", uid));
+        await deleteDoc(doc(db, "roles", uid));
     };
-    const handleUserRoleChange = (email, roleId) => {
-        setUsers(users.map(u => u.email === email ? { ...u, roleId } : u));
+    const handleUserRoleChange = async (uid, roleId) => {
+       await setDoc(doc(db, "roles", uid), { role: roleId });
     };
 
     // --- Handlers for Roles ---
     const handleAddRole = () => {
-        if (newRoleName && !Object.values(roles).find(r => r.name === newRoleName)) {
-            const newId = newRoleName.toLowerCase().replace(/\s+/g, '_');
-            setRoles({ ...roles, [newId]: { id: newId, name: newRoleName, permissions: [] } });
-            setNewRoleName('');
-        }
+       alert("Novas funções devem ser adicionadas/configuradas diretamente no código por enquanto (const defaultRoles).");
     };
     const handleDeleteRole = (roleId) => {
-        if (defaultRoles[roleId]) return; // Cannot delete default roles
-        const newRoles = { ...roles };
-        delete newRoles[roleId];
-        setRoles(newRoles);
-        // Reset users with this role to 'viewer'
-        setUsers(users.map(u => u.roleId === roleId ? { ...u, roleId: 'viewer' } : u));
+        if (defaultRoles[roleId]) return; 
+        // Lógica para remover uma role (se fosse dinâmico)
     };
     const handlePermissionChange = (roleId, permissionKey, isChecked) => {
-        const role = roles[roleId];
-        const newPermissions = isChecked
-            ? [...role.permissions, permissionKey]
-            : role.permissions.filter(p => p !== permissionKey);
-        setRoles({ ...roles, [roleId]: { ...role, permissions: newPermissions } });
+       // Lógica para alterar permissões (se fosse dinâmico)
     };
 
     // --- Handlers for Password ---
     const handleSavePassword = async () => {
-        const requiresOldPass = !!adminConfig?.passwordHash;
-        if (requiresOldPass && !oldPass) return;
-        if (!newPass || newPass !== confirmPass) return;
-        
-        if (requiresOldPass) {
-            const oldHash = await sha256Hex(oldPass);
-            if (oldHash !== adminConfig.passwordHash) {
-                setOldPass('');
-                return;
-            }
-        }
-        const newHash = await sha256Hex(newPass);
-        setAdminConfig({ ...adminConfig, passwordHash: newHash });
-        onClose(); // Close on success
+       alert("A alteração de senha deve ser feita através do fluxo de 'Esqueci minha senha' do Firebase.");
     };
 
     if (!isOpen) return null;
@@ -1350,28 +1424,16 @@ const AdminPanelModal = ({ isOpen, onClose, adminConfig, setAdminConfig, users, 
     const renderUsersTab = () => (
         <div>
             <h3 className="text-xl font-bold mb-4">Gerenciar Usuários</h3>
-            <div className="grid grid-cols-3 gap-4 items-end mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <div className="col-span-3 sm:col-span-1">
-                    <label className="block text-sm font-medium mb-1">Email do Usuário</label>
-                    <input type="email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} placeholder="usuario@email.com" className="w-full p-2 rounded-md bg-white dark:bg-gray-700" />
-                </div>
-                <div className="col-span-2 sm:col-span-1">
-                    <label className="block text-sm font-medium mb-1">Função</label>
-                    <select value={newUserRole} onChange={e => setNewUserRole(e.target.value)} className="w-full p-2 rounded-md bg-white dark:bg-gray-700">
-                        {Object.values(roles).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                    </select>
-                </div>
-                <button onClick={handleAddUser} className="h-10 px-4 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700">Adicionar Usuário</button>
-            </div>
+            {/* A interface de adicionar usuário foi removida pois a lógica é complexa no lado do cliente */}
             <div className="space-y-2">
                 {users.map(user => (
-                    <div key={user.email} className="flex justify-between items-center p-3 bg-gray-100 dark:bg-gray-700 rounded-md">
+                    <div key={user.uid} className="flex justify-between items-center p-3 bg-gray-100 dark:bg-gray-700 rounded-md">
                         <span className="font-medium">{user.email}</span>
                         <div className="flex items-center gap-4">
-                            <select value={user.roleId} onChange={e => handleUserRoleChange(user.email, e.target.value)} disabled={user.email === 'admin@local.com'} className="p-1 rounded-md bg-white dark:bg-gray-600 disabled:opacity-70">
-                                {Object.values(roles).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                            <select value={user.role} onChange={e => handleUserRoleChange(user.uid, e.target.value)} disabled={user.email === 'admin@seu-dominio.com'} className="p-1 rounded-md bg-white dark:bg-gray-600 disabled:opacity-70">
+                                {Object.values(defaultRoles).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                             </select>
-                            <button onClick={() => handleDeleteUser(user.email)} disabled={user.email === 'admin@local.com'} className="disabled:opacity-20"><Trash2 size={18} className="text-red-500 hover:text-red-400" /></button>
+                            <button onClick={() => handleDeleteUser(user.uid)} disabled={user.email === 'admin@seu-dominio.com'} className="disabled:opacity-20"><Trash2 size={18} className="text-red-500 hover:text-red-400" /></button>
                         </div>
                     </div>
                 ))}
@@ -1382,21 +1444,16 @@ const AdminPanelModal = ({ isOpen, onClose, adminConfig, setAdminConfig, users, 
     const renderRolesTab = () => (
         <div>
             <h3 className="text-xl font-bold mb-4">Funções & Permissões</h3>
-            <div className="flex gap-4 mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <input type="text" value={newRoleName} onChange={e => setNewRoleName(e.target.value)} placeholder="Nome da nova função" className="flex-grow p-2 rounded-md bg-white dark:bg-gray-700" />
-                <button onClick={handleAddRole} className="px-4 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700">Adicionar Função</button>
-            </div>
             <div className="space-y-4">
-                {Object.values(roles).map(role => (
+                {Object.values(defaultRoles).map(role => (
                     <div key={role.id} className="p-4 border dark:border-gray-700 rounded-lg">
                         <div className="flex justify-between items-center mb-3">
                             <h4 className="text-lg font-bold">{role.name}</h4>
-                            {!defaultRoles[role.id] && <button onClick={() => handleDeleteRole(role.id)}><Trash2 size={18} className="text-red-500 hover:text-red-400"/></button>}
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {Object.entries(ALL_PERMISSIONS).map(([key, label]) => (
                                 <label key={key} className="flex items-center gap-2 p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700">
-                                    <input type="checkbox" checked={role.permissions.includes(key)} onChange={e => handlePermissionChange(role.id, key, e.target.checked)} disabled={role.id === 'admin'} className="disabled:opacity-50" />
+                                    <input type="checkbox" checked={role.permissions.includes(key)} readOnly disabled className="disabled:opacity-50" />
                                     <span className="text-sm">{label}</span>
                                 </label>
                             ))}
@@ -1409,14 +1466,9 @@ const AdminPanelModal = ({ isOpen, onClose, adminConfig, setAdminConfig, users, 
     
     const renderPasswordTab = () => (
         <div>
-             <h3 className="text-xl font-bold mb-4">Alterar Senha de Administrador</h3>
+             <h3 className="text-xl font-bold mb-4">Alterar Senha</h3>
              <div className="space-y-4 max-w-sm">
-                {adminConfig?.passwordHash && (
-                    <div><label className="block text-sm font-medium mb-1">Senha Atual</label><input type="password" value={oldPass} onChange={e=>setOldPass(e.target.value)} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                )}
-                <div><label className="block text-sm font-medium mb-1">Nova Senha</label><input type="password" value={newPass} onChange={e=>setNewPass(e.target.value)} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                <div><label className="block text-sm font-medium mb-1">Confirmar Nova Senha</label><input type="password" value={confirmPass} onChange={e=>setConfirmPass(e.target.value)} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                <button onClick={handleSavePassword} className="w-full h-10 px-6 font-semibold rounded-md bg-green-600 text-white hover:bg-green-700">Salvar Nova Senha</button>
+                <p>A alteração de senha é feita pelo provedor de autenticação (Firebase). Use a opção "Esqueci minha senha" na tela de login, se necessário.</p>
              </div>
         </div>
     );
@@ -1453,8 +1505,9 @@ const AdminPanelModal = ({ isOpen, onClose, adminConfig, setAdminConfig, users, 
     );
 };
 
+
 const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMode, dashboards, addDashboard, renameDashboard, deleteDashboard, moveDashboard, users, setUsers, roles, setRoles, adminConfig, setAdminConfig, currentDashboardIndex, setCurrentDashboardIndex }) => {
-    
+    const { logout } = useAuth();
     const [theme, setTheme] = useState(() => localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
     useEffect(() => {
         const root = window.document.documentElement;
@@ -1467,17 +1520,39 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
     const currentDashboard = dashboards[currentDashboardIndex] || null;
     
-    const productKey = useMemo(() => currentDashboard ? LS_KEYS.PRODUCTS(currentDashboard.id) : null, [currentDashboard]);
-    const lotKey = useMemo(() => currentDashboard ? LS_KEYS.LOTS(currentDashboard.id) : null, [currentDashboard]);
-    const productionDataKey = useMemo(() => currentDashboard ? LS_KEYS.PRODUCTION_DATA(currentDashboard.id) : null, [currentDashboard]);
-    const tvPredictionsKey = useMemo(() => currentDashboard ? LS_KEYS.TV_PREDICTIONS(currentDashboard.id) : null, [currentDashboard]);
+    const [products, setProducts] = useState([]);
+    const [lots, setLots] = useState([]);
+    const [allProductionData, setAllProductionData] = useState({});
+    const [tvPredictions, setTvPredictions] = useState({});
+    const [trashItems, setTrashItems] = useState([]);
     
-    const [products, saveProducts] = useLocalCollection(productKey);
-    const [lots, saveLots] = useLocalCollection(lotKey);
-    const [allProductionData, saveAllProductionData] = useLocalConfig(productionDataKey, {});
-    const [tvPredictions, setTvPredictions] = useLocalConfig(tvPredictionsKey, {});
-    
-    const [trashItems, saveTrashItems] = useLocalCollection(LS_KEYS.TRASH);
+     // Efeito para carregar dados do Firestore
+    useEffect(() => {
+        if (!user || !currentDashboard) return;
+
+        const unsubProducts = onSnapshot(query(collection(db, `dashboards/${currentDashboard.id}/products`)), snap => {
+            setProducts(snap.docs.map(d => d.data()));
+        });
+        const unsubLots = onSnapshot(query(collection(db, `dashboards/${currentDashboard.id}/lots`), orderBy("order")), snap => {
+            setLots(snap.docs.map(d => d.data()));
+        });
+        const unsubProdData = onSnapshot(doc(db, `dashboards/${currentDashboard.id}/productionData`, "data"), snap => {
+            setAllProductionData(snap.exists() ? snap.data() : {});
+        });
+        const unsubTrash = onSnapshot(query(collection(db, 'trash')), snap => {
+             setTrashItems(snap.docs.map(d => d.data()));
+        });
+
+        return () => {
+            unsubProducts();
+            unsubLots();
+            unsubProdData();
+            unsubTrash();
+        };
+
+    }, [user, currentDashboard]);
+
+
     
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -1511,80 +1586,171 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     useClickOutside(navRef, () => setIsNavOpen(false));
 
     const closeModal = () => setModalState({ type: null, data: null });
+    
+    // --- FUNÇÕES DE MANIPULAÇÃO DE DADOS (FIRESTORE) ---
 
-    const executeSoftDelete = (reason, itemId, itemType, itemDoc) => {
+    const executeSoftDelete = async (reason, itemId, itemType, itemDoc) => {
         try {
-            saveTrashItems([...trashItems, {
-                id: Date.now().toString(), originalId: itemId, itemType: itemType, originalDoc: itemDoc,
-                deletedByEmail: user.email, deletedAt: new Date().toISOString(), reason,
-            }]);
-            
-            if (itemType === 'lot') saveLots(lots.filter(item => item.id !== itemId));
-            else if (itemType === 'product') saveProducts(products.filter(item => item.id !== itemId));
-            else if (itemType === 'entry') {
-                const updatedLots = [...lots];
-                itemDoc.productionDetails.forEach(detail => {
-                    const lotIndex = updatedLots.findIndex(l => l.productId === detail.productId);
-                    if (lotIndex !== -1) {
-                        const lot = updatedLots[lotIndex];
-                        const newProduced = Math.max(0, (lot.produced || 0) - detail.produced);
-                        updatedLots[lotIndex] = { ...lot, produced: newProduced, status: (lot.status.startsWith('completed') && newProduced < lot.target) ? 'ongoing' : lot.status };
+            const trashId = Date.now().toString();
+            const trashItem = {
+                id: trashId,
+                originalId: itemId,
+                itemType: itemType,
+                originalDoc: itemDoc,
+                deletedByEmail: user.email,
+                deletedAt: new Date().toISOString(),
+                reason,
+                dashboardId: currentDashboard.id,
+            };
+
+            const batch = writeBatch(db);
+            batch.set(doc(db, "trash", trashId), trashItem);
+
+            if (itemType === 'lot') {
+                batch.delete(doc(db, `dashboards/${currentDashboard.id}/lots`, itemId));
+            } else if (itemType === 'product') {
+                batch.delete(doc(db, `dashboards/${currentDashboard.id}/products`, itemId));
+            } else if (itemType === 'entry') {
+                const updatedDayData = productionData.filter(e => e.id !== itemId);
+                const updatedProdData = { ...allProductionData, [dateKey]: updatedDayData };
+                batch.set(doc(db, `dashboards/${currentDashboard.id}/productionData`, "data"), updatedProdData);
+                
+                // Atualizar lotes
+                for (const detail of itemDoc.productionDetails) {
+                    const lotToUpdate = lots.find(l => l.productId === detail.productId);
+                    if(lotToUpdate){
+                        const newProduced = Math.max(0, (lotToUpdate.produced || 0) - detail.produced);
+                        const newStatus = (lotToUpdate.status.startsWith('completed') && newProduced < lotToUpdate.target) ? 'ongoing' : lotToUpdate.status;
+                        batch.update(doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id), { produced: newProduced, status: newStatus });
                     }
-                });
-                saveLots(updatedLots);
-                const updatedEntries = productionData.filter(e => e.id !== itemId);
-                saveAllProductionData({ ...allProductionData, [dateKey]: updatedEntries });
-                const updatedTvPredictions = { ...tvPredictions };
-                if (updatedTvPredictions[dateKey]?.[itemDoc.period]) { delete updatedTvPredictions[dateKey][itemDoc.period]; setTvPredictions(updatedTvPredictions); }
+                }
             }
+            await batch.commit();
+
         } catch (e) { console.error('Erro ao mover item para lixeira:', e); } 
         finally { closeModal(); }
     };
+
+    const handleRestoreItem = async (itemToRestore) => {
+        const { itemType, originalDoc, dashboardId, id: trashId } = itemToRestore;
     
+        if (dashboardId !== currentDashboard.id) {
+            alert("Este item pertence a outro quadro e não pode ser restaurado aqui.");
+            return;
+        }
+    
+        const batch = writeBatch(db);
+        
+        if (itemType === 'product') {
+            batch.set(doc(db, `dashboards/${dashboardId}/products`, originalDoc.id), originalDoc);
+        } else if (itemType === 'lot') {
+            batch.set(doc(db, `dashboards/${dashboardId}/lots`, originalDoc.id), originalDoc);
+        } else if (itemType === 'entry') {
+            const entryDateKey = new Date(itemToRestore.deletedAt).toISOString().slice(0, 10);
+            const dayEntries = allProductionData[entryDateKey] || [];
+            const restoredDayEntries = [...dayEntries, originalDoc];
+            const updatedProdData = { ...allProductionData, [entryDateKey]: restoredDayEntries };
+            batch.set(doc(db, `dashboards/${dashboardId}/productionData`, "data"), updatedProdData);
+            
+            // Reverter atualização dos lotes
+            for (const detail of originalDoc.productionDetails) {
+                const lotToUpdate = lots.find(l => l.productId === detail.productId);
+                 if(lotToUpdate){
+                    const newProduced = (lotToUpdate.produced || 0) + detail.produced;
+                    const newStatus = (newProduced >= lotToUpdate.target) ? 'completed' : lotToUpdate.status;
+                    batch.update(doc(db, `dashboards/${dashboardId}/lots`, lotToUpdate.id), { produced: newProduced, status: newStatus });
+                }
+            }
+        }
+    
+        batch.delete(doc(db, "trash", trashId)); // Remove da lixeira
+        await batch.commit();
+    };
+
     const handleDeleteItemFlow = (itemId, itemType) => {
         let itemDoc;
         if (itemType === 'entry') itemDoc = productionData.find(i => i.id === itemId);
         else if (itemType === 'lot') itemDoc = lots.find(i => i.id === itemId);
         else if (itemType === 'product') itemDoc = products.find(i => i.id === itemId);
         if (!itemDoc) return;
-        const onConfirmReason = (reason) => executeSoftDelete(reason, itemId, itemType, itemDoc);
-        setModalState({ type: 'password', data: { onSuccess: () => setModalState({ type: 'reason', data: { onConfirm: onConfirmReason } }) } });
+        
+        const onConfirmReason = (reason) => {
+            if(permissions.DELETE_ENTRIES) { // Usando permissão genérica de exclusão
+                executeSoftDelete(reason, itemId, itemType, itemDoc);
+            }
+        };
+
+        setModalState({ type: 'reason', data: { onConfirm: onConfirmReason } });
     };
-    
+
     const handleDeleteLot = (lotId) => handleDeleteItemFlow(lotId, 'lot');
     const handleDeleteProduct = (productId) => handleDeleteItemFlow(productId, 'product');
     const handleDeleteEntry = (entryId) => handleDeleteItemFlow(entryId, 'entry');
 
-    // --- LÓGICA DE GERENCIAMENTO DE QUADROS ---
-    const handleAddDashboard = () => {
-        setIsNavOpen(false);
-        setModalState({ type: 'dashboardAction', data: { mode: 'create', onConfirm: (newName) => addDashboard(newName) } });
+    // --- LÓGICA DE GERENCIAMENTO DE QUADROS (Firestore) ---
+    const handleAddDashboard = async (name) => {
+        if (dashboards.some(d => d.name.toLowerCase() === name.toLowerCase())) return false;
+        const id = Date.now().toString();
+        await setDoc(doc(db, "dashboards", id), { id, name });
+        return true;
     };
-    const handleRenameDashboard = (id, currentName) => {
-        setIsNavOpen(false);
-        setModalState({ type: 'dashboardAction', data: { mode: 'rename', initialName: currentName, onConfirm: (newName) => renameDashboard(id, newName) } });
+    const handleRenameDashboard = async (id, newName) => {
+        if (dashboards.some(d => d.id !== id && d.name.toLowerCase() === newName.toLowerCase())) return false;
+        await updateDoc(doc(db, "dashboards", id), { name: newName });
+        return true;
     };
-    const handleDeleteDashboard = (id, name) => {
-        setIsNavOpen(false);
-        setModalState({ type: 'password', data: { onSuccess: () => { setModalState({ type: 'confirmation', data: { title: 'Confirmar Exclusão', message: `Tem certeza que deseja excluir o quadro "${name}"? TODOS os dados (produtos, lotes, lançamentos) deste quadro serão perdidos permanentemente.`, onConfirm: () => deleteDashboard(id) } }); } } });
+    const handleDeleteDashboard = async (id) => {
+        if (dashboards.length <= 1) return;
+        // ATENÇÃO: Excluir subcoleções é complexo e requer uma Cloud Function para ser feito de forma segura.
+        // O código abaixo apenas deleta o documento do quadro. Os dados dentro dele ficarão órfãos.
+        await deleteDoc(doc(db, "dashboards", id));
     };
-    const handleMoveDashboard = (id, direction) => { moveDashboard(id, direction); };
+    
     const handleSelectTvMode = () => setModalState({ type: 'tvSelector', data: null });
+    
+    // Retorna a lista de produtos com o tempo padrão correto para a data selecionada
+    const productsForSelectedDate = useMemo(() => {
+        const targetDate = new Date(selectedDate);
+        targetDate.setHours(23, 59, 59, 999); 
 
+        return products
+            .map(p => {
+                if (!p.standardTimeHistory || p.standardTimeHistory.length === 0) {
+                    return null; 
+                }
+                const validTimeEntry = p.standardTimeHistory
+                    .filter(h => new Date(h.effectiveDate) <= targetDate)
+                    .pop();
+
+                if (!validTimeEntry) {
+                    return null; 
+                }
+                return { ...p, standardTime: validTimeEntry.time };
+            })
+            .filter(Boolean);
+    }, [products, selectedDate]);
+    
     useEffect(() => {
         if (editingEntryId) return;
-        const isCurrentSelectionValid = products.some(p => p.id === newEntry.productId);
-        if (!isCurrentSelectionValid && products.length > 0) setNewEntry(prev => ({ ...prev, productId: products[0].id, productions: [] }));
-        else if (!isCurrentSelectionValid && products.length === 0) setNewEntry(prev => ({ ...prev, productId: '', productions: [] }));
-    }, [lots, editingEntryId, newEntry.productId, products]);
+        const validProducts = productsForSelectedDate;
+        const isCurrentSelectionValid = validProducts.some(p => p.id === newEntry.productId);
+        if (!isCurrentSelectionValid && validProducts.length > 0) {
+            setNewEntry(prev => ({ ...prev, productId: validProducts[0].id, productions: [] }));
+        } else if (validProducts.length === 0) {
+            setNewEntry(prev => ({ ...prev, productId: '', productions: [] }));
+        }
+    }, [lots, editingEntryId, newEntry.productId, productsForSelectedDate]);
 
     const calculatePredictions = useCallback(() => {
         const people = parseFloat(newEntry.people) || 0;
         const availableTime = parseFloat(newEntry.availableTime) || 0;
         let timeConsumedByUrgent = 0;
         let urgentPrediction = null;
+
+        const currentProducts = productsForSelectedDate;
+
         if (showUrgent && urgentProduction.productId && urgentProduction.produced > 0) {
-            const urgentProduct = products.find(p => p.id === urgentProduction.productId);
+            const urgentProduct = currentProducts.find(p => p.id === urgentProduction.productId);
             if (urgentProduct) {
                 timeConsumedByUrgent = urgentProduct.standardTime * urgentProduction.produced;
                 const urgentLot = lots.find(l => l.productId === urgentProduct.id);
@@ -1595,7 +1761,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         const remainingTime = totalAvailableMinutes - timeConsumedByUrgent;
         let normalPredictions = [];
         if (remainingTime > 0) {
-            const selectedProduct = products.find(p => p.id === newEntry.productId);
+            const selectedProduct = currentProducts.find(p => p.id === newEntry.productId);
             if (selectedProduct && selectedProduct.standardTime > 0) {
                 const activeLots = lots.filter(l => l.status === 'ongoing' || l.status === 'future').sort((a, b) => a.order - b.order);
                 const startIndex = activeLots.findIndex(l => l.productId === newEntry.productId);
@@ -1606,7 +1772,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                     let timeForNormal = remainingTime;
                     for (let i = startIndex; i < activeLots.length && timeForNormal > 0; i++) {
                         const lot = activeLots[i];
-                        const productForLot = products.find(p => p.id === lot.productId);
+                        const productForLot = currentProducts.find(p => p.id === lot.productId);
                         if (productForLot && productForLot.standardTime > 0) {
                             const remainingPiecesInLot = Math.max(0, (lot.target || 0) - (lot.produced || 0));
                             const producible = Math.min(remainingPiecesInLot, Math.floor(timeForNormal / productForLot.standardTime));
@@ -1618,7 +1784,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         }
         const allPredictions = urgentPrediction ? [urgentPrediction, ...normalPredictions] : normalPredictions;
         return { allPredictions, currentGoalPreview: allPredictions.map(p => p.producible || 0).join(' / ') || '0' };
-    }, [newEntry.people, newEntry.availableTime, newEntry.productId, products, lots, urgentProduction, showUrgent]);
+    }, [newEntry.people, newEntry.availableTime, newEntry.productId, productsForSelectedDate, lots, urgentProduction, showUrgent]);
 
     useEffect(() => {
         const { allPredictions, currentGoalPreview } = calculatePredictions();
@@ -1629,46 +1795,11 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         if (newEntry.productions.length !== expectedCount) {
             setNewEntry(prev => ({ ...prev, productions: Array(expectedCount).fill('') }));
         }
-    
-        const people = parseFloat(newEntry.people) || 0;
-        const availableTime = parseFloat(newEntry.availableTime) || 0;
-        const isPeriodLaunched = !!productionData.find(e => e.period === newEntry.period);
-        
-        let newPredictionsForTv = JSON.parse(JSON.stringify(tvPredictions));
-        let shouldUpdate = false;
-    
-        const isReadyForPrediction = newEntry.period && people > 0 && availableTime > 0 && newEntry.productId && !isPeriodLaunched;
-    
-        if (isReadyForPrediction) {
-            const newPredictionForPeriod = {
-                goalDisplay: currentGoalPreview,
-                people,
-                availableTime,
-                primaryProductId: newEntry.productId,
-                primaryProductName: products.find(p => p.id === newEntry.productId)?.name || '-',
-            };
-            
-            if (JSON.stringify(newPredictionsForTv[dateKey]?.[newEntry.period]) !== JSON.stringify(newPredictionForPeriod)) {
-                if (!newPredictionsForTv[dateKey]) newPredictionsForTv[dateKey] = {};
-                newPredictionsForTv[dateKey][newEntry.period] = newPredictionForPeriod;
-                shouldUpdate = true;
-            }
-        } 
-        else if (newEntry.period && newPredictionsForTv[dateKey]?.[newEntry.period]) {
-            delete newPredictionsForTv[dateKey][newEntry.period];
-            if (Object.keys(newPredictionsForTv[dateKey]).length === 0) delete newPredictionsForTv[dateKey];
-            shouldUpdate = true;
-        }
-    
-        if (shouldUpdate) {
-             setTimeout(() => setTvPredictions(newPredictionsForTv), 0);
-        }
-        
-    }, [
-        calculatePredictions, newEntry.productions.length, newEntry.period, newEntry.people, newEntry.availableTime, 
-        newEntry.productId, dateKey, productionData, products, tvPredictions, setTvPredictions
-    ]);
-    
+    }, [calculatePredictions, newEntry.productions.length]);
+
+    const productMapForSelectedDate = useMemo(() => 
+        new Map(productsForSelectedDate.map(p => [p.id, p])), 
+    [productsForSelectedDate]);
     
     const processedData = useMemo(() => {
         if (!productionData || productionData.length === 0) return [];
@@ -1677,7 +1808,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             let totalTimeValue = 0, totalProducedInPeriod = 0;
             const producedForDisplay = (item.productionDetails || []).map(d => `${d.produced || 0}`).join(' / ');
             (item.productionDetails || []).forEach(detail => {
-                const product = products.find(p => p.id === detail.productId);
+                const product = productMapForSelectedDate.get(detail.productId); 
                 if (product?.standardTime) { totalTimeValue += (detail.produced || 0) * product.standardTime; totalProducedInPeriod += (detail.produced || 0); }
             });
             const totalAvailableTime = (item.people || 0) * (item.availableTime || 0);
@@ -1689,7 +1820,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             const cumulativeEfficiency = parseFloat((cumulativeEfficiencySum / (index + 1)).toFixed(2));
             return { ...item, produced: totalProducedInPeriod, goal: numericGoal, producedForDisplay, efficiency, cumulativeProduction, cumulativeGoal, cumulativeEfficiency };
         });
-    }, [productionData, products]);
+    }, [productionData, productMapForSelectedDate]);
 
     const summary = useMemo(() => {
         if (processedData.length === 0) return { totalProduced: 0, totalGoal: 0, lastHourEfficiency: 0, averageEfficiency: 0 };
@@ -1704,6 +1835,15 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         Object.keys(allProductionData).forEach(dateStr => {
             try {
                 const date = new Date(dateStr + "T00:00:00");
+                const productsForDateMap = new Map(products
+                    .map(p => {
+                        const validTimeEntry = p.standardTimeHistory?.filter(h => new Date(h.effectiveDate) <= date).pop();
+                        if (!validTimeEntry) return null;
+                        return [p.id, { ...p, standardTime: validTimeEntry.time }];
+                    })
+                    .filter(Boolean));
+
+
                 if(date.getFullYear() === year && date.getMonth() === month) {
                     const dayData = allProductionData[dateStr];
                     if (dayData && dayData.length > 0) {
@@ -1713,7 +1853,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                             let periodProduction = 0, totalTimeValue = 0;
                             (item.productionDetails || []).forEach(detail => {
                                 periodProduction += (detail.produced || 0);
-                                const product = products.find(p => p.id === detail.productId);
+                                const product = productsForDateMap.get(detail.productId);
                                 if (product?.standardTime) totalTimeValue += (detail.produced || 0) * product.standardTime;
                             });
                             if (item.goalDisplay) dailyGoal += item.goalDisplay.split(' / ').reduce((acc, val) => acc + (parseInt(val.trim(), 10) || 0), 0);
@@ -1735,121 +1875,204 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     const availablePeriods = useMemo(() => FIXED_PERIODS.filter(p => !productionData.some(e => e.period === p)), [productionData]);
     const filteredLots = useMemo(() => [...lots].sort((a,b)=>a.order-b.order).filter(l => lotFilter === 'ongoing' ? (l.status === 'ongoing' || l.status === 'future') : l.status.startsWith('completed')), [lots, lotFilter]);
 
-    const handleAddEntry = async (e) => {
+    const isEntryFormValid = useMemo(() => {
+        const hasProduction = newEntry.productions.some(p => (parseInt(p, 10) || 0) > 0);
+        const hasUrgentProduction = showUrgent && urgentProduction.productId && (parseInt(urgentProduction.produced, 10) || 0) > 0;
+        
+        return (
+            newEntry.period &&
+            (parseFloat(newEntry.people) > 0) &&
+            (parseFloat(newEntry.availableTime) > 0) &&
+            newEntry.productId &&
+            (hasProduction || hasUrgentProduction)
+        );
+    }, [newEntry, showUrgent, urgentProduction]);
+
+
+    const handleAddEntry = useCallback(async (e) => {
         e.preventDefault();
+        if (!isEntryFormValid || !currentDashboard) return;
+
         const productionDetails = [];
-        if (showUrgent && urgentProduction.productId && urgentProduction.produced > 0) productionDetails.push({ productId: urgentProduction.productId, produced: parseInt(urgentProduction.produced, 10) });
+        if (showUrgent && urgentProduction.productId && urgentProduction.produced > 0) {
+            productionDetails.push({ productId: urgentProduction.productId, produced: parseInt(urgentProduction.produced, 10) });
+        }
         predictedLots.filter(p => !p.isUrgent).forEach((lot, index) => {
             const producedAmount = parseInt(newEntry.productions[index], 10) || 0;
-            if (lot && producedAmount > 0) productionDetails.push({ productId: lot.productId, produced: producedAmount });
-        });
-        if (productionDetails.length === 0) return;
-        const newEntryData = { id: Date.now().toString(), period: newEntry.period, people: newEntry.people, availableTime: newEntry.availableTime, productionDetails, observation: '', goalDisplay: goalPreview, primaryProductId: newEntry.productId };
-        saveAllProductionData({ ...allProductionData, [dateKey]: [...productionData, newEntryData] });
-        
-        const updatedLots = [...lots];
-        productionDetails.forEach(detail => {
-            const lotIndex = updatedLots.findIndex(l => l.productId === detail.productId);
-            if (lotIndex !== -1) {
-                const lotToUpdate = updatedLots[lotIndex];
-                const newProduced = (lotToUpdate.produced || 0) + detail.produced;
-                
-                const isStartingNow = lotToUpdate.status === 'future' && newProduced > 0;
-                const isCompletingNow = newProduced >= lotToUpdate.target && !lotToUpdate.status.startsWith('completed');
-
-                let newStatus = lotToUpdate.status;
-                if (isCompletingNow) {
-                    newStatus = 'completed';
-                } else if (isStartingNow) {
-                    newStatus = 'ongoing';
-                }
-
-                updatedLots[lotIndex] = { 
-                    ...lotToUpdate, 
-                    produced: newProduced, 
-                    status: newStatus,
-                    ...(isStartingNow && { startDate: new Date().toISOString() }),
-                    ...(isCompletingNow && { endDate: new Date().toISOString() })
-                };
+            if (lot && producedAmount > 0) {
+                productionDetails.push({ productId: lot.productId, produced: producedAmount });
             }
         });
-        saveLots(updatedLots);
         
-        const newPredictionsForTv = { ...tvPredictions };
-        if (newPredictionsForTv[dateKey]?.[newEntry.period]) {
-            delete newPredictionsForTv[dateKey][newEntry.period];
-            if (Object.keys(newPredictionsForTv[dateKey]).length === 0) delete newPredictionsForTv[dateKey];
-            setTvPredictions(newPredictionsForTv);
+        const newEntryData = { id: Date.now().toString(), period: newEntry.period, people: newEntry.people, availableTime: newEntry.availableTime, productionDetails, observation: '', goalDisplay: goalPreview, primaryProductId: newEntry.productId };
+        
+        const batch = writeBatch(db);
+        const prodDataRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, "data");
+
+        // Atualizar productionData
+        const updatedDayData = [...(allProductionData[dateKey] || []), newEntryData];
+        batch.update(prodDataRef, { [dateKey]: updatedDayData });
+
+        // Atualizar lotes
+        for (const detail of productionDetails) {
+            const lotToUpdate = lots.find(l => l.productId === detail.productId);
+            if(lotToUpdate){
+                const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id);
+                const newProduced = (lotToUpdate.produced || 0) + detail.produced;
+                const updatePayload = { produced: newProduced };
+                if (lotToUpdate.status === 'future' && newProduced > 0) {
+                    updatePayload.status = 'ongoing';
+                    updatePayload.startDate = new Date().toISOString();
+                }
+                if (newProduced >= lotToUpdate.target && !lotToUpdate.status.startsWith('completed')) {
+                    updatePayload.status = 'completed';
+                    updatePayload.endDate = new Date().toISOString();
+                }
+                batch.update(lotRef, updatePayload);
+            }
         }
+        
+        await batch.commit();
         
         setNewEntry({ period: '', people: '', availableTime: 60, productId: newEntry.productId, productions: [] });
         setUrgentProduction({productId: '', produced: ''});
         setShowUrgent(false);
-    };
+    }, [isEntryFormValid, showUrgent, urgentProduction, predictedLots, newEntry, allProductionData, dateKey, lots, currentDashboard]);
     
     const handleInputChange = (e) => { const { name, value } = e.target; setNewEntry(prev => ({ ...prev, [name]: value, ...(name === 'productId' && { productions: [] }) })); };
     const handleUrgentChange = (e) => setUrgentProduction(prev => ({...prev, [e.target.name]: e.target.value}));
     const handleProductionChange = (index, value) => { const newProductions = [...newEntry.productions]; newProductions[index] = value; setNewEntry(prev => ({ ...prev, productions: newProductions })); };
-    const handleAddProduct = (e) => { e.preventDefault(); if (!newProduct.name || !newProduct.standardTime) return; saveProducts([...products, { id: Date.now().toString(), ...newProduct, standardTime: parseFloat(newProduct.standardTime) }]); setNewProduct({ name: '', standardTime: '' }); };
-    const handleStartEditProduct = (p) => { setEditingProductId(p.id); setEditingProductData({ name: p.name, standardTime: p.standardTime }); };
-    const handleSaveProduct = (id) => { if (!editingProductData.name || !editingProductData.standardTime) return; saveProducts(products.map(p => p.id === id ? { ...p, name: editingProductData.name, standardTime: parseFloat(editingProductData.standardTime) } : p)); setEditingProductId(null); };
-    const handleSaveObservation = (entryId, observation) => { const updatedEntries = productionData.map(e => e.id === entryId ? { ...e, observation } : e); saveAllProductionData({ ...allProductionData, [dateKey]: updatedEntries }); };
-    const handleSaveLotObservation = (lotId, observation) => saveLots(lots.map(l => l.id === lotId ? { ...l, observation } : l));
-    const handleAddLot = (e) => { e.preventDefault(); if (!newLot.productId || !newLot.target) return; const product = products.find(p => p.id === newLot.productId); if (!product) return; saveLots([...lots, { id: Date.now().toString(), sequentialId: lotCounter, ...newLot, productId: product.id, productName: product.name, target: parseInt(newLot.target, 10), produced: 0, status: 'future', order: Date.now(), observation: '', startDate: null, endDate: null }]); setNewLot({ productId: '', target: '', customName: '' }); };
-    const handleStartEditLot = (lot) => { setEditingLotId(lot.id); setEditingLotData({ target: lot.target, customName: lot.customName }); };
-    const handleSaveLotEdit = (lotId) => { 
-        const updatedLots = lots.map(l => {
-            if (l.id === lotId) {
-                const newTarget = parseInt(editingLotData.target, 10);
-                const wasCompleted = l.status.startsWith('completed');
-                const isCompletingNow = l.produced >= newTarget && !wasCompleted;
     
-                let newStatus = l.status;
-                if (isCompletingNow) {
-                    newStatus = 'completed';
-                } else if (wasCompleted && l.produced < newTarget) {
-                    newStatus = 'ongoing';
-                }
-    
-                return { 
-                    ...l, 
-                    target: newTarget, 
-                    customName: editingLotData.customName, 
-                    status: newStatus,
-                    ...(isCompletingNow && { endDate: new Date().toISOString() }),
-                    ...((wasCompleted && l.produced < newTarget) && { endDate: null })
-                };
-            }
-            return l;
+    const handleAddProduct = async (e) => { 
+        e.preventDefault(); 
+        if (!newProduct.name || !newProduct.standardTime || !currentDashboard) return; 
+        const id = Date.now().toString();
+        const newProductData = { 
+            id, 
+            name: newProduct.name, 
+            standardTimeHistory: [{
+                time: parseFloat(newProduct.standardTime),
+                effectiveDate: new Date().toISOString()
+            }] 
+        };
+        await setDoc(doc(db, `dashboards/${currentDashboard.id}/products`, id), newProductData);
+        setNewProduct({ name: '', standardTime: '' }); 
+    };
+
+    const handleStartEditProduct = (p) => { 
+        setEditingProductId(p.id); 
+        const currentTime = p.standardTimeHistory[p.standardTimeHistory.length - 1].time;
+        setEditingProductData({ name: p.name, standardTime: currentTime }); 
+    };
+
+    const handleSaveProduct = async (id) => { 
+        if (!editingProductData.name || !editingProductData.standardTime || !currentDashboard) return;
+        
+        const productDoc = products.find(p => p.id === id);
+        if(!productDoc) return;
+        
+        const latestTime = productDoc.standardTimeHistory[productDoc.standardTimeHistory.length - 1].time;
+        const newTime = parseFloat(editingProductData.standardTime);
+        const newHistory = [...productDoc.standardTimeHistory];
+
+        if (latestTime !== newTime) {
+            newHistory.push({
+                time: newTime,
+                effectiveDate: new Date().toISOString()
+            });
+        }
+        
+        await updateDoc(doc(db, `dashboards/${currentDashboard.id}/products`, id), {
+            name: editingProductData.name,
+            standardTimeHistory: newHistory
         });
-        saveLots(updatedLots);
+        
+        setEditingProductId(null); 
+    };
+
+    const handleSaveObservation = async (entryId, observation) => {
+        const updatedDayData = productionData.map(e => e.id === entryId ? { ...e, observation } : e);
+        await updateDoc(doc(db, `dashboards/${currentDashboard.id}/productionData`, "data"), { [dateKey]: updatedDayData });
+    };
+    const handleSaveLotObservation = async (lotId, observation) => {
+        await updateDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, lotId), { observation });
+    };
+    const handleAddLot = async (e) => {
+        e.preventDefault();
+        if (!newLot.productId || !newLot.target || !currentDashboard) return;
+        const product = products.find(p => p.id === newLot.productId);
+        if (!product) return;
+        const id = Date.now().toString();
+        const newLotData = {
+            id,
+            sequentialId: lotCounter,
+            ...newLot,
+            productId: product.id,
+            productName: product.name,
+            target: parseInt(newLot.target, 10),
+            produced: 0,
+            status: 'future',
+            order: Date.now(),
+            observation: '',
+            startDate: null,
+            endDate: null
+        };
+        await setDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, id), newLotData);
+        setNewLot({ productId: '', target: '', customName: '' });
+    };
+    const handleStartEditLot = (lot) => { setEditingLotId(lot.id); setEditingLotData({ target: lot.target, customName: lot.customName || '' }); };
+    const handleSaveLotEdit = async (lotId) => { 
+        const lot = lots.find(l => l.id === lotId);
+        if(!lot) return;
+
+        const newTarget = parseInt(editingLotData.target, 10);
+        const wasCompleted = lot.status.startsWith('completed');
+        const isCompletingNow = lot.produced >= newTarget && !wasCompleted;
+
+        const updatePayload = {
+            target: newTarget,
+            customName: editingLotData.customName,
+        };
+
+        if (isCompletingNow) {
+            updatePayload.status = 'completed';
+            updatePayload.endDate = new Date().toISOString();
+        } else if (wasCompleted && lot.produced < newTarget) {
+            updatePayload.status = 'ongoing';
+            updatePayload.endDate = null;
+        }
+
+        await updateDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, lotId), updatePayload);
         setEditingLotId(null);
     };
-    const handleLotStatusChange = (lotId, newStatus) => {
-        const updatedLots = lots.map(l => {
-            if (l.id === lotId) {
-                const updatedLot = { ...l, status: newStatus };
-                const isCompleting = newStatus.startsWith('completed');
-                const wasCompleted = l.status.startsWith('completed');
-                if (isCompleting && !wasCompleted) {
-                    updatedLot.endDate = new Date().toISOString();
-                } else if (!isCompleting && wasCompleted) {
-                    updatedLot.endDate = null;
-                }
-                return updatedLot;
-            }
-            return l;
-        });
-        saveLots(updatedLots);
+    const handleLotStatusChange = async (lotId, newStatus) => {
+        const lot = lots.find(l => l.id === lotId);
+        if(!lot) return;
+        
+        const updatePayload = { status: newStatus };
+        const isCompleting = newStatus.startsWith('completed');
+        const wasCompleted = lot.status.startsWith('completed');
+
+        if (isCompleting && !wasCompleted) {
+            updatePayload.endDate = new Date().toISOString();
+        } else if (!isCompleting && wasCompleted) {
+            updatePayload.endDate = null;
+        }
+
+        await updateDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, lotId), updatePayload);
     };
-    const handleMoveLot = (lotId, direction) => {
+    const handleMoveLot = async (lotId, direction) => {
         const sorted = lots.filter(l => ['ongoing', 'future'].includes(l.status)).sort((a, b) => a.order - b.order);
         const currentIndex = sorted.findIndex(l => l.id === lotId);
         if ((direction === 'up' && currentIndex > 0) || (direction === 'down' && currentIndex < sorted.length - 1)) {
             const swapIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
             const currentLot = sorted[currentIndex];
             const swapLot = sorted[swapIndex];
-            saveLots(lots.map(l => { if (l.id === currentLot.id) return { ...l, order: swapLot.order }; if (l.id === swapLot.id) return { ...l, order: currentLot.order }; return l; }));
+            
+            const batch = writeBatch(db);
+            batch.update(doc(db, `dashboards/${currentDashboard.id}/lots`, currentLot.id), { order: swapLot.order });
+            batch.update(doc(db, `dashboards/${currentDashboard.id}/lots`, swapLot.id), { order: currentLot.order });
+            await batch.commit();
         }
     };
         
@@ -1882,20 +2105,16 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                 {dashboards.map((dash, index) => (
                                     <div key={dash.id} className="flex items-center justify-between px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">
                                         <div className="flex items-center gap-2">
-                                            <div className="flex flex-col">
-                                                <button onClick={() => handleMoveDashboard(dash.id, 'up')} disabled={index === 0} className="disabled:opacity-20"><ChevronUp size={16} /></button>
-                                                <button onClick={() => handleMoveDashboard(dash.id, 'down')} disabled={index === dashboards.length - 1} className="disabled:opacity-20"><ChevronDown size={16} /></button>
-                                            </div>
                                             <button onClick={() => { setCurrentDashboardIndex(index); setIsNavOpen(false); }} className="flex-grow text-left">{dash.name}</button>
                                         </div>
                                         <div className="flex items-center gap-3">
-                                            <button onClick={() => handleRenameDashboard(dash.id, dash.name)} title="Renomear Quadro"><Edit size={16} className="text-yellow-500 hover:text-yellow-400" /></button>
-                                            <button onClick={() => handleDeleteDashboard(dash.id, dash.name)} title="Excluir Quadro"><Trash2 size={16} className="text-red-500 hover:text-red-400" /></button>
+                                            {permissions.MANAGE_DASHBOARDS && <button onClick={() => { setIsNavOpen(false); setModalState({ type: 'dashboardAction', data: { mode: 'rename', initialName: dash.name, onConfirm: (newName) => handleRenameDashboard(dash.id, newName) } })}} title="Renomear Quadro"><Edit size={16} className="text-yellow-500 hover:text-yellow-400" /></button>}
+                                            {permissions.MANAGE_DASHBOARDS && <button onClick={() => { setIsNavOpen(false); setModalState({ type: 'confirmation', data: { title: 'Confirmar Exclusão', message: `Tem certeza que deseja excluir o quadro "${dash.name}"?`, onConfirm: () => handleDeleteDashboard(dash.id) } }); }} title="Excluir Quadro"><Trash2 size={16} className="text-red-500 hover:text-red-400" /></button>}
                                         </div>
                                     </div>
                                 ))}
                                 <div className="border-t my-2 dark:border-gray-600"></div>
-                                <button onClick={handleAddDashboard} className="w-full text-left px-4 py-2 text-sm text-blue-600 dark:text-blue-400 font-semibold hover:bg-gray-100 dark:hover:bg-gray-700">+ Criar Novo Quadro</button>
+                                {permissions.MANAGE_DASHBOARDS && <button onClick={() => { setIsNavOpen(false); setModalState({ type: 'dashboardAction', data: { mode: 'create', onConfirm: handleAddDashboard } })}} className="w-full text-left px-4 py-2 text-sm text-blue-600 dark:text-blue-400 font-semibold hover:bg-gray-100 dark:hover:bg-gray-700">+ Criar Novo Quadro</button>}
                             </div>
                         )}
                     </div>
@@ -1905,9 +2124,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                         <Warehouse size={20} />
                         <span className="hidden sm:inline">Gerenciamento de Estoque</span>
                     </button>
-                    <span className='text-sm text-gray-500 dark:text-gray-400 hidden md:block'>{user.email} (Local)</span>
+                    <span className='text-sm text-gray-500 dark:text-gray-400 hidden md:block'>{user.email}</span>
+                    <button onClick={logout} title="Sair" className="p-2 rounded-full bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/50 dark:text-red-400 dark:hover:bg-red-900"><LogOut size={20} /></button>
                     <button onClick={handleSelectTvMode} title="Modo TV" className="p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700"><Monitor size={20} /></button>
-                    <button onClick={() => setModalState({ type: 'adminSettings' })} title="Configurações de Admin Local" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"><Settings size={20} /></button>
+                    {permissions.MANAGE_SETTINGS && <button onClick={() => setModalState({ type: 'adminSettings' })} title="Configurações de Admin Local" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"><Settings size={20} /></button>}
                     <button onClick={toggleTheme} title={theme === 'light' ? "Mudar para Tema Escuro" : "Mudar para Tema Claro"} className="p-2 rounded-full bg-gray-200 dark:bg-gray-700">{theme === 'light' ? <Moon size={20}/> : <Sun size={20}/>}</button>
                 </div>
             </header>
@@ -1923,7 +2143,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                     </div>
                 </section>
                 <h2 className="text-2xl font-bold border-b-2 border-blue-500 pb-2">Resultados de: {selectedDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })}</h2>
-                <LotReport lots={lots} />
+                <LotReport lots={lots} products={productsForSelectedDate}/>
                 <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     <StatCard title="Produção Acumulada (Dia)" value={summary.totalProduced.toLocaleString('pt-BR')} unit="un." />
                     <StatCard title="Meta Acumulada (Dia)" value={summary.totalGoal.toLocaleString('pt-BR')} unit="un." />
@@ -1967,8 +2187,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                         </td>
                                         <td className="p-3">
                                             <div className="flex gap-2 justify-center">
-                                                <button onClick={() => {}} title="Editar Lançamento"><Edit size={18} className="text-yellow-500 hover:text-yellow-400"/></button>
-                                                <button onClick={() => handleDeleteEntry(d.id)} title="Excluir Lançamento"><Trash2 size={18} className="text-red-500 hover:text-red-400"/></button>
+                                                {permissions.EDIT_ENTRIES && <button onClick={() => {}} title="Editar Lançamento" className="text-gray-400 cursor-not-allowed"><Edit size={18} /></button>}
+                                                {permissions.DELETE_ENTRIES && <button onClick={() => handleDeleteEntry(d.id)} title="Excluir Lançamento"><Trash2 size={18} className="text-red-500 hover:text-red-400"/></button>}
                                             </div>
                                         </td>
                                     </tr>
@@ -1978,7 +2198,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                     </div>
                 </section>
 
-                <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
+                {permissions.ADD_ENTRIES && <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
                     <h2 className="text-xl font-semibold mb-4 flex items-center"><PlusCircle className="mr-2 text-blue-500"/> Adicionar Novo Lançamento</h2>
                     <form onSubmit={handleAddEntry} className="grid grid-cols-1 gap-4 items-end">
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -1995,7 +2215,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                 <label htmlFor="entry-product">Produto (Prioridade)</label>
                                 <select id="entry-product" name="productId" value={newEntry.productId} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
                                     <option value="">Selecione...</option>
-                                    {[...products].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
+                                    {[...productsForSelectedDate].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
                                 </select>
                             </div>
                         </div>
@@ -2032,15 +2252,15 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                     <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Meta Prevista</label>
                                     <span className="font-bold text-xl text-blue-600 dark:text-blue-400">{goalPreview || '0'}</span>
                                 </div>
-                                <button type="submit" className="h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700">Adicionar</button>
+                                <button type="submit" disabled={!isEntryFormValid} className="h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Adicionar</button>
                             </div>
                         </div>
                     </form>
-                </section>
+                </section>}
                 
                 <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
                     <h2 className="text-xl font-semibold mb-4 flex items-center"><Layers className="mr-2 text-blue-500"/> Controle de Lotes de Produção</h2>
-                    <div className="mb-6 border-b pb-6 dark:border-gray-700">
+                    {permissions.MANAGE_LOTS && <div className="mb-6 border-b pb-6 dark:border-gray-700">
                         <h3 className="text-lg font-medium mb-4">Criar Novo Lote</h3>
                         <form onSubmit={handleAddLot} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                             <div className="flex flex-col">
@@ -2054,7 +2274,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                             <div className="flex flex-col"><label htmlFor="newLotCustomName">Nome (Opcional)</label><input type="text" id="newLotCustomName" name="customName" value={newLot.customName} onChange={e => setNewLot({...newLot, customName: e.target.value})} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
                             <button type="submit" className="h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600">Criar Lote</button>
                         </form>
-                    </div>
+                    </div>}
                      <div className="flex gap-2 mb-4 border-b pb-2 dark:border-gray-700 flex-wrap">
                         <button onClick={() => setLotFilter('ongoing')} className={`px-3 py-1 text-sm rounded-full ${lotFilter==='ongoing' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}>Em Andamento</button>
                         <button onClick={() => setLotFilter('completed')} className={`px-3 py-1 text-sm rounded-full ${lotFilter==='completed' ? 'bg-green-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}>Concluídos</button>
@@ -2071,7 +2291,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                             <div key={lot.id} className={`${lotBgClass} p-4 rounded-lg`}>
                                 <div className="flex justify-between items-start">
                                     <div className="flex items-center gap-2">
-                                        {!lot.status.startsWith('completed') && (
+                                        {permissions.MANAGE_LOTS && !lot.status.startsWith('completed') && (
                                             <div className="flex flex-col"><button onClick={() => handleMoveLot(lot.id, 'up')} disabled={index===0} className="disabled:opacity-20"><ChevronUp size={16}/></button><button onClick={() => handleMoveLot(lot.id, 'down')} disabled={index===arr.length-1} className="disabled:opacity-20"><ChevronDown size={16}/></button></div>
                                         )}
                                         <div>
@@ -2086,7 +2306,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-4">
-                                        <select 
+                                        {permissions.MANAGE_LOTS && <select 
                                             value={lot.status} 
                                             onChange={(e) => handleLotStatusChange(lot.id, e.target.value)} 
                                             className="text-xs font-semibold p-1 rounded-full bg-gray-200 dark:bg-gray-600 border-none appearance-none text-center"
@@ -2108,13 +2328,13 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                                     <option value="ongoing">Reabrir</option>
                                                 </> 
                                             )}
-                                        </select>
+                                        </select>}
                                         <div className="flex gap-2">
                                             <button onClick={()=>setModalState({type:'lotObservation', data:lot})} title="Observação">
                                                 <MessageSquare size={18} className={lot.observation ? 'text-blue-500 hover:text-blue-400' : 'text-gray-500 hover:text-blue-400'}/>
                                             </button>
-                                            <button onClick={()=>handleStartEditLot(lot)} title="Editar Lote"><Edit size={18} className="text-yellow-500 hover:text-yellow-400"/></button>
-                                            <button onClick={()=>handleDeleteLot(lot.id)} title="Excluir Lote"><Trash2 size={18} className="text-red-500 hover:text-red-400"/></button>
+                                            {permissions.MANAGE_LOTS && <button onClick={()=>handleStartEditLot(lot)} title="Editar Lote"><Edit size={18} className="text-yellow-500 hover:text-yellow-400"/></button>}
+                                            {permissions.MANAGE_LOTS && <button onClick={()=>handleDeleteLot(lot.id)} title="Excluir Lote"><Trash2 size={18} className="text-red-500 hover:text-red-400"/></button>}
                                         </div>
                                     </div>
                                 </div>
@@ -2140,51 +2360,62 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                  <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
                     <h2 className="text-xl font-semibold mb-4 flex items-center"><Package className="mr-2 text-blue-500"/> Gerenciamento de Produtos</h2>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                        <div>
+                        {permissions.MANAGE_PRODUCTS && <div>
                             <h3 className="text-lg font-medium mb-4">Cadastrar Novo Produto</h3>
                             <form onSubmit={handleAddProduct} className="space-y-3">
                                 <div><label htmlFor="newProductName">Nome</label><input type="text" id="newProductName" value={newProduct.name} onChange={e=>setNewProduct({...newProduct,name:e.target.value})} required className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
                                 <div><label htmlFor="newProductTime">Tempo Padrão (min)</label><input type="number" id="newProductTime" value={newProduct.standardTime} onChange={e=>setNewProduct({...newProduct,standardTime:e.target.value})} step="0.01" required className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
                                 <button type="submit" className="w-full h-10 bg-green-600 text-white rounded-md">Salvar</button>
                             </form>
-                        </div>
-                        <div>
+                        </div>}
+                        <div className={!permissions.MANAGE_PRODUCTS ? 'lg:col-span-2' : ''}>
                             <h3 className="text-lg font-medium mb-4">Produtos Cadastrados ({products.length})</h3>
                             <div className="overflow-auto max-h-60 rounded-lg border dark:border-gray-700">
                                 <table className="w-full text-left">
                                      <thead className="bg-gray-100 dark:bg-gray-700"><tr>
                                         <th className="p-3">Nome/Código</th>
-                                        <th className="p-3">Tempo Padrão</th>
-                                        <th className="p-3 text-center">Ações</th>
+                                        <th className="p-3">Tempo Padrão (na data)</th>
+                                        {permissions.MANAGE_PRODUCTS && <th className="p-3 text-center">Ações</th>}
                                     </tr></thead>
                                     <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
-                                        {products.map(p=>(
-                                            <tr key={p.id}>
-                                                {editingProductId===p.id?(
+                                        {products.map(p => {
+                                            const history = p.standardTimeHistory || [];
+                                            const currentTime = history.length > 0 ? history[history.length - 1].time : 'N/A';
+
+                                            const historicalEntry = history.filter(h => new Date(h.effectiveDate) <= selectedDate).pop();
+                                            const didExistOnDate = !!historicalEntry;
+                                            const historicalTime = historicalEntry ? historicalEntry.time : 'N/A';
+
+                                            return (
+                                            <tr key={p.id} className={!didExistOnDate ? 'bg-red-50 dark:bg-red-900/20' : ''}>
+                                                {editingProductId === p.id ? (
                                                     <>
-                                                        <td className="p-2"><input type="text" value={editingProductData.name} onChange={e=>setEditingProductData({...editingProductData,name:e.target.value})} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600"/></td>
-                                                        <td className="p-2"><input type="number" step="0.01" value={editingProductData.standardTime} onChange={e=>setEditingProductData({...editingProductData,standardTime:e.target.value})} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600"/></td>
-                                                        <td className="p-3">
+                                                        <td className="p-2"><input type="text" value={editingProductData.name} onChange={e => setEditingProductData({ ...editingProductData, name: e.target.value })} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
+                                                        <td className="p-2"><input type="number" step="0.01" value={editingProductData.standardTime} onChange={e => setEditingProductData({ ...editingProductData, standardTime: e.target.value })} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
+                                                        {permissions.MANAGE_PRODUCTS && <td className="p-3">
                                                             <div className="flex gap-2 justify-center">
-                                                                <button onClick={()=>handleSaveProduct(p.id)} title="Salvar"><Save size={18} className="text-green-500"/></button>
-                                                                <button onClick={()=>setEditingProductId(null)} title="Cancelar"><XCircle size={18} className="text-gray-500"/></button>
+                                                                <button onClick={() => handleSaveProduct(p.id)} title="Salvar"><Save size={18} className="text-green-500" /></button>
+                                                                <button onClick={() => setEditingProductId(null)} title="Cancelar"><XCircle size={18} className="text-gray-500" /></button>
                                                             </div>
-                                                        </td>
+                                                        </td>}
                                                     </>
-                                                ):(
+                                                ) : (
                                                     <>
-                                                        <td className="p-3 font-semibold">{p.name}</td>
-                                                        <td className="p-3">{p.standardTime} min</td>
+                                                        <td className={`p-3 font-semibold ${!didExistOnDate ? 'text-red-500' : ''}`}>{p.name}{!didExistOnDate && ' (Não existia)'}</td>
                                                         <td className="p-3">
-                                                            <div className="flex gap-2 justify-center">
-                                                                <button onClick={()=>handleStartEditProduct(p)} title="Editar"><Edit size={18} className="text-yellow-500 hover:text-yellow-400"/></button>
-                                                                <button onClick={()=>handleDeleteProduct(p.id)} title="Excluir"><Trash2 size={18} className="text-red-500 hover:text-red-400"/></button>
-                                                            </div>
+                                                            {historicalTime} min
+                                                            {didExistOnDate && currentTime !== historicalTime && <span className="text-xs text-gray-500 ml-2">(Atual: {currentTime} min)</span>}
                                                         </td>
+                                                        {permissions.MANAGE_PRODUCTS && <td className="p-3">
+                                                            <div className="flex gap-2 justify-center">
+                                                                <button onClick={() => handleStartEditProduct(p)} title="Editar"><Edit size={18} className="text-yellow-500 hover:text-yellow-400" /></button>
+                                                                <button onClick={() => handleDeleteProduct(p.id)} title="Excluir"><Trash2 size={18} className="text-red-500 hover:text-red-400" /></button>
+                                                            </div>
+                                                        </td>}
                                                     </>
                                                 )}
                                             </tr>
-                                        ))}
+                                        )})}
                                     </tbody>
                                 </table>
                             </div>
@@ -2192,12 +2423,23 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                     </div>
                 </section>
                 
-                <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg mt-8">
-                    <h2 className="text-xl font-semibold mb-4 flex items-center"><Trash2 className="mr-2 text-red-500 hover:text-red-400"/> Lixeira</h2>
+                {permissions.VIEW_TRASH && <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg mt-8">
+                    <h2 className="text-xl font-semibold mb-4 flex items-center"><Trash className="mr-2 text-blue-500"/> Lixeira</h2>
                     <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
-                        {trashItems.length > 0 ? trashItems.map(item=>(<TrashItemDisplay key={item.id} item={item} products={products} user={user} />)) : <p>Lixeira vazia.</p>}
+                        {trashItems.filter(item => item.dashboardId === currentDashboard.id).length > 0 
+                            ? trashItems.filter(item => item.dashboardId === currentDashboard.id).map(item=>(
+                                <TrashItemDisplay 
+                                    key={item.id} 
+                                    item={item} 
+                                    products={products} 
+                                    user={user} 
+                                    onRestore={handleRestoreItem} 
+                                    canRestore={permissions.RESTORE_TRASH} 
+                                />
+                              )) 
+                            : <p>Lixeira vazia.</p>}
                     </div>
-                </section>
+                </section>}
             </main>
         </div>
     );
@@ -2273,14 +2515,18 @@ const CalendarView = ({ selectedDate, setSelectedDate, currentMonth, setCurrentM
     );
 };
 
-const TrashItemDisplay = ({ item, products, user }) => {
+const TrashItemDisplay = ({ item, products, user, onRestore, canRestore }) => {
     const date = new Date(item.deletedAt).toLocaleString('pt-BR');
+    
     const commonHeader = (
-        <>
+      <div className="flex justify-between items-start">
+        <div>
             <p className="font-bold text-lg mb-1">{item.itemType === 'product' ? 'PRODUTO DELETADO' : (item.itemType === 'lot' ? 'LOTE DELETADO' : 'LANÇAMENTO DELETADO')}</p>
-            <p className="text-sm">Deletado por: <span className="font-semibold">{user.email}</span> em <span className="font-semibold">{date}</span></p>
+            <p className="text-sm">Deletado por: <span className="font-semibold">{item.deletedByEmail}</span> em <span className="font-semibold">{date}</span></p>
             <p className="mt-2">Motivo: <span className="italic font-medium">{item.reason || 'Nenhum motivo fornecido.'}</span></p>
-        </>
+        </div>
+        {canRestore && <button onClick={() => onRestore(item)} className="p-2 bg-green-500 text-white rounded-md text-sm">Restaurar</button>}
+      </div>
     );
 
     const getStatusText = (status) => {
@@ -2296,13 +2542,14 @@ const TrashItemDisplay = ({ item, products, user }) => {
 
     if (item.itemType === 'product') {
         const doc = item.originalDoc;
+        const lastKnownTime = doc.standardTimeHistory?.[doc.standardTimeHistory.length - 1]?.time || 'N/A';
         return (
             <div className="p-4 bg-red-50 dark:bg-red-900/30 rounded-lg border-2 border-red-500/50">
                 {commonHeader}
                 <div className="mt-3 p-3 bg-red-100 dark:bg-red-900/80 rounded-md">
                     <p className="font-bold">Detalhes do Produto:</p>
                     <p>Nome/Código: <span className="font-semibold">{doc.name}</span></p>
-                    <p>Tempo Padrão: <span className="font-semibold">{doc.standardTime} min</span></p>
+                    <p>Tempo Padrão (na exclusão): <span className="font-semibold">{lastKnownTime} min</span></p>
                 </div>
             </div>
         );
@@ -2327,7 +2574,10 @@ const TrashItemDisplay = ({ item, products, user }) => {
     
     if (item.itemType === 'entry') {
         const doc = item.originalDoc;
-        const productionList = doc.productionDetails.map(d => `${d.produced} un. (${products.find(p => p.id === d.productId)?.name || 'Produto'})`).join(', ');
+        const productionList = doc.productionDetails.map(d => {
+            const product = products.find(p => p.id === d.productId);
+            return `${d.produced} un. (${product?.name || 'Produto Excluído'})`
+        }).join(', ');
 
         return (
              <div className="p-4 bg-red-50 dark:bg-red-900/30 rounded-lg border-2 border-red-500/50">
@@ -2346,7 +2596,7 @@ const TrashItemDisplay = ({ item, products, user }) => {
     return null;
 };
 
-const LotReport = ({ lots }) => {
+const LotReport = ({ lots, products }) => {
     const reportData = useMemo(() => {
         const completedLots = lots.filter(l => l.status.startsWith('completed') && l.startDate && l.endDate);
         if (completedLots.length === 0) {
@@ -2432,6 +2682,9 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     const initialDashboardId = isCarousel ? tvOptions.dashboardIds[0] : tvOptions;
 
     const [currentDashboardId, setCurrentDashboardId] = useState(initialDashboardId);
+    
+    // Estado para controlar os alertas visuais
+    const [alertInfo, setAlertInfo] = useState({ period: null, type: null }); // type: 'emoji' | 'blink'
 
     const changeDashboard = useCallback((newId) => {
         setTransitioning(true);
@@ -2455,18 +2708,58 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
 
     const currentDashboard = useMemo(() => dashboards.find(d => d.id === currentDashboardId), [currentDashboardId, dashboards]);
     
-    const productKey = useMemo(() => currentDashboard ? LS_KEYS.PRODUCTS(currentDashboard.id) : null, [currentDashboard]);
-    const productionDataKey = useMemo(() => currentDashboard ? LS_KEYS.PRODUCTION_DATA(currentDashboard.id) : null, [currentDashboard]);
-    const tvPredictionsKey = useMemo(() => currentDashboard ? LS_KEYS.TV_PREDICTIONS(currentDashboard.id) : null, [currentDashboard]);
-    
-    const [products] = useLocalCollection(productKey);
-    const [allProductionData] = useLocalConfig(productionDataKey, {});
-    const [tvPredictions] = useLocalConfig(tvPredictionsKey, {});
+    const [products, setProducts] = useState([]);
+    const [allProductionData, setAllProductionData] = useState({});
+    const [tvPredictions, setTvPredictions] = useState({});
+
+     // Efeito para carregar dados do Firestore
+    useEffect(() => {
+        if (!currentDashboard) return;
+
+        const unsubProducts = onSnapshot(query(collection(db, `dashboards/${currentDashboard.id}/products`)), snap => {
+            setProducts(snap.docs.map(d => d.data()));
+        });
+        const unsubProdData = onSnapshot(doc(db, `dashboards/${currentDashboard.id}/productionData`, "data"), snap => {
+            setAllProductionData(snap.exists() ? snap.data() : {});
+        });
+        
+        // Simulação de predictions, já que não temos o formulário aqui
+        // const unsubTvPred = onSnapshot(doc(db, `dashboards/${currentDashboard.id}/tvPredictions`, "data"), snap => {
+        //     setTvPredictions(snap.exists() ? snap.data() : {});
+        // });
+
+        return () => {
+            unsubProducts();
+            unsubProdData();
+            // unsubTvPred();
+        };
+
+    }, [currentDashboard]);
+
+
     
     const today = useMemo(() => new Date(), []);
+    
+    const productsForToday = useMemo(() => {
+        const targetDate = new Date(today);
+        targetDate.setHours(23, 59, 59, 999);
+
+        return products
+            .map(p => {
+                if (!p.standardTimeHistory || p.standardTimeHistory.length === 0) return null;
+                const validTimeEntry = p.standardTimeHistory.filter(h => new Date(h.effectiveDate) <= targetDate).pop();
+                if (!validTimeEntry) return null;
+                return { ...p, standardTime: validTimeEntry.time };
+            })
+            .filter(Boolean);
+    }, [products, today]);
+
+
     const dateKey = today.toISOString().slice(0, 10);
     const productionData = useMemo(() => allProductionData[dateKey] || [], [allProductionData, dateKey]);
     const dailyPredictions = useMemo(() => tvPredictions[dateKey] || {}, [tvPredictions, dateKey]);
+    
+    const productMapForToday = useMemo(() => new Map(productsForToday.map(p => [p.id, p])), [productsForToday]);
 
     const processedData = useMemo(() => {
         if (!productionData || productionData.length === 0) return [];
@@ -2475,7 +2768,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             let totalTimeValue = 0, totalProducedInPeriod = 0;
             const producedForDisplay = (item.productionDetails || []).map(d => `${d.produced || 0}`).join(' / ');
             (item.productionDetails || []).forEach(detail => {
-                const product = products.find(p => p.id === detail.productId);
+                const product = productMapForToday.get(detail.productId);
                 if (product?.standardTime) {
                     totalTimeValue += (detail.produced || 0) * product.standardTime;
                     totalProducedInPeriod += (detail.produced || 0);
@@ -2490,8 +2783,36 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             const cumulativeEfficiency = parseFloat((cumulativeEfficiencySum / (index + 1)).toFixed(2));
             return { ...item, produced:totalProducedInPeriod, goal:numericGoal, goalForDisplay: item.goalDisplay, producedForDisplay, efficiency, cumulativeProduction, cumulativeGoal, cumulativeEfficiency };
         });
-    }, [productionData, products]);
+    }, [productionData, productMapForToday]);
     
+    // Efeito para detectar novos lançamentos e disparar alertas
+    const prevProductionData = usePrevious(productionData);
+    useEffect(() => {
+        if (prevProductionData && productionData.length > prevProductionData.length) {
+            const newEntry = processedData.find(d => !prevProductionData.some(pd => pd.id === d.id));
+            if (newEntry && newEntry.produced < newEntry.goal) {
+                // Etapa 1: Mostrar emoji
+                setAlertInfo({ period: newEntry.period, type: 'emoji' });
+                
+                // Etapa 2: Trocar para piscar após 5 segundos
+                const blinkTimer = setTimeout(() => {
+                    setAlertInfo({ period: newEntry.period, type: 'blink' });
+                }, 5000);
+
+                // Etapa 3: Limpar tudo após mais 5 segundos
+                const clearTimer = setTimeout(() => {
+                    setAlertInfo({ period: null, type: null });
+                }, 10000);
+
+                return () => {
+                    clearTimeout(blinkTimer);
+                    clearTimeout(clearTimer);
+                };
+            }
+        }
+    }, [productionData, prevProductionData, processedData]);
+
+
     const monthlySummary = useMemo(() => {
         const year = today.getFullYear();
         const month = today.getMonth();
@@ -2500,6 +2821,13 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         Object.keys(allProductionData).forEach(dateStr => {
             try {
                 const date = new Date(dateStr + "T00:00:00");
+                const productsForDateMap = new Map(products
+                    .map(p => {
+                        const validTimeEntry = p.standardTimeHistory?.filter(h => new Date(h.effectiveDate) <= date).pop();
+                        if (!validTimeEntry) return null;
+                        return [p.id, { ...p, standardTime: validTimeEntry.time }];
+                    })
+                    .filter(Boolean));
                 if(date.getFullYear() === year && date.getMonth() === month) {
                     const dayData = allProductionData[dateStr];
                     if (dayData && dayData.length > 0) {
@@ -2509,7 +2837,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                             let periodProduction = 0, totalTimeValue = 0;
                             (item.productionDetails || []).forEach(detail => {
                                 periodProduction += (detail.produced || 0);
-                                const product = products.find(p => p.id === detail.productId);
+                                const product = productsForDateMap.get(detail.productId);
                                 if (product?.standardTime) totalTimeValue += (detail.produced || 0) * product.standardTime;
                             });
                             if (item.goalDisplay) dailyGoal += item.goalDisplay.split(' / ').reduce((acc, val) => acc + (parseInt(val.trim(), 10) || 0), 0);
@@ -2559,7 +2887,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         const getAlteracaoValue = (period) => {
             const launched = dataByPeriod[period];
             if (launched && launched.productionDetails?.length > 0) {
-                return launched.productionDetails.map(d => products.find(p => p.id === d.productId)?.name).filter(Boolean).join(' / ');
+                return launched.productionDetails.map(d => productMapForToday.get(d.productId)?.name).filter(Boolean).join(' / ');
             }
             const predicted = dailyPredictions[period];
             if (predicted) return predicted.primaryProductName;
@@ -2616,12 +2944,20 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                                             }
                                         } else {
                                             cellContent = row.formatter(p);
+                                            if (row.key === 'efficiency' && alertInfo.period === p && alertInfo.type === 'blink') {
+                                                cellClass += ' blinking-red';
+                                            }
                                             if (row.isColor && cellContent !== '-') {
                                                 const numericVal = dataByPeriod[p]?.[row.key];
                                                 cellClass += numericVal < 65 ? ' text-red-500' : ' text-green-600';
                                             }
                                         }
-                                        return <td key={p} className={cellClass}>{cellContent}</td>;
+                                        return (
+                                            <td key={p} className={cellClass}>
+                                                {row.key === 'producedForDisplay' && alertInfo.period === p && alertInfo.type === 'emoji' && <span role="img" aria-label="Alerta">⚠️ </span>}
+                                                {cellContent}
+                                            </td>
+                                        );
                                     })
                                 )}
                             </tr>
@@ -2653,48 +2989,86 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
 // #                                                                     #
 // #####################################################################
 
-const App = () => {
+const AppContent = () => {
+    const { user, loading } = useAuth();
     const [currentApp, setCurrentApp] = useState('cronoanalise'); // 'cronoanalise' ou 'stock'
-    const [tvMode, setTvMode] = useState(null); 
-    
-    // Hooks do Cronoanalise
-    const [dashboards, addDashboard, renameDashboard, deleteDashboard, moveDashboard] = useDashboards();
-    const [adminConfig, setAdminConfig] = useLocalConfig(LS_KEYS.ADMIN_CONFIG);
-    const [roles, setRoles] = useLocalConfig(LS_KEYS.ROLES, defaultRoles);
-    const [users, setUsers] = useLocalCollection(LS_KEYS.USERS);
-    const [currentUserEmail, setCurrentUserEmail] = useState(() => localStorage.getItem(LS_KEYS.CURRENT_USER_EMAIL) || 'admin@local.com');
+    const [tvMode, setTvMode] = useState(null);
     const [currentDashboardIndex, setCurrentDashboardIndex] = useState(() => {
-        const savedIndex = localStorage.getItem(LS_KEYS.LAST_DASHBOARD_INDEX);
+        const savedIndex = localStorage.getItem('lastDashboardIndex');
         return savedIndex ? parseInt(savedIndex, 10) : 0;
     });
 
-    useEffect(() => {
-        localStorage.setItem(LS_KEYS.LAST_DASHBOARD_INDEX, currentDashboardIndex);
-    }, [currentDashboardIndex]);
+    // Hooks de dados do Firestore
+    const [dashboards, setDashboards] = useState([]);
+    const [usersWithRoles, setUsersWithRoles] = useState([]);
+    const [userPermissions, setUserPermissions] = useState({});
 
     useEffect(() => {
-        if (users.length === 0) {
-            setUsers([{ email: 'admin@local.com', roleId: 'admin' }]);
-        }
-    }, [users, setUsers]);
+        localStorage.setItem('lastDashboardIndex', currentDashboardIndex);
+    }, [currentDashboardIndex]);
+
+    // Carrega dashboards
+    useEffect(() => {
+        const unsub = onSnapshot(query(collection(db, "dashboards"), orderBy("name")), (snap) => {
+            const fetchedDashboards = snap.docs.map(d => d.data());
+            if (fetchedDashboards.length > 0) {
+                setDashboards(fetchedDashboards);
+            } else { // Caso inicial, cria o dashboard padrão
+                const defaultDash = { id: 'producao', name: 'Quadro da Produção' };
+                setDoc(doc(db, "dashboards", "producao"), defaultDash);
+                setDashboards([defaultDash]);
+            }
+        });
+        return () => unsub();
+    }, []);
     
-    const currentUser = useMemo(() => users.find(u => u.email === currentUserEmail) || { email: currentUserEmail, roleId: 'viewer' }, [currentUserEmail, users]);
-    const currentUserPermissions = useMemo(() => {
-        const role = roles[currentUser.roleId];
-        const permissions = {};
-        for (const key in ALL_PERMISSIONS) {
-            permissions[key] = !!role?.permissions.includes(key);
-        }
-        if (currentUserEmail === 'admin@local.com') {
-            permissions.MANAGE_SETTINGS = true;
-        }
-        return permissions;
-    }, [currentUser, roles, currentUserEmail]);
+    // Carrega usuários e permissões
+    useEffect(() => {
+        if (!user) {
+            setUserPermissions({});
+            return;
+        };
+
+        const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
+            const usersData = snap.docs.map(d => ({uid: d.id, ...d.data()}));
+            
+             const unsubRoles = onSnapshot(collection(db, "roles"), (rolesSnap) => {
+                const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data().role]));
+                const combined = usersData.map(u => ({...u, role: rolesData.get(u.uid) || 'viewer' }));
+                setUsersWithRoles(combined);
+
+                // Define permissões do usuário logado
+                const currentUserRole = rolesData.get(user.uid) || 'viewer';
+                const permissions = defaultRoles[currentUserRole]?.permissions || [];
+                const permissionsMap = {};
+                for (const key in ALL_PERMISSIONS) {
+                   permissionsMap[key] = permissions.includes(key);
+                }
+                 // Admin tem todas as permissões
+                if (currentUserRole === 'admin') {
+                   Object.keys(ALL_PERMISSIONS).forEach(key => permissionsMap[key] = true);
+                }
+                setUserPermissions(permissionsMap);
+            });
+
+            return () => unsubRoles();
+        });
+
+        return () => unsubUsers();
+    }, [user]);
+
 
     const startTvMode = useCallback((options) => setTvMode(options), []);
     const stopTvMode = useCallback(() => setTvMode(null), []);
+
+    if (loading) {
+        return <div className="min-h-screen bg-gray-100 dark:bg-black flex justify-center items-center"><p className="text-xl">Carregando...</p></div>;
+    }
     
-    // Renderização condicional
+    if (!user) {
+        return <LoginPage />;
+    }
+
     if (tvMode && currentApp === 'cronoanalise') {
         return <TvModeDisplay tvOptions={tvMode} stopTvMode={stopTvMode} dashboards={dashboards} />;
     }
@@ -2705,24 +3079,32 @@ const App = () => {
     
     return <CronoanaliseDashboard 
         onNavigateToStock={() => setCurrentApp('stock')}
-        user={currentUser}
-        permissions={currentUserPermissions}
+        user={user}
+        permissions={userPermissions}
         startTvMode={startTvMode} 
         dashboards={dashboards}
-        addDashboard={addDashboard}
-        renameDashboard={renameDashboard}
-        deleteDashboard={deleteDashboard}
-        moveDashboard={moveDashboard}
-        users={users}
-        setUsers={setUsers}
-        roles={roles}
-        setRoles={setRoles}
-        adminConfig={adminConfig}
-        setAdminConfig={setAdminConfig}
+        addDashboard={() => {}} // As funções agora estão dentro do componente
+        renameDashboard={() => {}}
+        deleteDashboard={() => {}}
+        moveDashboard={() => {}}
+        users={usersWithRoles}
+        setUsers={() => {}}
+        roles={defaultRoles} // Roles são estáticas
+        setRoles={() => {}}
+        adminConfig={{}} // Config local de senha não é mais necessária
+        setAdminConfig={() => {}}
         currentDashboardIndex={currentDashboardIndex}
         setCurrentDashboardIndex={setCurrentDashboardIndex}
     />;
 };
 
-export default App;
+const App = () => {
+    return (
+        <AuthProvider>
+            <AppContent />
+        </AuthProvider>
+    );
+};
 
+
+export default App;
