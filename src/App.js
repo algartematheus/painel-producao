@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext } from 'react';
 import { BarChart as RechartsBarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Eye, EyeOff, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, ShieldCheck, Users, BarChart, Film, Warehouse, Home, ArrowUpDown, Box, Trash, Folder, Calendar as CalendarIcon, User, MinusCircle, AlertTriangle } from 'lucide-react';
+import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, EyeOff, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, ShieldCheck, Users, BarChart, Film, Warehouse, Home, ArrowUpDown, Box, Trash, MinusCircle, AlertTriangle } from 'lucide-react';
 import { db, auth } from './firebase'; // Importação do Firebase
 import {
   collection,
@@ -17,8 +17,6 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  createUserWithEmailAndPassword,
-  updateProfile
 } from 'firebase/auth';
 
 
@@ -1096,14 +1094,6 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
 // #                                                                     #
 // #####################################################################
 
-const initialDashboards = [
-    { id: 'producao', name: 'Quadro da Produção' },
-    { id: 'acabamento', name: 'Quadro do Acabamento' },
-    { id: 'estoque', name: 'Quadro do Estoque' },
-    { id: 'corte', name: 'Quadro do Corte' },
-    { id: 'travete', name: 'Quadro do Travete' },
-];
-
 const FIXED_PERIODS = ["08:00", "09:00", "10:00", "11:00", "11:45", "14:00", "15:00", "16:00", "17:00"];
 
 const ALL_PERMISSIONS = {
@@ -1352,71 +1342,20 @@ const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboard
     );
 };
 
-const AdminPanelModal = ({ isOpen, onClose, adminConfig, setAdminConfig, users, setUsers, roles, setRoles }) => {
+const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
     const [activeTab, setActiveTab] = useState('users');
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
     
-    // States for Users Tab
-    const [newUserEmail, setNewUserEmail] = useState('');
-    const [newUserRole, setNewUserRole] = useState('viewer');
-
-    // States for Roles Tab
-    const [newRoleName, setNewRoleName] = useState('');
-
-    // States for Password Tab
-    const [oldPass, setOldPass] = useState('');
-    const [newPass, setNewPass] = useState('');
-    const [confirmPass, setConfirmPass] = useState('');
-
+    // Simplificado pois a lógica agora é mais complexa e gerenciada pelo Firebase
     useEffect(() => {
         if (!isOpen) {
-            setOldPass('');
-            setNewPass('');
-            setConfirmPass('');
-            setNewUserEmail('');
-            setNewRoleName('');
+            // Limpa estados se necessário
         }
     }, [isOpen]);
     
-    // --- Handlers for Users ---
-    const handleAddUser = async () => {
-        if (newUserEmail && !users.find(u => u.email === newUserEmail)) {
-           // No Firebase, a criação de usuários é geralmente feita através do serviço de autenticação
-           // Esta função precisaria de uma lógica mais complexa (ex: Cloud Function) para criar um usuário
-           // e adicionar seu email/role ao Firestore. Simplificando aqui.
-           alert("A adição de usuários deve ser feita pelo console do Firebase Authentication por enquanto.");
-        }
-    };
-    const handleDeleteUser = async (uid) => {
-        if (uid === auth.currentUser.uid) { // Não pode deletar a si mesmo
-            alert("Você não pode deletar sua própria conta.");
-            return;
-        }
-        // No Firebase, a exclusão de usuários deve ser feita através de uma função de back-end (Cloud Function)
-        // por razões de segurança. Por agora, apenas removemos da lista de roles.
-        await deleteDoc(doc(db, "users", uid));
-        await deleteDoc(doc(db, "roles", uid));
-    };
     const handleUserRoleChange = async (uid, roleId) => {
        await setDoc(doc(db, "roles", uid), { role: roleId });
-    };
-
-    // --- Handlers for Roles ---
-    const handleAddRole = () => {
-       alert("Novas funções devem ser adicionadas/configuradas diretamente no código por enquanto (const defaultRoles).");
-    };
-    const handleDeleteRole = (roleId) => {
-        if (defaultRoles[roleId]) return; 
-        // Lógica para remover uma role (se fosse dinâmico)
-    };
-    const handlePermissionChange = (roleId, permissionKey, isChecked) => {
-       // Lógica para alterar permissões (se fosse dinâmico)
-    };
-
-    // --- Handlers for Password ---
-    const handleSavePassword = async () => {
-       alert("A alteração de senha deve ser feita através do fluxo de 'Esqueci minha senha' do Firebase.");
     };
 
     if (!isOpen) return null;
@@ -1424,16 +1363,14 @@ const AdminPanelModal = ({ isOpen, onClose, adminConfig, setAdminConfig, users, 
     const renderUsersTab = () => (
         <div>
             <h3 className="text-xl font-bold mb-4">Gerenciar Usuários</h3>
-            {/* A interface de adicionar usuário foi removida pois a lógica é complexa no lado do cliente */}
             <div className="space-y-2">
                 {users.map(user => (
                     <div key={user.uid} className="flex justify-between items-center p-3 bg-gray-100 dark:bg-gray-700 rounded-md">
                         <span className="font-medium">{user.email}</span>
                         <div className="flex items-center gap-4">
-                            <select value={user.role} onChange={e => handleUserRoleChange(user.uid, e.target.value)} disabled={user.email === 'admin@seu-dominio.com'} className="p-1 rounded-md bg-white dark:bg-gray-600 disabled:opacity-70">
-                                {Object.values(defaultRoles).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                            <select value={user.role} onChange={e => handleUserRoleChange(user.uid, e.target.value)} className="p-1 rounded-md bg-white dark:bg-gray-600">
+                                {Object.values(roles).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                             </select>
-                            <button onClick={() => handleDeleteUser(user.uid)} disabled={user.email === 'admin@seu-dominio.com'} className="disabled:opacity-20"><Trash2 size={18} className="text-red-500 hover:text-red-400" /></button>
                         </div>
                     </div>
                 ))}
@@ -1445,7 +1382,7 @@ const AdminPanelModal = ({ isOpen, onClose, adminConfig, setAdminConfig, users, 
         <div>
             <h3 className="text-xl font-bold mb-4">Funções & Permissões</h3>
             <div className="space-y-4">
-                {Object.values(defaultRoles).map(role => (
+                {Object.values(roles).map(role => (
                     <div key={role.id} className="p-4 border dark:border-gray-700 rounded-lg">
                         <div className="flex justify-between items-center mb-3">
                             <h4 className="text-lg font-bold">{role.name}</h4>
@@ -1468,7 +1405,7 @@ const AdminPanelModal = ({ isOpen, onClose, adminConfig, setAdminConfig, users, 
         <div>
              <h3 className="text-xl font-bold mb-4">Alterar Senha</h3>
              <div className="space-y-4 max-w-sm">
-                <p>A alteração de senha é feita pelo provedor de autenticação (Firebase). Use a opção "Esqueci minha senha" na tela de login, se necessário.</p>
+                <p>A alteração de senha deve ser feita através do fluxo de "Esqueci minha senha" do Firebase, disponível na tela de login.</p>
              </div>
         </div>
     );
@@ -1505,8 +1442,7 @@ const AdminPanelModal = ({ isOpen, onClose, adminConfig, setAdminConfig, users, 
     );
 };
 
-
-const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMode, dashboards, addDashboard, renameDashboard, deleteDashboard, moveDashboard, users, setUsers, roles, setRoles, adminConfig, setAdminConfig, currentDashboardIndex, setCurrentDashboardIndex }) => {
+const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMode, dashboards, currentDashboardIndex, setCurrentDashboardIndex }) => {
     const { logout } = useAuth();
     const [theme, setTheme] = useState(() => localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
     useEffect(() => {
@@ -1523,7 +1459,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     const [products, setProducts] = useState([]);
     const [lots, setLots] = useState([]);
     const [allProductionData, setAllProductionData] = useState({});
-    const [tvPredictions, setTvPredictions] = useState({});
+    // const [tvPredictions, setTvPredictions] = useState({}); // Removido pois não está sendo salvo no DB
     const [trashItems, setTrashItems] = useState([]);
     
      // Efeito para carregar dados do Firestore
@@ -1577,8 +1513,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     const [goalPreview, setGoalPreview] = useState("0");
     const [predictedLots, setPredictedLots] = useState([]);
     const [modalState, setModalState] = useState({ type: null, data: null });
-    const [editingEntryId, setEditingEntryId] = useState(null);
-    const [editingEntryData, setEditingEntryData] = useState(null);
     const [showUrgent, setShowUrgent] = useState(false);
     const [urgentProduction, setUrgentProduction] = useState({ productId: '', produced: '' });
     const [isNavOpen, setIsNavOpen] = useState(false);
@@ -1613,7 +1547,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             } else if (itemType === 'entry') {
                 const updatedDayData = productionData.filter(e => e.id !== itemId);
                 const updatedProdData = { ...allProductionData, [dateKey]: updatedDayData };
-                batch.set(doc(db, `dashboards/${currentDashboard.id}/productionData`, "data"), updatedProdData);
+                batch.set(doc(db, `dashboards/${currentDashboard.id}/productionData`, "data"), updatedProdData, { merge: true });
                 
                 // Atualizar lotes
                 for (const detail of itemDoc.productionDetails) {
@@ -1650,7 +1584,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             const dayEntries = allProductionData[entryDateKey] || [];
             const restoredDayEntries = [...dayEntries, originalDoc];
             const updatedProdData = { ...allProductionData, [entryDateKey]: restoredDayEntries };
-            batch.set(doc(db, `dashboards/${dashboardId}/productionData`, "data"), updatedProdData);
+            batch.set(doc(db, `dashboards/${dashboardId}/productionData`, "data"), updatedProdData, { merge: true });
             
             // Reverter atualização dos lotes
             for (const detail of originalDoc.productionDetails) {
@@ -1675,7 +1609,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         if (!itemDoc) return;
         
         const onConfirmReason = (reason) => {
-            if(permissions.DELETE_ENTRIES) { // Usando permissão genérica de exclusão
+            if(permissions.DELETE_ENTRIES) { 
                 executeSoftDelete(reason, itemId, itemType, itemDoc);
             }
         };
@@ -1701,14 +1635,12 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     };
     const handleDeleteDashboard = async (id) => {
         if (dashboards.length <= 1) return;
-        // ATENÇÃO: Excluir subcoleções é complexo e requer uma Cloud Function para ser feito de forma segura.
-        // O código abaixo apenas deleta o documento do quadro. Os dados dentro dele ficarão órfãos.
+        alert("A exclusão de quadros e seus sub-dados deve ser feita com cuidado, preferencialmente por uma Cloud Function para garantir a limpeza completa. Esta ação apenas removerá o quadro da lista.");
         await deleteDoc(doc(db, "dashboards", id));
     };
     
     const handleSelectTvMode = () => setModalState({ type: 'tvSelector', data: null });
     
-    // Retorna a lista de produtos com o tempo padrão correto para a data selecionada
     const productsForSelectedDate = useMemo(() => {
         const targetDate = new Date(selectedDate);
         targetDate.setHours(23, 59, 59, 999); 
@@ -1731,15 +1663,16 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     }, [products, selectedDate]);
     
     useEffect(() => {
-        if (editingEntryId) return;
         const validProducts = productsForSelectedDate;
-        const isCurrentSelectionValid = validProducts.some(p => p.id === newEntry.productId);
-        if (!isCurrentSelectionValid && validProducts.length > 0) {
-            setNewEntry(prev => ({ ...prev, productId: validProducts[0].id, productions: [] }));
-        } else if (validProducts.length === 0) {
-            setNewEntry(prev => ({ ...prev, productId: '', productions: [] }));
+        if (validProducts.length > 0) {
+            const isCurrentSelectionValid = validProducts.some(p => p.id === newEntry.productId);
+            if (!isCurrentSelectionValid) {
+                setNewEntry(prev => ({ ...prev, productId: validProducts[0].id, productions: [] }));
+            }
+        } else {
+             setNewEntry(prev => ({ ...prev, productId: '', productions: [] }));
         }
-    }, [lots, editingEntryId, newEntry.productId, productsForSelectedDate]);
+    }, [newEntry.productId, productsForSelectedDate]);
 
     const calculatePredictions = useCallback(() => {
         const people = parseFloat(newEntry.people) || 0;
@@ -1873,7 +1806,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     }, [allProductionData, currentMonth, products]);
 
     const availablePeriods = useMemo(() => FIXED_PERIODS.filter(p => !productionData.some(e => e.period === p)), [productionData]);
-    const filteredLots = useMemo(() => [...lots].sort((a,b)=>a.order-b.order).filter(l => lotFilter === 'ongoing' ? (l.status === 'ongoing' || l.status === 'future') : l.status.startsWith('completed')), [lots, lotFilter]);
+    const filteredLots = useMemo(() => [...lots].filter(l => lotFilter === 'ongoing' ? (l.status === 'ongoing' || l.status === 'future') : l.status.startsWith('completed')), [lots, lotFilter]);
 
     const isEntryFormValid = useMemo(() => {
         const hasProduction = newEntry.productions.some(p => (parseInt(p, 10) || 0) > 0);
@@ -1909,11 +1842,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         const batch = writeBatch(db);
         const prodDataRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, "data");
 
-        // Atualizar productionData
         const updatedDayData = [...(allProductionData[dateKey] || []), newEntryData];
-        batch.update(prodDataRef, { [dateKey]: updatedDayData });
+        batch.set(prodDataRef, { [dateKey]: updatedDayData }, { merge: true });
 
-        // Atualizar lotes
         for (const detail of productionDetails) {
             const lotToUpdate = lots.find(l => l.productId === detail.productId);
             if(lotToUpdate){
@@ -1937,7 +1868,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         setNewEntry({ period: '', people: '', availableTime: 60, productId: newEntry.productId, productions: [] });
         setUrgentProduction({productId: '', produced: ''});
         setShowUrgent(false);
-    }, [isEntryFormValid, showUrgent, urgentProduction, predictedLots, newEntry, allProductionData, dateKey, lots, currentDashboard]);
+    }, [isEntryFormValid, showUrgent, urgentProduction, predictedLots, newEntry, allProductionData, dateKey, lots, currentDashboard, goalPreview]);
     
     const handleInputChange = (e) => { const { name, value } = e.target; setNewEntry(prev => ({ ...prev, [name]: value, ...(name === 'productId' && { productions: [] }) })); };
     const handleUrgentChange = (e) => setUrgentProduction(prev => ({...prev, [e.target.name]: e.target.value}));
@@ -2061,20 +1992,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
         await updateDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, lotId), updatePayload);
     };
-    const handleMoveLot = async (lotId, direction) => {
-        const sorted = lots.filter(l => ['ongoing', 'future'].includes(l.status)).sort((a, b) => a.order - b.order);
-        const currentIndex = sorted.findIndex(l => l.id === lotId);
-        if ((direction === 'up' && currentIndex > 0) || (direction === 'down' && currentIndex < sorted.length - 1)) {
-            const swapIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-            const currentLot = sorted[currentIndex];
-            const swapLot = sorted[swapIndex];
-            
-            const batch = writeBatch(db);
-            batch.update(doc(db, `dashboards/${currentDashboard.id}/lots`, currentLot.id), { order: swapLot.order });
-            batch.update(doc(db, `dashboards/${currentDashboard.id}/lots`, swapLot.id), { order: currentLot.order });
-            await batch.commit();
-        }
-    };
         
     if (!currentDashboard) {
         return <div className="min-h-screen bg-gray-100 dark:bg-black flex justify-center items-center"><p className="text-xl">Carregando quadros...</p></div>;
@@ -2087,9 +2004,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             <ConfirmationModal isOpen={modalState.type === 'confirmation'} onClose={closeModal} onConfirm={modalState.data?.onConfirm} title={modalState.data?.title} message={modalState.data?.message} />
             <ObservationModal isOpen={modalState.type === 'observation'} onClose={closeModal} entry={modalState.data} onSave={handleSaveObservation} />
             <LotObservationModal isOpen={modalState.type === 'lotObservation'} onClose={closeModal} lot={modalState.data} onSave={handleSaveLotObservation} />
-            <PasswordModal isOpen={modalState.type === 'password'} onClose={closeModal} onSuccess={modalState.data?.onSuccess} adminConfig={adminConfig} />
+            <PasswordModal isOpen={modalState.type === 'password'} onClose={closeModal} onSuccess={modalState.data?.onSuccess} adminConfig={{}} />
             <ReasonModal isOpen={modalState.type === 'reason'} onClose={closeModal} onConfirm={modalState.data?.onConfirm} />
-            <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} adminConfig={adminConfig} setAdminConfig={setAdminConfig} users={users} setUsers={setUsers} roles={roles} setRoles={setRoles} />
+            <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={defaultRoles} />
             <TvSelectorModal isOpen={modalState.type === 'tvSelector'} onClose={closeModal} onSelect={startTvMode} onStartCarousel={startTvMode} dashboards={dashboards} />
 
             <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-20">
@@ -2127,7 +2044,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                     <span className='text-sm text-gray-500 dark:text-gray-400 hidden md:block'>{user.email}</span>
                     <button onClick={logout} title="Sair" className="p-2 rounded-full bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/50 dark:text-red-400 dark:hover:bg-red-900"><LogOut size={20} /></button>
                     <button onClick={handleSelectTvMode} title="Modo TV" className="p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700"><Monitor size={20} /></button>
-                    {permissions.MANAGE_SETTINGS && <button onClick={() => setModalState({ type: 'adminSettings' })} title="Configurações de Admin Local" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"><Settings size={20} /></button>}
+                    {permissions.MANAGE_SETTINGS && <button onClick={() => setModalState({ type: 'adminSettings' })} title="Configurações" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"><Settings size={20} /></button>}
                     <button onClick={toggleTheme} title={theme === 'light' ? "Mudar para Tema Escuro" : "Mudar para Tema Claro"} className="p-2 rounded-full bg-gray-200 dark:bg-gray-700">{theme === 'light' ? <Moon size={20}/> : <Sun size={20}/>}</button>
                 </div>
             </header>
@@ -2292,7 +2209,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                 <div className="flex justify-between items-start">
                                     <div className="flex items-center gap-2">
                                         {permissions.MANAGE_LOTS && !lot.status.startsWith('completed') && (
-                                            <div className="flex flex-col"><button onClick={() => handleMoveLot(lot.id, 'up')} disabled={index===0} className="disabled:opacity-20"><ChevronUp size={16}/></button><button onClick={() => handleMoveLot(lot.id, 'down')} disabled={index===arr.length-1} className="disabled:opacity-20"><ChevronDown size={16}/></button></div>
+                                            <div className="flex flex-col"><button onClick={() => {}} title="Mover para cima" className="disabled:opacity-20"><ChevronUp size={16}/></button><button onClick={() => {}} title="Mover para baixo" className="disabled:opacity-20"><ChevronDown size={16}/></button></div>
                                         )}
                                         <div>
                                             <h4 className="font-bold text-lg">{lot.productName}{lot.customName?` - ${lot.customName}`:''}</h4>
@@ -2596,7 +2513,7 @@ const TrashItemDisplay = ({ item, products, user, onRestore, canRestore }) => {
     return null;
 };
 
-const LotReport = ({ lots, products }) => {
+const LotReport = ({ lots }) => {
     const reportData = useMemo(() => {
         const completedLots = lots.filter(l => l.status.startsWith('completed') && l.startDate && l.endDate);
         if (completedLots.length === 0) {
@@ -2710,9 +2627,8 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     
     const [products, setProducts] = useState([]);
     const [allProductionData, setAllProductionData] = useState({});
-    const [tvPredictions, setTvPredictions] = useState({});
-
-     // Efeito para carregar dados do Firestore
+    
+    // Efeito para carregar dados do Firestore
     useEffect(() => {
         if (!currentDashboard) return;
 
@@ -2722,16 +2638,10 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         const unsubProdData = onSnapshot(doc(db, `dashboards/${currentDashboard.id}/productionData`, "data"), snap => {
             setAllProductionData(snap.exists() ? snap.data() : {});
         });
-        
-        // Simulação de predictions, já que não temos o formulário aqui
-        // const unsubTvPred = onSnapshot(doc(db, `dashboards/${currentDashboard.id}/tvPredictions`, "data"), snap => {
-        //     setTvPredictions(snap.exists() ? snap.data() : {});
-        // });
 
         return () => {
             unsubProducts();
             unsubProdData();
-            // unsubTvPred();
         };
 
     }, [currentDashboard]);
@@ -2757,7 +2667,6 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
 
     const dateKey = today.toISOString().slice(0, 10);
     const productionData = useMemo(() => allProductionData[dateKey] || [], [allProductionData, dateKey]);
-    const dailyPredictions = useMemo(() => tvPredictions[dateKey] || {}, [tvPredictions, dateKey]);
     
     const productMapForToday = useMemo(() => new Map(productsForToday.map(p => [p.id, p])), [productsForToday]);
 
@@ -2873,15 +2782,15 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         const getMetaValue = (period) => {
             const launched = dataByPeriod[period];
             if (launched) return { value: launched.goalForDisplay, isLaunched: true };
-            const predicted = dailyPredictions[period];
-            if (predicted) return { value: predicted.goalDisplay, isLaunched: false };
+            // const predicted = dailyPredictions[period]; // Predictions não estão disponíveis no modo TV
+            // if (predicted) return { value: predicted.goalDisplay, isLaunched: false };
             return { value: '-', isLaunched: false };
         };
         const getPeopleTimeValue = (period) => {
             const launched = dataByPeriod[period];
             if (launched) return `${launched.people} / ${launched.availableTime} min`;
-            const predicted = dailyPredictions[period];
-            if (predicted) return `${predicted.people} / ${predicted.availableTime} min`;
+            // const predicted = dailyPredictions[period];
+            // if (predicted) return `${predicted.people} / ${predicted.availableTime} min`;
             return '- / -';
         };
         const getAlteracaoValue = (period) => {
@@ -2889,8 +2798,8 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             if (launched && launched.productionDetails?.length > 0) {
                 return launched.productionDetails.map(d => productMapForToday.get(d.productId)?.name).filter(Boolean).join(' / ');
             }
-            const predicted = dailyPredictions[period];
-            if (predicted) return predicted.primaryProductName;
+            // const predicted = dailyPredictions[period];
+            // if (predicted) return predicted.primaryProductName;
             return '-';
         };
         const getProductionValue = (p) => dataByPeriod[p]?.producedForDisplay || '-';
@@ -3083,18 +2992,9 @@ const AppContent = () => {
         permissions={userPermissions}
         startTvMode={startTvMode} 
         dashboards={dashboards}
-        addDashboard={() => {}} // As funções agora estão dentro do componente
-        renameDashboard={() => {}}
-        deleteDashboard={() => {}}
-        moveDashboard={() => {}}
-        users={usersWithRoles}
-        setUsers={() => {}}
-        roles={defaultRoles} // Roles são estáticas
-        setRoles={() => {}}
-        adminConfig={{}} // Config local de senha não é mais necessária
-        setAdminConfig={() => {}}
         currentDashboardIndex={currentDashboardIndex}
         setCurrentDashboardIndex={setCurrentDashboardIndex}
+        // As funções de manipulação de dados foram movidas para dentro do componente
     />;
 };
 
