@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext } from 'react';
-// Recharts e AlertTriangle foram removidos pois não estão em uso.
 import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, EyeOff, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, ShieldCheck, Users, BarChart, Film, Warehouse, Home, ArrowUpDown, Box, Trash, MinusCircle } from 'lucide-react';
 import { db, auth } from './firebase'; // Importação do Firebase
 import {
@@ -391,7 +390,7 @@ const StockDashboardPage = () => {
     const categories = getCategories();
 
     const [selectedCategoryId, setSelectedCategoryId] = useState('');
-    const [sortOrder, setSortOrder] = useState('asc'); // 'asc' or 'desc'
+    const [sortOrder, setSortOrder] = useState('asc');
 
     const getTotalStock = (p) => p.variations.reduce((sum, v) => sum + v.currentStock, 0);
 
@@ -1053,8 +1052,6 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
 // #                                                                     #
 // #####################################################################
 
-const FIXED_PERIODS = ["08:00", "09:00", "10:00", "11:00", "11:45", "14:00", "15:00", "16:00", "17:00"];
-
 const ALL_PERMISSIONS = {
     MANAGE_DASHBOARDS: 'Gerenciar Quadros (Criar/Renomear/Excluir/Reordenar)',
     MANAGE_PRODUCTS: 'Gerenciar Produtos (Criar/Editar/Excluir)',
@@ -1398,10 +1395,6 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
         </div>
     );
 };
-
-// =====================================================================
-// == COMPONENTES AUXILIARES DO CRONOANALISE (MOVIMOS ELES PARA CIMA) ==
-// =====================================================================
 
 const StatCard = ({ title, value, unit = '', isEfficiency = false }) => {
     const valueColor = isEfficiency ? (value < 65 ? 'text-red-500' : 'text-green-600') : 'text-gray-800 dark:text-white';
