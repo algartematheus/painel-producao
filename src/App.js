@@ -18,6 +18,31 @@ import {
   onAuthStateChanged,
 } from 'firebase/auth';
 
+// =====================================================================
+// == CONSTANTES GLOBAIS DO MÓDULO ==
+// =====================================================================
+const raceBullLogoUrl = "https://firebasestorage.googleapis.com/v0/b/quadrodeproducao.firebasestorage.app/o/assets%2FLOGO%20PROPRIET%C3%81RIA.png?alt=media&token=a16d015f-e8ca-4b3c-b744-7cef3ab6504b";
+
+const FIXED_PERIODS = ["08:00", "09:00", "10:00", "11:00", "11:45", "14:00", "15:00", "16:00", "17:00"];
+
+const ALL_PERMISSIONS = {
+    MANAGE_DASHBOARDS: 'Gerenciar Quadros (Criar/Renomear/Excluir/Reordenar)',
+    MANAGE_PRODUCTS: 'Gerenciar Produtos (Criar/Editar/Excluir)',
+    MANAGE_LOTS: 'Gerenciar Lotes (Criar/Editar/Excluir/Reordenar)',
+    ADD_ENTRIES: 'Adicionar Lançamentos de Produção',
+    EDIT_ENTRIES: 'Editar Lançamentos de Produção',
+    DELETE_ENTRIES: 'Excluir Lançamentos de Produção',
+    VIEW_TRASH: 'Visualizar Lixeira',
+    RESTORE_TRASH: 'Restaurar Itens da Lixeira',
+    MANAGE_SETTINGS: 'Acessar e Gerenciar Configurações de Administrador',
+};
+
+const defaultRoles = {
+    'admin': { id: 'admin', name: 'Administrador', permissions: Object.keys(ALL_PERMISSIONS) },
+    'editor': { id: 'editor', name: 'Editor', permissions: ['MANAGE_PRODUCTS', 'MANAGE_LOTS', 'ADD_ENTRIES', 'EDIT_ENTRIES', 'DELETE_ENTRIES'] },
+    'viewer': { id: 'viewer', name: 'Visualizador', permissions: [] },
+};
+
 
 // --- ESTILOS GLOBAIS E ANIMAÇÕES ---
 const GlobalStyles = () => (
@@ -72,7 +97,6 @@ async function sha256Hex(message) {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-const raceBullLogoUrl = "https://firebasestorage.googleapis.com/v0/b/quadrodeproducao.firebasestorage.app/o/assets%2FLOGO%20PROPRIET%C3%81RIA.png?alt=media&token=a16d015f-e8ca-4b3c-b744-7cef3ab6504b";
 
 // #####################################################################
 // #                                                                   #
@@ -1051,24 +1075,6 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
 // #         INÍCIO: CRONOANÁLISE DASHBOARD (CÓDIGO EXISTENTE)           #
 // #                                                                     #
 // #####################################################################
-
-const ALL_PERMISSIONS = {
-    MANAGE_DASHBOARDS: 'Gerenciar Quadros (Criar/Renomear/Excluir/Reordenar)',
-    MANAGE_PRODUCTS: 'Gerenciar Produtos (Criar/Editar/Excluir)',
-    MANAGE_LOTS: 'Gerenciar Lotes (Criar/Editar/Excluir/Reordenar)',
-    ADD_ENTRIES: 'Adicionar Lançamentos de Produção',
-    EDIT_ENTRIES: 'Editar Lançamentos de Produção',
-    DELETE_ENTRIES: 'Excluir Lançamentos de Produção',
-    VIEW_TRASH: 'Visualizar Lixeira',
-    RESTORE_TRASH: 'Restaurar Itens da Lixeira',
-    MANAGE_SETTINGS: 'Acessar e Gerenciar Configurações de Administrador',
-};
-
-const defaultRoles = {
-    'admin': { id: 'admin', name: 'Administrador', permissions: Object.keys(ALL_PERMISSIONS) },
-    'editor': { id: 'editor', name: 'Editor', permissions: ['MANAGE_PRODUCTS', 'MANAGE_LOTS', 'ADD_ENTRIES', 'EDIT_ENTRIES', 'DELETE_ENTRIES'] },
-    'viewer': { id: 'viewer', name: 'Visualizador', permissions: [] },
-};
 
 const DashboardActionModal = ({ isOpen, onClose, onConfirm, mode, initialName = '' }) => {
     const [name, setName] = useState('');
