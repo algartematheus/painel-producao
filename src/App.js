@@ -19,7 +19,7 @@ import {
 } from 'firebase/auth';
 
 // =====================================================================
-// == CONSTANTES GLOBAIS DO MÓDULO ==
+// == CONSTANTES E FUNÇÕES AUXILIARES GLOBAIS ==
 // =====================================================================
 const raceBullLogoUrl = "https://firebasestorage.googleapis.com/v0/b/quadrodeproducao.firebasestorage.app/o/assets%2FLOGO%20PROPRIET%C3%81RIA.png?alt=media&token=a16d015f-e8ca-4b3c-b744-7cef3ab6504b";
 
@@ -42,6 +42,15 @@ const defaultRoles = {
     'editor': { id: 'editor', name: 'Editor', permissions: ['MANAGE_PRODUCTS', 'MANAGE_LOTS', 'ADD_ENTRIES', 'EDIT_ENTRIES', 'DELETE_ENTRIES'] },
     'viewer': { id: 'viewer', name: 'Visualizador', permissions: [] },
 };
+
+const generateId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+async function sha256Hex(message) {
+    const data = new TextEncoder().encode(message);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 
 // --- ESTILOS GLOBAIS E ANIMAÇÕES ---
@@ -86,15 +95,6 @@ const usePrevious = (value) => {
         ref.current = value;
     });
     return ref.current;
-}
-
-
-// --- FUNÇÃO DE HASH ---
-async function sha256Hex(message) {
-    const data = new TextEncoder().encode(message);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 
@@ -243,15 +243,12 @@ const mockData = {
 const StockContext = createContext();
 
 const StockProvider = ({ children }) => {
-  const [state, setState] = useState(mockData);
-
-    const generateId = useCallback((prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, []);
+    const [state, setState] = useState(mockData);
 
     const getCategories = useCallback(() => [...state.categories].sort((a, b) => a.name.localeCompare(b.name)), [state.categories]);
     const getProducts = useCallback(() => [...state.products.filter(p => !p.isDeleted)].sort((a, b) => a.name.localeCompare(b.name)), [state.products]);
     const getDeletedProducts = useCallback(() => state.products.filter(p => p.isDeleted), [state.products]);
 
-    // ✅ CORREÇÃO APLICADA AQUI
     const addCategory = useCallback((categoryName) => {
         const newCategoryId = generateId('cat');
         setState(prev => {
@@ -263,9 +260,8 @@ const StockProvider = ({ children }) => {
             return { ...prev, categories: [...prev.categories, newCategory], auditLog: [...prev.auditLog, newAuditLog] };
         });
         return newCategoryId;
-    }, [generateId]);
+    }, []);
 
-    // ✅ CORREÇÃO APLICADA AQUI
     const addProduct = useCallback((productData) => {
         setState(prev => {
             const newProduct = {
@@ -281,7 +277,7 @@ const StockProvider = ({ children }) => {
             const newAuditLog = { id: generateId('log'), action: 'PRODUCT_CREATED', details: { productName: newProduct.name }, timestamp: new Date().toISOString(), user: prev.currentUser };
             return { ...prev, products: [...prev.products, newProduct], auditLog: [...prev.auditLog, newAuditLog] };
         });
-    }, [generateId]);
+    }, []);
 
     const updateProduct = useCallback((productId, productData) => {
         setState(prev => {
@@ -321,7 +317,6 @@ const StockProvider = ({ children }) => {
         });
     }, []);
 
-    // ✅ CORREÇÃO APLICADA AQUI
     const addStockMovement = useCallback(({ productId, variationId, quantity, type }) => {
         setState(prev => {
             let productName = '', variationName = '';
@@ -344,7 +339,7 @@ const StockProvider = ({ children }) => {
             const newAuditLog = { id: generateId('log'), action: 'STOCK_UPDATED', details: { productName: `${productName} (${variationName})`, change: type === 'Entrada' ? quantity : -quantity, type }, timestamp: new Date().toISOString(), user: prev.currentUser };
             return { ...prev, products, stockMovements: [...prev.stockMovements, newMovement], auditLog: [...prev.auditLog, newAuditLog] };
         });
-    }, [generateId]);
+    }, []);
 
     const setCurrentUser = useCallback((userId) => setState(prev => ({ ...prev, currentUser: userId })), []);
 
