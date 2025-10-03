@@ -1630,6 +1630,7 @@ const LotReport = ({ lots }) => {
     );
 };
 
+
 const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMode, dashboards, users, roles, currentDashboardIndex, setCurrentDashboardIndex }) => {
     const { logout } = useAuth();
     const [theme, setTheme] = useState(() => localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
@@ -2558,7 +2559,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 };
 
 const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
-    const [theme] = useState(() => localStorage.getItem('theme') || 'dark'); // setTheme foi removido
+    const [theme] = useState(() => localStorage.getItem('theme') || 'dark');
     const [transitioning, setTransitioning] = useState(false);
     useEffect(() => { document.documentElement.classList.toggle('dark', theme === 'dark'); }, [theme]);
 
@@ -2936,7 +2937,7 @@ const AppContent = () => {
     }
     
     return <CronoanaliseDashboard 
-        onNavigateToStock={() => setCurrentApp('stock')}
+        onNavigateToStock={() => setCurrentApp('cronoanalise')}
         user={user}
         permissions={userPermissions}
         startTvMode={startTvMode} 
