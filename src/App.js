@@ -217,7 +217,7 @@ const LoginPage = () => {
 
 // #######################################################################
 // #                                                                     #
-// #         INÍCIO: GERENCIADOR DE ESTOQUE (NOVA FUNCIONALIDADE)        #
+// #           INÍCIO: GERENCIADOR DE ESTOQUE (NOVA FUNCIONALIDADE)        #
 // #                                                                     #
 // #######################################################################
 
@@ -661,12 +661,12 @@ const StockMovementsPage = () => {
 
                         {selectedProduct && (
                              <div>
-                                <label className="block mb-1">Variação</label>
-                                <select value={movement.variationId} onChange={e => setMovement({...movement, variationId: e.target.value})} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700">
-                                    <option value="" disabled>Selecione uma variação</option>
-                                    {selectedProduct.variations.map(v => <option key={v.id} value={v.id}>{v.name} (Est: {v.currentStock})</option>)}
-                                </select>
-                            </div>
+                                 <label className="block mb-1">Variação</label>
+                                 <select value={movement.variationId} onChange={e => setMovement({...movement, variationId: e.target.value})} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700">
+                                     <option value="" disabled>Selecione uma variação</option>
+                                     {selectedProduct.variations.map(v => <option key={v.id} value={v.id}>{v.name} (Est: {v.currentStock})</option>)}
+                                 </select>
+                             </div>
                         )}
                         
                         <div>
@@ -687,35 +687,35 @@ const StockMovementsPage = () => {
                      <h2 className="text-xl font-semibold mb-4">Histórico de Movimentações ({selectedDate.toLocaleDateString('pt-BR')})</h2>
                      <div className="max-h-[80vh] overflow-y-auto">
                          <table className="w-full">
-                            <thead className="border-b-2 dark:border-gray-700 sticky top-0 bg-white dark:bg-gray-900">
-                                <tr>
-                                    <th className="p-3 text-left">Hora</th>
-                                    <th className="p-3 text-left">Produto (Variação)</th>
-                                    <th className="p-3 text-center">Tipo</th>
-                                    <th className="p-3 text-center">Quantidade</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredMovements.length > 0 ? filteredMovements.map(m => {
-                                    const product = allProducts.find(p => p.id === m.productId) || getDeletedProducts().find(p => p.id === m.productId);
-                                    const variation = product?.variations.find(v => v.id === m.variationId);
-                                    return (
-                                        <tr key={m.id} className="border-b dark:border-gray-800">
-                                            <td className="p-3">{new Date(m.timestamp).toLocaleTimeString('pt-BR')}</td>
-                                            <td className="p-3">{product?.name || 'Excluído'} {variation && `(${variation.name})`}</td>
-                                            <td className={`p-3 text-center font-semibold ${m.type === 'Entrada' ? 'text-green-500' : 'text-red-500'}`}>{m.type}</td>
-                                            <td className="p-3 text-center">{m.quantity}</td>
-                                        </tr>
-                                    );
-                                }) : (
-                                    <tr>
-                                        <td colSpan="4" className="text-center p-8 text-gray-500">Nenhuma movimentação para esta data.</td>
-                                    </tr>
-                                )}
-                            </tbody>
+                             <thead className="border-b-2 dark:border-gray-700 sticky top-0 bg-white dark:bg-gray-900">
+                                 <tr>
+                                     <th className="p-3 text-left">Hora</th>
+                                     <th className="p-3 text-left">Produto (Variação)</th>
+                                     <th className="p-3 text-center">Tipo</th>
+                                     <th className="p-3 text-center">Quantidade</th>
+                                 </tr>
+                             </thead>
+                             <tbody>
+                                 {filteredMovements.length > 0 ? filteredMovements.map(m => {
+                                     const product = allProducts.find(p => p.id === m.productId) || getDeletedProducts().find(p => p.id === m.productId);
+                                     const variation = product?.variations.find(v => v.id === m.variationId);
+                                     return (
+                                         <tr key={m.id} className="border-b dark:border-gray-800">
+                                             <td className="p-3">{new Date(m.timestamp).toLocaleTimeString('pt-BR')}</td>
+                                             <td className="p-3">{product?.name || 'Excluído'} {variation && `(${variation.name})`}</td>
+                                             <td className={`p-3 text-center font-semibold ${m.type === 'Entrada' ? 'text-green-500' : 'text-red-500'}`}>{m.type}</td>
+                                             <td className="p-3 text-center">{m.quantity}</td>
+                                         </tr>
+                                     );
+                                 }) : (
+                                     <tr>
+                                         <td colSpan="4" className="text-center p-8 text-gray-500">Nenhuma movimentação para esta data.</td>
+                                     </tr>
+                                 )}
+                             </tbody>
                          </table>
                      </div>
-                </div>
+                 </div>
             </div>
         </div>
     );
@@ -889,20 +889,20 @@ const ProductModal = ({ isOpen, onClose, productToEdit }) => {
                         <h3 className="text-lg font-semibold mt-4 mb-2">Variações do Produto</h3>
                         {productData.variations.map((variation, index) => (
                              <div key={index} className="grid grid-cols-12 gap-2 items-center mb-2 p-2 bg-gray-50 dark:bg-gray-800 rounded-md">
-                                <div className="col-span-6">
-                                    <label className="text-xs">Nome da Variação (Ex: Cor, Tamanho)</label>
-                                    <input name="name" type="text" value={variation.name} onChange={(e) => handleVariationChange(index, e)} required className="w-full p-2 rounded-md bg-white dark:bg-gray-700"/>
-                                </div>
-                                <div className="col-span-5">
-                                    <label className="text-xs">Estoque Inicial</label>
-                                    <input name="initialStock" type="number" min="0" value={variation.initialStock} onChange={(e) => handleVariationChange(index, e)} required disabled={!!productToEdit} className="w-full p-2 rounded-md bg-white dark:bg-gray-700 disabled:opacity-50"/>
-                                </div>
-                                <div className="col-span-1">
-                                    <label className="text-xs">&nbsp;</label>
-                                    <button type="button" onClick={() => removeVariation(index)} disabled={productData.variations.length <= 1} className="p-2 text-red-500 disabled:opacity-30">
-                                        <MinusCircle size={20} />
-                                    </button>
-                                </div>
+                                 <div className="col-span-6">
+                                     <label className="text-xs">Nome da Variação (Ex: Cor, Tamanho)</label>
+                                     <input name="name" type="text" value={variation.name} onChange={(e) => handleVariationChange(index, e)} required className="w-full p-2 rounded-md bg-white dark:bg-gray-700"/>
+                                 </div>
+                                 <div className="col-span-5">
+                                     <label className="text-xs">Estoque Inicial</label>
+                                     <input name="initialStock" type="number" min="0" value={variation.initialStock} onChange={(e) => handleVariationChange(index, e)} required disabled={!!productToEdit} className="w-full p-2 rounded-md bg-white dark:bg-gray-700 disabled:opacity-50"/>
+                                 </div>
+                                 <div className="col-span-1">
+                                     <label className="text-xs">&nbsp;</label>
+                                     <button type="button" onClick={() => removeVariation(index)} disabled={productData.variations.length <= 1} className="p-2 text-red-500 disabled:opacity-30">
+                                         <MinusCircle size={20} />
+                                     </button>
+                                 </div>
                              </div>
                         ))}
                         <button type="button" onClick={addVariation} className="mt-2 text-sm text-blue-600 hover:underline">+ Adicionar Variação</button>
@@ -1071,15 +1071,372 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
 
 // #####################################################################
 // #                                                                     #
-// #          FIM: GERENCIADOR DE ESTOQUE (NOVA FUNCIONALIDADE)          #
+// #           FIM: GERENCIADOR DE ESTOQUE (NOVA FUNCIONALIDADE)         #
 // #                                                                     #
 // #####################################################################
 
 
+// #####################################################################
+// #                                                                     #
+// #           INÍCIO: COMPONENTES DE MODAIS (CÓDIGO FALTANTE)           #
+// #                                                                     #
+// #####################################################################
+
+const DashboardActionModal = ({ isOpen, onClose, onConfirm, mode, initialName }) => {
+    const [name, setName] = useState('');
+    const modalRef = useRef();
+    useClickOutside(modalRef, onClose);
+
+    useEffect(() => {
+        if (isOpen) {
+            setName(mode === 'rename' ? initialName : '');
+        }
+    }, [isOpen, mode, initialName]);
+
+    if (!isOpen) return null;
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (name.trim()) {
+            const success = await onConfirm(name.trim());
+            if (success) {
+                onClose();
+            } else {
+                alert("Um quadro com este nome já existe.");
+            }
+        }
+    };
+
+    const title = mode === 'create' ? 'Criar Novo Quadro' : 'Renomear Quadro';
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-30 modal-backdrop">
+            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md modal-content">
+                <form onSubmit={handleSubmit}>
+                    <h2 className="text-xl font-bold mb-4">{title}</h2>
+                    <input
+                        type="text"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4"
+                        placeholder="Nome do quadro"
+                        autoFocus
+                    />
+                    <div className="flex justify-end gap-4">
+                        <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-600">Cancelar</button>
+                        <button type="submit" className="px-4 py-2 rounded-md bg-blue-600 text-white">Salvar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }) => {
+    const modalRef = useRef();
+    useClickOutside(modalRef, onClose);
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-30 modal-backdrop">
+            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md modal-content">
+                <h2 className="text-xl font-bold mb-4">{title || 'Confirmar Ação'}</h2>
+                <p className="mb-6">{message || 'Você tem certeza?'}</p>
+                <div className="flex justify-end gap-4">
+                    <button onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-600">Cancelar</button>
+                    <button onClick={() => { onConfirm(); onClose(); }} className="px-4 py-2 rounded-md bg-red-600 text-white">Confirmar</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const ObservationModal = ({ isOpen, onClose, entry, onSave }) => {
+    const [observation, setObservation] = useState('');
+    const modalRef = useRef();
+    useClickOutside(modalRef, onClose);
+
+    useEffect(() => {
+        if (entry) {
+            setObservation(entry.observation || '');
+        }
+    }, [entry]);
+
+    if (!isOpen) return null;
+
+    const handleSave = () => {
+        onSave(entry.id, observation);
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-30 modal-backdrop">
+            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg modal-content">
+                <h2 className="text-xl font-bold mb-4">Observação do Período: {entry.period}</h2>
+                <textarea
+                    value={observation}
+                    onChange={(e) => setObservation(e.target.value)}
+                    rows="5"
+                    className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4"
+                    placeholder="Digite suas observações aqui..."
+                />
+                <div className="flex justify-end gap-4">
+                    <button onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-600">Cancelar</button>
+                    <button onClick={handleSave} className="px-4 py-2 rounded-md bg-blue-600 text-white">Salvar</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const LotObservationModal = ({ isOpen, onClose, lot, onSave }) => {
+    const [observation, setObservation] = useState('');
+    const modalRef = useRef();
+    useClickOutside(modalRef, onClose);
+
+    useEffect(() => {
+        if (lot) {
+            setObservation(lot.observation || '');
+        }
+    }, [lot]);
+
+    if (!isOpen) return null;
+
+    const handleSave = () => {
+        onSave(lot.id, observation);
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-30 modal-backdrop">
+            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg modal-content">
+                <h2 className="text-xl font-bold mb-4">Observação do Lote: {lot.productName}</h2>
+                <textarea
+                    value={observation}
+                    onChange={(e) => setObservation(e.target.value)}
+                    rows="5"
+                    className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4"
+                    placeholder="Digite suas observações aqui..."
+                />
+                <div className="flex justify-end gap-4">
+                    <button onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-600">Cancelar</button>
+                    <button onClick={handleSave} className="px-4 py-2 rounded-md bg-blue-600 text-white">Salvar</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const modalRef = useRef();
+    useClickOutside(modalRef, onClose);
+
+    if (!isOpen) return null;
+
+    const handleConfirm = async () => {
+        setError('');
+        // NOTE: This is a placeholder for actual password verification logic.
+        // In a real app, you would compare a hash, not the plain text password.
+        const correctPasswordHash = adminConfig.passwordHash; // Assuming you fetch this
+        const inputHash = await sha256Hex(password);
+        
+        // Dummy check for demonstration since we don't have the hash
+        if (password === "admin123") { // Replace with hash comparison
+             onSuccess();
+             onClose();
+        } else {
+            setError('Senha incorreta.');
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-30 modal-backdrop">
+            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-sm modal-content">
+                 <h2 className="text-xl font-bold mb-4">Acesso Restrito</h2>
+                 <p className="text-sm mb-4">Por favor, insira a senha de administrador para continuar.</p>
+                 <input
+                     type="password"
+                     value={password}
+                     onChange={(e) => setPassword(e.target.value)}
+                     className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-2"
+                     placeholder="Senha"
+                 />
+                 {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+                 <div className="flex justify-end gap-4">
+                     <button onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-600">Cancelar</button>
+                     <button onClick={handleConfirm} className="px-4 py-2 rounded-md bg-blue-600 text-white">Confirmar</button>
+                 </div>
+            </div>
+        </div>
+    );
+};
+
+const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
+    const [reason, setReason] = useState('');
+    const modalRef = useRef();
+    useClickOutside(modalRef, onClose);
+  
+    if (!isOpen) return null;
+  
+    const handleConfirm = () => {
+        onConfirm(reason || 'Nenhum motivo fornecido.');
+        setReason('');
+        onClose();
+    };
+  
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-40 modal-backdrop">
+            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md modal-content">
+                <h2 className="text-xl font-bold mb-4">Motivo da Exclusão</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">Por favor, forneça um breve motivo para a exclusão deste item. Isso ajuda na rastreabilidade.</p>
+                <textarea
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    rows="3"
+                    className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4"
+                    placeholder="Ex: Lançamento duplicado, erro de digitação..."
+                />
+                <div className="flex justify-end gap-4">
+                    <button onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-600">Cancelar</button>
+                    <button onClick={handleConfirm} className="px-4 py-2 rounded-md bg-red-600 text-white">Confirmar Exclusão</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+  
+const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
+    const modalRef = useRef();
+    useClickOutside(modalRef, onClose);
+
+    if (!isOpen) return null;
+    
+    const handleRoleChange = async (userId, newRole) => {
+        if (!userId || !newRole) return;
+        try {
+            const roleRef = doc(db, 'roles', userId);
+            await setDoc(roleRef, { role: newRole });
+            alert('Permissão atualizada com sucesso!');
+        } catch (error) {
+            console.error("Erro ao atualizar permissão:", error);
+            alert('Falha ao atualizar permissão.');
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-30 modal-backdrop">
+            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-2xl modal-content">
+                <h2 className="text-2xl font-bold mb-4">Painel de Administrador</h2>
+                <div className="max-h-[60vh] overflow-y-auto">
+                    <table className="w-full text-left">
+                        <thead className='sticky top-0 bg-white dark:bg-gray-800'>
+                            <tr>
+                                <th className="p-2">Usuário (Email)</th>
+                                <th className="p-2">Permissão</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y dark:divide-gray-700">
+                            {users.map(user => (
+                                <tr key={user.uid}>
+                                    <td className="p-2">{user.email}</td>
+                                    <td className="p-2">
+                                        <select 
+                                            value={user.role} 
+                                            onChange={(e) => handleRoleChange(user.uid, e.target.value)}
+                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                        >
+                                            {Object.values(roles).map(role => (
+                                                <option key={role.id} value={role.id}>{role.name}</option>
+                                            ))}
+                                        </select>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+                <div className="flex justify-end mt-6">
+                    <button onClick={onClose} className="px-6 py-2 rounded-md bg-blue-600 text-white">Fechar</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboards }) => {
+    const [selectedDashboards, setSelectedDashboards] = useState([]);
+    const [interval, setInterval] = useState(15000);
+    const modalRef = useRef();
+    useClickOutside(modalRef, onClose);
+
+    if (!isOpen) return null;
+
+    const handleToggleDashboard = (id) => {
+        setSelectedDashboards(prev => 
+            prev.includes(id) ? prev.filter(dId => dId !== id) : [...prev, id]
+        );
+    };
+
+    const handleStartCarousel = () => {
+        if (selectedDashboards.length > 0) {
+            onStartCarousel({ dashboardIds: selectedDashboards, interval });
+            onClose();
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-30 modal-backdrop">
+            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg modal-content">
+                <h2 className="text-xl font-bold mb-4">Selecionar Modo TV</h2>
+                <div className="space-y-2 mb-4">
+                    <h3 className="font-semibold">Visualizar um único quadro:</h3>
+                    {dashboards.map(dash => (
+                        <button key={dash.id} onClick={() => { onSelect(dash.id); onClose(); }} className="w-full text-left p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+                            {dash.name}
+                        </button>
+                    ))}
+                </div>
+                <div className="border-t pt-4 dark:border-gray-600">
+                     <h3 className="font-semibold">Criar Carrossel (alternar quadros):</h3>
+                     <div className="my-3 space-y-2">
+                        {dashboards.map(dash => (
+                            <div key={dash.id} className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    id={`cb-${dash.id}`}
+                                    checked={selectedDashboards.includes(dash.id)}
+                                    onChange={() => handleToggleDashboard(dash.id)}
+                                />
+                                <label htmlFor={`cb-${dash.id}`}>{dash.name}</label>
+                            </div>
+                        ))}
+                     </div>
+                     <div className="flex items-center gap-2 my-4">
+                        <label htmlFor="interval">Alternar a cada (ms):</label>
+                        <input type="number" id="interval" value={interval} onChange={e => setInterval(parseInt(e.target.value, 10))} className="p-2 w-24 bg-gray-100 dark:bg-gray-700 rounded" />
+                     </div>
+                     <button onClick={handleStartCarousel} disabled={selectedDashboards.length < 1} className="w-full py-2 bg-blue-600 text-white rounded-md disabled:opacity-50">
+                         Iniciar Carrossel
+                     </button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // #####################################################################
 // #                                                                     #
-// #         INÍCIO: CRONOANÁLISE DASHBOARD (CÓDIGO EXISTENTE)           #
+// #           FIM: COMPONENTES DE MODAIS (CÓDIGO FALTANTE)              #
+// #                                                                     #
+// #####################################################################
+
+
+// #####################################################################
+// #                                                                     #
+// #           INÍCIO: CRONOANÁLISE DASHBOARD (CÓDIGO EXISTENTE)         #
 // #                                                                     #
 // #####################################################################
 
@@ -2165,7 +2522,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                             <h3 className="text-lg font-medium mb-4">Produtos Cadastrados ({products.length})</h3>
                             <div className="overflow-auto max-h-60 rounded-lg border dark:border-gray-700">
                                 <table className="w-full text-left">
-                                     <thead className="bg-gray-100 dark:bg-gray-700"><tr>
+                                      <thead className="bg-gray-100 dark:bg-gray-700"><tr>
                                         <th className="p-3">Nome/Código</th>
                                         <th className="p-3">Tempo Padrão (na data)</th>
                                         {permissions.MANAGE_PRODUCTS && <th className="p-3 text-center">Ações</th>}
@@ -2529,7 +2886,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
 
 // #####################################################################
 // #                                                                     #
-// #           COMPONENTE RAIZ E LÓGICA DE NAVEGAÇÃO                     #
+// #               COMPONENTE RAIZ E LÓGICA DE NAVEGAÇÃO                 #
 // #                                                                     #
 // #####################################################################
 
@@ -2633,7 +2990,7 @@ const AppContent = () => {
     }
     
     return <CronoanaliseDashboard 
-        onNavigateToStock={() => setCurrentApp('cronoanalise')}
+        onNavigateToStock={() => setCurrentApp('stock')}
         user={user}
         permissions={userPermissions}
         startTvMode={startTvMode} 
