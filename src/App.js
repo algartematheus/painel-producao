@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext } from 'react';
-import { BarChart as RechartsBarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, EyeOff, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, ShieldCheck, Users, BarChart, Film, Warehouse, Home, ArrowUpDown, Box, Trash, MinusCircle, AlertTriangle } from 'lucide-react';
+// Recharts e AlertTriangle foram removidos pois não estão em uso.
+import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, EyeOff, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, ShieldCheck, Users, BarChart, Film, Warehouse, Home, ArrowUpDown, Box, Trash, MinusCircle } from 'lucide-react';
 import { db, auth } from './firebase'; // Importação do Firebase
 import {
   collection,
@@ -728,9 +728,9 @@ const CategoryModal = ({ isOpen, onClose, onCategoryCreated }) => {
 
 
 const ProductModal = ({ isOpen, onClose, productToEdit }) => {
-    const { getCategories, addProduct, updateProduct, addCategory } = useStock();
+    const { getCategories, addProduct, updateProduct } = useStock();
     
-    const initialProductState = { name: '', categoryId: '', minStock: '', leadTimeInMonths: '', variations: [{ name: '', initialStock: '' }] };
+    const initialProductState = useMemo(() => ({ name: '', categoryId: '', minStock: '', leadTimeInMonths: '', variations: [{ name: '', initialStock: '' }] }), []);
     const [productData, setProductData] = useState(initialProductState);
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
     
@@ -752,7 +752,7 @@ const ProductModal = ({ isOpen, onClose, productToEdit }) => {
                 setProductData({ ...initialProductState, categoryId: categories[0]?.id || '' });
             }
         }
-    }, [isOpen, productToEdit, categories]);
+    }, [isOpen, productToEdit, categories, initialProductState]);
 
     useEffect(() => {
         if (!productToEdit) return;
@@ -1630,7 +1630,6 @@ const LotReport = ({ lots }) => {
     );
 };
 
-
 const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMode, dashboards, users, roles, currentDashboardIndex, setCurrentDashboardIndex }) => {
     const { logout } = useAuth();
     const [theme, setTheme] = useState(() => localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
@@ -2405,7 +2404,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                 <div className="flex justify-between items-start">
                                     <div className="flex items-center gap-2">
                                         {permissions.MANAGE_LOTS && !lot.status.startsWith('completed') && (
-                                            <div className="flex flex-col"><button onClick={() => {}} title="Mover para cima" className="disabled:opacity-20"><ChevronUp size={16}/></button><button onClick={() => {}} title="Mover para baixo" className="disabled:opacity-20"><ChevronDown size={16}/></button></div>
+                                            <div className="flex flex-col"><button onClick={() => handleMoveLot(lot.id, 'up')} disabled={index===0} className="disabled:opacity-20"><ChevronUp size={16}/></button><button onClick={() => handleMoveLot(lot.id, 'down')} disabled={index===arr.length-1} className="disabled:opacity-20"><ChevronDown size={16}/></button></div>
                                         )}
                                         <div>
                                             <h4 className="font-bold text-lg">{lot.productName}{lot.customName?` - ${lot.customName}`:''}</h4>
@@ -2559,7 +2558,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 };
 
 const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
-    const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
+    const [theme] = useState(() => localStorage.getItem('theme') || 'dark'); // setTheme foi removido
     const [transitioning, setTransitioning] = useState(false);
     useEffect(() => { document.documentElement.classList.toggle('dark', theme === 'dark'); }, [theme]);
 
