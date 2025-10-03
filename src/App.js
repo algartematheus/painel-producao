@@ -25,11 +25,11 @@ import {
 const raceBullLogoUrl = "https://firebasestorage.googleapis.com/v0/b/quadrodeproducao.firebasestorage.app/o/assets%2FLOGO%20PROPRIET%C3%81RIA.png?alt=media&token=a16d015f-e8ca-4b3c-b744-7cef3ab6504b";
 
 const initialDashboards = [
-    { id: 'producao', name: 'Quadro da Produção' },
-    { id: 'acabamento', name: 'Quadro do Acabamento' },
-    { id: 'estoque', name: 'Quadro do Estoque' },
-    { id: 'corte', name: 'Quadro do Corte' },
-    { id: 'travete', name: 'Quadro do Travete' },
+    { id: 'producao', name: 'Quadro da Produção', order: 1 },
+    { id: 'acabamento', name: 'Quadro do Acabamento', order: 2 },
+    { id: 'estoque', name: 'Quadro do Estoque', order: 3 },
+    { id: 'corte', name: 'Quadro do Corte', order: 4 },
+    { id: 'travete', name: 'Quadro do Travete', order: 5 },
 ];
 
 const FIXED_PERIODS = ["08:00", "09:00", "10:00", "11:00", "11:45", "14:00", "15:00", "16:00", "17:00"];
@@ -2875,8 +2875,17 @@ const AppContent = () => {
     useEffect(() => {
         localStorage.setItem('lastDashboardIndex', currentDashboardIndex);
     }, [currentDashboardIndex]);
-
+    
     useEffect(() => {
+        if (!user) {
+            setUserPermissions({});
+            setDashboards([]);
+            setUsersWithRoles([]);
+            return;
+        };
+
+        console.log("DEBUG: Auth User Object:", user);
+
         const checkAndSeedDashboards = async () => {
             const dashboardColl = collection(db, "dashboards");
             const snapshot = await getDocs(dashboardColl);
@@ -2890,26 +2899,21 @@ const AppContent = () => {
                 await batch.commit();
             }
         };
-
-        checkAndSeedDashboards();
-
-        const unsub = onSnapshot(query(collection(db, "dashboards"), orderBy("name")), (snap) => {
-            const fetchedDashboards = snap.docs.map(d => d.data());
-            setDashboards(fetchedDashboards);
+        
+        const unsubDashboards = onSnapshot(query(collection(db, "dashboards"), orderBy("name")), (snap) => {
+            if (snap.empty) {
+                checkAndSeedDashboards();
+            } else {
+                const fetchedDashboards = snap.docs.map(d => d.data());
+                setDashboards(fetchedDashboards);
+            }
         });
-        return () => unsub();
-    }, []);
-    
-    useEffect(() => {
-        if (!user) {
-            setUserPermissions({});
-            return;
-        };
 
+        let unsubRoles;
         const unsubUsers = onSnapshot(collection(db, "users"), (usersSnap) => {
             const usersData = usersSnap.docs.map(d => ({uid: d.id, ...d.data()}));
             
-             const unsubRoles = onSnapshot(collection(db, "roles"), (rolesSnap) => {
+            unsubRoles = onSnapshot(collection(db, "roles"), (rolesSnap) => {
                 const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data().role]));
                 const combined = usersData.map(u => ({...u, role: rolesData.get(u.uid) || 'viewer' }));
                 setUsersWithRoles(combined);
@@ -2925,11 +2929,13 @@ const AppContent = () => {
                 }
                 setUserPermissions(permissionsMap);
             });
-
-            return () => unsubRoles();
         });
 
-        return () => unsubUsers();
+        return () => {
+            unsubDashboards();
+            unsubUsers();
+            if (unsubRoles) unsubRoles();
+        };
     }, [user]);
 
 
