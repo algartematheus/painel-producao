@@ -251,6 +251,7 @@ const StockProvider = ({ children }) => {
     const getProducts = useCallback(() => [...state.products.filter(p => !p.isDeleted)].sort((a, b) => a.name.localeCompare(b.name)), [state.products]);
     const getDeletedProducts = useCallback(() => state.products.filter(p => p.isDeleted), [state.products]);
 
+    // ✅ CORREÇÃO APLICADA AQUI
     const addCategory = useCallback((categoryName) => {
         const newCategoryId = generateId('cat');
         setState(prev => {
@@ -264,6 +265,7 @@ const StockProvider = ({ children }) => {
         return newCategoryId;
     }, [generateId]);
 
+    // ✅ CORREÇÃO APLICADA AQUI
     const addProduct = useCallback((productData) => {
         setState(prev => {
             const newProduct = {
@@ -319,6 +321,7 @@ const StockProvider = ({ children }) => {
         });
     }, []);
 
+    // ✅ CORREÇÃO APLICADA AQUI
     const addStockMovement = useCallback(({ productId, variationId, quantity, type }) => {
         setState(prev => {
             let productName = '', variationName = '';
