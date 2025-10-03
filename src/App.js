@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext } from 'react';
 import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, EyeOff, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, ShieldCheck, Users, BarChart, Film, Warehouse, Home, ArrowUpDown, Box, Trash, MinusCircle } from 'lucide-react';
-import { db, auth } from './firebase'; // Importação do Firebase
+import { db, auth } from './firebase';
 import {
   collection,
   doc,
@@ -10,7 +10,8 @@ import {
   onSnapshot,
   writeBatch,
   query,
-  orderBy
+  orderBy,
+  getDocs
 } from 'firebase/firestore';
 import {
   signInWithEmailAndPassword,
@@ -22,6 +23,14 @@ import {
 // == CONSTANTES E FUNÇÕES AUXILIARES GLOBAIS ==
 // =====================================================================
 const raceBullLogoUrl = "https://firebasestorage.googleapis.com/v0/b/quadrodeproducao.firebasestorage.app/o/assets%2FLOGO%20PROPRIET%C3%81RIA.png?alt=media&token=a16d015f-e8ca-4b3c-b744-7cef3ab6504b";
+
+const initialDashboards = [
+    { id: 'producao', name: 'Quadro da Produção' },
+    { id: 'acabamento', name: 'Quadro do Acabamento' },
+    { id: 'estoque', name: 'Quadro do Estoque' },
+    { id: 'corte', name: 'Quadro do Corte' },
+    { id: 'travete', name: 'Quadro do Travete' },
+];
 
 const FIXED_PERIODS = ["08:00", "09:00", "10:00", "11:00", "11:45", "14:00", "15:00", "16:00", "17:00"];
 
@@ -243,7 +252,7 @@ const mockData = {
 const StockContext = createContext();
 
 const StockProvider = ({ children }) => {
-    const [state, setState] = useState(mockData);
+  const [state, setState] = useState(mockData);
 
     const getCategories = useCallback(() => [...state.categories].sort((a, b) => a.name.localeCompare(b.name)), [state.categories]);
     const getProducts = useCallback(() => [...state.products.filter(p => !p.isDeleted)].sort((a, b) => a.name.localeCompare(b.name)), [state.products]);
@@ -2868,15 +2877,25 @@ const AppContent = () => {
     }, [currentDashboardIndex]);
 
     useEffect(() => {
+        const checkAndSeedDashboards = async () => {
+            const dashboardColl = collection(db, "dashboards");
+            const snapshot = await getDocs(dashboardColl);
+            if (snapshot.empty) {
+                console.log("Nenhum dashboard encontrado, criando os padrões...");
+                const batch = writeBatch(db);
+                initialDashboards.forEach(dash => {
+                    const docRef = doc(db, "dashboards", dash.id);
+                    batch.set(docRef, dash);
+                });
+                await batch.commit();
+            }
+        };
+
+        checkAndSeedDashboards();
+
         const unsub = onSnapshot(query(collection(db, "dashboards"), orderBy("name")), (snap) => {
             const fetchedDashboards = snap.docs.map(d => d.data());
-            if (fetchedDashboards.length > 0) {
-                setDashboards(fetchedDashboards);
-            } else { 
-                const defaultDash = { id: 'producao', name: 'Quadro da Produção' };
-                setDoc(doc(db, "dashboards", "producao"), defaultDash);
-                setDashboards([defaultDash]);
-            }
+            setDashboards(fetchedDashboards);
         });
         return () => unsub();
     }, []);
