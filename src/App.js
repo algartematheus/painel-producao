@@ -1174,7 +1174,7 @@ const ObservationModal = ({ isOpen, onClose, entry, onSave }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-30 modal-backdrop">
             <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg modal-content">
-                <h2 className="text-xl font-bold mb-4">Observação do Período: {entry.period}</h2>
+                <h2 className="text-xl font-bold mb-4">Observação do Período: {entry?.period}</h2>
                 <textarea
                     value={observation}
                     onChange={(e) => setObservation(e.target.value)}
@@ -1212,7 +1212,7 @@ const LotObservationModal = ({ isOpen, onClose, lot, onSave }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-30 modal-backdrop">
             <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg modal-content">
-                <h2 className="text-xl font-bold mb-4">Observação do Lote: {lot.productName}</h2>
+                <h2 className="text-xl font-bold mb-4">Observação do Lote: {lot?.productName}</h2>
                 <textarea
                     value={observation}
                     onChange={(e) => setObservation(e.target.value)}
@@ -3007,33 +3007,35 @@ const AppContent = () => {
             return;
         }
 
-        const checkAndSeedDashboards = async () => {
-            const dashboardColl = collection(db, "dashboards");
-            const snapshot = await getDocs(dashboardColl);
-            if (snapshot.empty) {
-                console.log("Nenhum dashboard encontrado, criando os padrões...");
-                const batch = writeBatch(db);
-                initialDashboards.forEach(dash => {
-                    const docRef = doc(db, "dashboards", dash.id);
-                    batch.set(docRef, dash);
-                });
-                await batch.commit();
-            }
-        };
+        let unsubDashboards; // Definido aqui para ser acessível na limpeza
 
-        const unsubDashboards = onSnapshot(query(collection(db, "dashboards"), orderBy("order")), (snap) => {
-            if (snap.empty) {
-                checkAndSeedDashboards();
-            } else {
-                const fetchedDashboards = snap.docs.map(d => d.data());
-                setDashboards(fetchedDashboards);
-            }
-        }, (error) => {
-            console.error("Erro ao buscar dashboards: ", error);
-        });
-        
-        const fetchUserData = async () => {
+        const setupDataAndListeners = async () => {
             try {
+                // --- Etapa 1: Verificar e criar dashboards iniciais (apenas uma vez) ---
+                const dashboardsQuery = query(collection(db, "dashboards"), orderBy("order"));
+                const initialDashboardsSnap = await getDocs(dashboardsQuery);
+                
+                if (initialDashboardsSnap.empty) {
+                    console.log("Nenhum dashboard encontrado, criando dados iniciais...");
+                    const batch = writeBatch(db);
+                    initialDashboards.forEach(dash => {
+                        const docRef = doc(db, "dashboards", dash.id);
+                        batch.set(docRef, dash);
+                    });
+                    await batch.commit();
+                    console.log("Dashboards iniciais criados com sucesso.");
+                }
+
+                // --- Etapa 2: Iniciar o listener em tempo real para dashboards ---
+                unsubDashboards = onSnapshot(dashboardsQuery, (snap) => {
+                    const fetchedDashboards = snap.docs.map(d => d.data());
+                    console.log(`Dados recebidos: ${fetchedDashboards.length} dashboards.`);
+                    setDashboards(fetchedDashboards);
+                }, (error) => {
+                    console.error("Erro no listener de Dashboards:", error);
+                });
+
+                // --- Etapa 3: Buscar dados de usuários e permissões (apenas uma vez) ---
                 const rolesSnap = await getDocs(collection(db, "roles"));
                 const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data().role]));
 
@@ -3052,22 +3054,22 @@ const AppContent = () => {
                 if (currentUserRole === 'admin') {
                     Object.keys(ALL_PERMISSIONS).forEach(key => permissionsMap[key] = true);
                 }
+                console.log("Permissões do usuário definidas:", permissionsMap);
                 setUserPermissions(permissionsMap);
+
             } catch (error) {
-                console.error("Erro ao buscar dados de usuário e permissões:", error);
-                // Se der erro aqui (ex: regras de segurança), o app ficará em loop de loading.
-                // Este log é crucial para o debug.
+                console.error("ERRO CRÍTICO AO CONFIGURAR DADOS:", error);
+                // Este log é vital. Se houver um erro de permissão, ele aparecerá aqui.
             }
         };
 
-        fetchUserData();
+        setupDataAndListeners();
 
-        // Para os papéis (roles), uma busca única (getDocs) é geralmente melhor do que um listener em tempo real (onSnapshot),
-        // a menos que você espere que as permissões mudem enquanto o usuário está com o app aberto.
-        // A lógica acima com getDocs é mais simples e robusta para iniciar.
-
+        // Função de limpeza
         return () => {
-            unsubDashboards();
+            if (unsubDashboards) {
+                unsubDashboards();
+            }
         };
     }, [user]);
 
