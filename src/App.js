@@ -3005,7 +3005,7 @@ const AppContent = () => {
             setDashboards([]);
             setUsersWithRoles([]);
             return;
-        };
+        }
 
         const checkAndSeedDashboards = async () => {
             const dashboardColl = collection(db, "dashboards");
@@ -3020,7 +3020,7 @@ const AppContent = () => {
                 await batch.commit();
             }
         };
-        
+
         const unsubDashboards = onSnapshot(query(collection(db, "dashboards"), orderBy("order")), (snap) => {
             if (snap.empty) {
                 checkAndSeedDashboards();
@@ -3028,34 +3028,46 @@ const AppContent = () => {
                 const fetchedDashboards = snap.docs.map(d => d.data());
                 setDashboards(fetchedDashboards);
             }
+        }, (error) => {
+            console.error("Erro ao buscar dashboards: ", error);
         });
-
-        let unsubRoles;
-        const unsubUsers = onSnapshot(collection(db, "users"), (usersSnap) => {
-            const usersData = usersSnap.docs.map(d => ({uid: d.id, ...d.data()}));
-            
-            unsubRoles = onSnapshot(collection(db, "roles"), (rolesSnap) => {
+        
+        const fetchUserData = async () => {
+            try {
+                const rolesSnap = await getDocs(collection(db, "roles"));
                 const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data().role]));
-                const combined = usersData.map(u => ({...u, role: rolesData.get(u.uid) || 'viewer' }));
-                setUsersWithRoles(combined);
+
+                const usersSnap = await getDocs(collection(db, "users"));
+                const usersData = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
+                
+                const combinedUsers = usersData.map(u => ({ ...u, role: rolesData.get(u.uid) || 'viewer' }));
+                setUsersWithRoles(combinedUsers);
 
                 const currentUserRole = rolesData.get(user.uid) || 'viewer';
                 const permissionsList = defaultRoles[currentUserRole]?.permissions || [];
                 const permissionsMap = {};
                 for (const key in ALL_PERMISSIONS) {
-                   permissionsMap[key] = permissionsList.includes(key);
+                    permissionsMap[key] = permissionsList.includes(key);
                 }
                 if (currentUserRole === 'admin') {
-                   Object.keys(ALL_PERMISSIONS).forEach(key => permissionsMap[key] = true);
+                    Object.keys(ALL_PERMISSIONS).forEach(key => permissionsMap[key] = true);
                 }
                 setUserPermissions(permissionsMap);
-            });
-        });
+            } catch (error) {
+                console.error("Erro ao buscar dados de usuário e permissões:", error);
+                // Se der erro aqui (ex: regras de segurança), o app ficará em loop de loading.
+                // Este log é crucial para o debug.
+            }
+        };
+
+        fetchUserData();
+
+        // Para os papéis (roles), uma busca única (getDocs) é geralmente melhor do que um listener em tempo real (onSnapshot),
+        // a menos que você espere que as permissões mudem enquanto o usuário está com o app aberto.
+        // A lógica acima com getDocs é mais simples e robusta para iniciar.
 
         return () => {
             unsubDashboards();
-            unsubUsers();
-            if (unsubRoles) unsubRoles();
         };
     }, [user]);
 
@@ -3064,7 +3076,7 @@ const AppContent = () => {
     const stopTvMode = useCallback(() => setTvMode(null), []);
 
     if (loading) {
-        return <div className="min-h-screen bg-gray-100 dark:bg-black flex justify-center items-center"><p className="text-xl">Carregando...</p></div>;
+        return <div className="min-h-screen bg-gray-100 dark:bg-black flex justify-center items-center"><p className="text-xl">Carregando autenticação...</p></div>;
     }
     
     if (!user) {
