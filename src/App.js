@@ -1385,9 +1385,17 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
         </div>
     );
 
+    const renderPasswordTab = () => (
+        <div>
+            <h3 className="text-xl font-bold mb-4">Alterar Senha (Funcionalidade Futura)</h3>
+            <p>A interface para alteração de senha de administrador será implementada aqui.</p>
+        </div>
+    );
+
     const tabs = [
         { id: 'users', label: 'Usuários', icon: <Users/>, content: renderUsersTab() },
         { id: 'roles', label: 'Funções', icon: <ShieldCheck/>, content: renderRolesTab() },
+        { id: 'password', label: 'Senha', icon: <EyeOff/>, content: renderPasswordTab() },
     ];
 
 
@@ -1418,71 +1426,90 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
 };
   
 const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboards }) => {
-    const [selectedDashboards, setSelectedDashboards] = useState([]);
-    const [interval, setInterval] = useState(15000);
+    const [carouselSeconds, setCarouselSeconds] = useState(10);
+    const [selectedDashboards, setSelectedDashboards] = useState(() => dashboards.map(d => d.id));
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
 
     if (!isOpen) return null;
 
-    const handleToggleDashboard = (id) => {
-        setSelectedDashboards(prev => 
+    const handleToggle = (id) => {
+        setSelectedDashboards(prev =>
             prev.includes(id) ? prev.filter(dId => dId !== id) : [...prev, id]
         );
     };
 
-    const handleStartCarousel = () => {
+    const handleStart = () => {
         if (selectedDashboards.length > 0) {
-            onStartCarousel({ dashboardIds: selectedDashboards, interval });
+            onStartCarousel({
+                dashboardIds: selectedDashboards,
+                interval: carouselSeconds * 1000,
+            });
             onClose();
         }
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-30 modal-backdrop">
-            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg modal-content">
-                <h2 className="text-xl font-bold mb-4">Selecionar Modo TV</h2>
-                <div className="space-y-2 mb-4">
-                    <h3 className="font-semibold">Visualizar um único quadro:</h3>
-                    {dashboards.map(dash => (
-                        <button key={dash.id} onClick={() => { onSelect(dash.id); onClose(); }} className="w-full text-left p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
-                            {dash.name}
-                        </button>
-                    ))}
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 modal-backdrop">
+            <div ref={modalRef} className="bg-white dark:bg-gray-900 p-8 rounded-2xl shadow-2xl w-full max-w-2xl modal-content">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-2xl font-bold flex items-center gap-2">
+                        <Monitor size={24} className="text-blue-500" /> Selecionar Modo de Exibição
+                    </h2>
+                    <button onClick={onClose} title="Fechar"><XCircle size={24} /></button>
                 </div>
-                <div className="border-t pt-4 dark:border-gray-600">
-                     <h3 className="font-semibold">Criar Carrossel (alternar quadros):</h3>
-                     <div className="my-3 space-y-2">
-                        {dashboards.map(dash => (
-                            <div key={dash.id} className="flex items-center gap-2">
-                                <input
-                                    type="checkbox"
-                                    id={`cb-${dash.id}`}
-                                    checked={selectedDashboards.includes(dash.id)}
-                                    onChange={() => handleToggleDashboard(dash.id)}
-                                />
-                                <label htmlFor={`cb-${dash.id}`}>{dash.name}</label>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div>
+                        <h3 className="font-bold text-lg mb-2">Exibição Única</h3>
+                        <p className="mb-4 text-gray-600 dark:text-gray-400 text-sm">Escolha um quadro para exibir em tela cheia.</p>
+                        <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                            {dashboards.map(dash => (
+                                <button
+                                    key={dash.id}
+                                    onClick={() => { onSelect(dash.id); onClose(); }}
+                                    className="w-full flex items-center justify-between p-3 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+                                >
+                                    <span className="font-semibold">{dash.name}</span>
+                                    <ArrowRight size={20} className="text-blue-500" />
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="border-l dark:border-gray-700 pl-8">
+                        <h3 className="font-bold text-lg mb-2">Modo Carrossel</h3>
+                        <p className="mb-4 text-gray-600 dark:text-gray-400 text-sm">Selecione os quadros e o tempo de exibição.</p>
+                        <div className="space-y-2 max-h-48 overflow-y-auto pr-2 mb-4">
+                            {dashboards.map(dash => (
+                                <label key={dash.id} className="flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer">
+                                    <input type="checkbox" checked={selectedDashboards.includes(dash.id)} onChange={() => handleToggle(dash.id)} className="h-5 w-5 rounded"/>
+                                    <span>{dash.name}</span>
+                                </label>
+                            ))}
+                        </div>
+                        <div className="flex items-center gap-4">
+                             <div className="flex-grow">
+                                <label htmlFor="carousel-time" className="text-sm">Segundos por slide:</label>
+                                <input id="carousel-time" type="number" value={carouselSeconds} onChange={e => setCarouselSeconds(Number(e.target.value))} className="w-full p-2 mt-1 rounded-md bg-gray-100 dark:bg-gray-700"/>
                             </div>
-                        ))}
-                     </div>
-                     <div className="flex items-center gap-2 my-4">
-                        <label htmlFor="interval">Alternar a cada (ms):</label>
-                        <input type="number" id="interval" value={interval} onChange={e => setInterval(parseInt(e.target.value, 10))} className="p-2 w-24 bg-gray-100 dark:bg-gray-700 rounded" />
-                     </div>
-                     <button onClick={handleStartCarousel} disabled={selectedDashboards.length < 1} className="w-full py-2 bg-blue-600 text-white rounded-md disabled:opacity-50">
-                         Iniciar Carrossel
-                     </button>
+                            <button onClick={handleStart} className="self-end h-10 px-4 font-semibold rounded-md bg-green-600 text-white hover:bg-green-700 flex items-center gap-2">
+                                <Film size={18} /> Iniciar Carrossel
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     );
 };
 
+
 // #####################################################################
 // #                                                                     #
 // #           FIM: COMPONENTES DE MODAIS (CÓDIGO FALTANTE)              #
 // #                                                                     #
 // #####################################################################
+
 
 
 // #####################################################################
@@ -1724,6 +1751,7 @@ const LotReport = ({ lots }) => {
 // #         FIM: COMPONENTES AUXILIARES DO DASHBOARD                    #
 // #                                                                     #
 // #####################################################################
+
 
 
 // #####################################################################
