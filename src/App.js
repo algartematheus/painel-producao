@@ -3007,8 +3007,6 @@ const AppContent = () => {
             return;
         };
 
-        console.log("DEBUG: Auth User Object:", user);
-
         const checkAndSeedDashboards = async () => {
             const dashboardColl = collection(db, "dashboards");
             const snapshot = await getDocs(dashboardColl);
@@ -3071,6 +3069,11 @@ const AppContent = () => {
     
     if (!user) {
         return <LoginPage />;
+    }
+
+    // NOVA VERIFICAÇÃO: Garante que os dados essenciais foram carregados antes de renderizar o dashboard.
+    if (dashboards.length === 0 || Object.keys(userPermissions).length === 0) {
+        return <div className="min-h-screen bg-gray-100 dark:bg-black flex justify-center items-center"><p className="text-xl">Carregando dados do usuário...</p></div>;
     }
 
     if (tvMode && currentApp === 'cronoanalise') {
