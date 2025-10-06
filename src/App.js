@@ -1246,13 +1246,11 @@ const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
 
     const handleConfirm = async () => {
         setError('');
-        // This logic is simplified. In a real app, you'd fetch the hash from a secure config.
-        // For this example, let's assume `adminConfig.passwordHash` exists or we have a default.
         const correctPasswordHash = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"; // "admin123"
         const inputHash = await sha256Hex(password);
 
         if (inputHash === correctPasswordHash) {
-            onSuccess();
+            if(onSuccess) onSuccess();
             onClose();
         } else {
             setError('Senha incorreta.');
@@ -1314,7 +1312,7 @@ const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
         </div>
     );
 };
-
+  
 const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
@@ -1483,6 +1481,247 @@ const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboard
 // #####################################################################
 // #                                                                     #
 // #           FIM: COMPONENTES DE MODAIS (CÓDIGO FALTANTE)              #
+// #                                                                     #
+// #####################################################################
+
+
+// #####################################################################
+// #                                                                     #
+// #         INÍCIO: COMPONENTES AUXILIARES DO DASHBOARD                 #
+// #                                                                     #
+// #####################################################################
+
+const StatCard = ({ title, value, unit = '', isEfficiency = false }) => {
+    const valueColor = isEfficiency ? (value < 65 ? 'text-red-500' : 'text-green-600') : 'text-gray-800 dark:text-white';
+    return (
+        <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
+            <h3 className="text-lg font-medium text-gray-500 dark:text-gray-400">{title}</h3>
+            <p className={`text-4xl font-bold ${valueColor} mt-2`}>{value}<span className="text-2xl ml-2">{unit}</span></p>
+        </div>
+    );
+};
+
+const CalendarView = ({ selectedDate, setSelectedDate, currentMonth, setCurrentMonth, calendarView, setCalendarView, allProductionData }) => {
+    const handleNavigation = (offset) => {
+        if (calendarView === 'day') setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
+        else if (calendarView === 'month') setCurrentMonth(prev => new Date(prev.getFullYear() + offset, prev.getMonth(), 1));
+        else if (calendarView === 'year') setCurrentMonth(prev => new Date(prev.getFullYear() + offset * 10, prev.getMonth(), 1));
+    };
+    const handleHeaderClick = () => {
+        if (calendarView === 'day') setCalendarView('month');
+        if (calendarView === 'month') setCalendarView('year');
+    };
+    const handleMonthSelect = (monthIndex) => { setCurrentMonth(new Date(currentMonth.getFullYear(), monthIndex, 1)); setCalendarView('day'); };
+    const handleYearSelect = (year) => { setCurrentMonth(new Date(year, currentMonth.getMonth(), 1)); setCalendarView('month'); };
+    const renderHeader = () => {
+        let text = '';
+        if (calendarView === 'day') text = currentMonth.toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
+        else if (calendarView === 'month') text = currentMonth.getFullYear();
+        else { const startYear = Math.floor(currentMonth.getFullYear() / 10) * 10; text = `${startYear} - ${startYear + 9}`; }
+        return <button onClick={handleHeaderClick} className="text-xl font-semibold hover:text-blue-500">{text}</button>;
+    };
+    const renderDayView = () => {
+        const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+        const startDate = new Date(startOfMonth);
+        startDate.setDate(startDate.getDate() - startOfMonth.getDay());
+        const days = Array.from({ length: 42 }, (_, i) => { const day = new Date(startDate); day.setDate(day.getDate() + i); return day; });
+        return (
+            <div className="grid grid-cols-7 gap-2 text-center">
+                {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((day, i) => <div key={i} className="font-medium text-gray-500 text-sm">{day}</div>)}
+                {days.map((day, i) => {
+                    const isSelected = day.toDateString() === selectedDate.toDateString();
+                    const isCurrentMonth = day.getMonth() === currentMonth.getMonth();
+                    const hasData = !!(allProductionData[day.toISOString().slice(0, 10)] && allProductionData[day.toISOString().slice(0, 10)].length > 0);
+                    return (<button key={i} onClick={() => setSelectedDate(day)} className={`p-2 rounded-full text-sm relative ${isCurrentMonth ? '' : 'text-gray-400 dark:text-gray-600'} ${isSelected ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}>{day.getDate()}{hasData && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-green-500 rounded-full"></span>}</button>)
+                })}
+            </div>
+        );
+    };
+    const renderMonthView = () => {
+        const months = Array.from({length: 12}, (_, i) => new Date(0, i).toLocaleString('pt-BR', {month: 'short'}));
+        return ( <div className="grid grid-cols-4 gap-2 text-center">{months.map((month, i) => (<button key={month} onClick={() => handleMonthSelect(i)} className="p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">{month}</button>))}</div> );
+    };
+    const renderYearView = () => {
+        const startYear = Math.floor(currentMonth.getFullYear() / 10) * 10;
+        const years = Array.from({ length: 10 }, (_, i) => startYear + i);
+        return ( <div className="grid grid-cols-4 gap-2 text-center">{years.map(year => (<button key={year} onClick={() => handleYearSelect(year)} className="p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">{year}</button>))}</div> );
+    };
+    return (
+        <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
+            <div className="flex justify-between items-center mb-4">
+                <button onClick={() => handleNavigation(-1)} title="Anterior"><ChevronLeft/></button>
+                {renderHeader()}
+                <button onClick={() => handleNavigation(1)} title="Próximo"><ChevronRight/></button>
+            </div>
+            {calendarView === 'day' && renderDayView()}
+            {calendarView === 'month' && renderMonthView()}
+            {calendarView === 'year' && renderYearView()}
+        </div>
+    );
+};
+
+const TrashItemDisplay = ({ item, products, user, onRestore, canRestore }) => {
+    const date = new Date(item.deletedAt).toLocaleString('pt-BR');
+    
+    const commonHeader = (
+      <div className="flex justify-between items-start">
+        <div>
+            <p className="font-bold text-lg mb-1">{item.itemType === 'product' ? 'PRODUTO DELETADO' : (item.itemType === 'lot' ? 'LOTE DELETADO' : 'LANÇAMENTO DELETADO')}</p>
+            <p className="text-sm">Deletado por: <span className="font-semibold">{item.deletedByEmail}</span> em <span className="font-semibold">{date}</span></p>
+            <p className="mt-2">Motivo: <span className="italic font-medium">{item.reason || 'Nenhum motivo fornecido.'}</span></p>
+        </div>
+        {canRestore && <button onClick={() => onRestore(item)} className="p-2 bg-green-500 text-white rounded-md text-sm">Restaurar</button>}
+      </div>
+    );
+
+    const getStatusText = (status) => {
+        switch(status) {
+            case 'future': return 'Na Fila';
+            case 'ongoing': return 'Em Andamento';
+            case 'completed': return 'Concluído';
+            case 'completed_missing': return 'Concluído (com Falta)';
+            case 'completed_exceeding': return 'Concluído (com Sobra)';
+            default: return status;
+        }
+    };
+
+    if (item.itemType === 'product') {
+        const doc = item.originalDoc;
+        const lastKnownTime = doc.standardTimeHistory?.[doc.standardTimeHistory.length - 1]?.time || 'N/A';
+        return (
+            <div className="p-4 bg-red-50 dark:bg-red-900/30 rounded-lg border-2 border-red-500/50">
+                {commonHeader}
+                <div className="mt-3 p-3 bg-red-100 dark:bg-red-900/80 rounded-md">
+                    <p className="font-bold">Detalhes do Produto:</p>
+                    <p>Nome/Código: <span className="font-semibold">{doc.name}</span></p>
+                    <p>Tempo Padrão (na exclusão): <span className="font-semibold">{lastKnownTime} min</span></p>
+                </div>
+            </div>
+        );
+    }
+
+    if (item.itemType === 'lot') {
+        const doc = item.originalDoc;
+        return (
+            <div className="p-4 bg-red-50 dark:bg-red-900/30 rounded-lg border-2 border-red-500/50">
+                {commonHeader}
+                <div className="mt-3 p-3 bg-red-100 dark:bg-red-900/80 rounded-md">
+                    <p className="font-bold">Detalhes do Lote:</p>
+                    <p>Produto: <span className="font-semibold">{doc.productName}</span> {doc.customName && `(${doc.customName})`}</p>
+                    <p>Lote Sequencial #: <span className="font-semibold">{doc.sequentialId}</span></p>
+                    <p>Meta Total: <span className="font-semibold">{doc.target} un.</span></p>
+                    <p>Produzido até a Exclusão: <span className="font-semibold">{doc.produced} un.</span></p>
+                    <p>Status na Exclusão: <span className="font-semibold">{getStatusText(doc.status)}</span></p>
+                </div>
+            </div>
+        );
+    }
+    
+    if (item.itemType === 'entry') {
+        const doc = item.originalDoc;
+        const productionList = doc.productionDetails.map(d => {
+            const product = products.find(p => p.id === d.productId);
+            return `${d.produced} un. (${product?.name || 'Produto Excluído'})`
+        }).join(', ');
+
+        return (
+             <div className="p-4 bg-red-50 dark:bg-red-900/30 rounded-lg border-2 border-red-500/50">
+                {commonHeader}
+                <div className="mt-3 p-3 bg-red-100 dark:bg-red-900/80 rounded-md">
+                    <p className="font-bold">Detalhes do Lançamento:</p>
+                    <p>Período: <span className="font-semibold">{doc.period}</span></p>
+                    <p>Pessoas / Tempo: <span className="font-semibold">{doc.people} / {doc.availableTime} min</span></p>
+                    <p>Meta Registrada: <span className="font-semibold">{doc.goalDisplay}</span></p>
+                    <p>Produção Registrada: <span className="font-semibold">{productionList}</span></p>
+                </div>
+            </div>
+        );
+    }
+
+    return null;
+};
+
+const LotReport = ({ lots }) => {
+    const reportData = useMemo(() => {
+        const completedLots = lots.filter(l => l.status.startsWith('completed') && l.startDate && l.endDate);
+        if (completedLots.length === 0) {
+            return { lotDetails: [], overallAverage: 0 };
+        }
+
+        let totalPieces = 0;
+        let totalDays = 0;
+
+        const lotDetails = completedLots.map(lot => {
+            const startDate = new Date(lot.startDate);
+            const endDate = new Date(lot.endDate);
+            const durationMillis = endDate - startDate;
+            const durationDays = Math.max(1, durationMillis / (1000 * 60 * 60 * 24));
+            
+            const averageDaily = lot.produced > 0 ? (lot.produced / durationDays) : 0;
+
+            totalPieces += lot.produced;
+            totalDays += durationDays;
+
+            return {
+                ...lot,
+                duration: durationDays.toFixed(1),
+                averageDaily: averageDaily.toFixed(2),
+            };
+        });
+
+        const overallAverage = totalDays > 0 ? (totalPieces / totalDays) : 0;
+
+        return { lotDetails, overallAverage: overallAverage.toFixed(2) };
+    }, [lots]);
+
+    return (
+        <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
+            <h2 className="text-xl font-semibold mb-4 flex items-center">
+                <BarChart className="mr-2 text-blue-500"/> Relatório de Lotes Concluídos
+            </h2>
+            {reportData.lotDetails.length === 0 ? (
+                <p className="text-gray-500 dark:text-gray-400">Nenhum lote concluído para exibir o relatório.</p>
+            ) : (
+                <>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                    <div className="md:col-span-4 bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg text-center">
+                        <h3 className="font-bold text-lg text-blue-800 dark:text-blue-300">Média Geral de Produção Diária</h3>
+                        <p className="text-3xl font-extrabold text-blue-600 dark:text-blue-400">{reportData.overallAverage} <span className="text-lg">peças/dia</span></p>
+                    </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-gray-50 dark:bg-gray-800">
+                            <tr>
+                                <th className="p-3">Lote</th>
+                                <th className="p-3 text-center">Total Produzido</th>
+                                <th className="p-3 text-center">Duração (dias)</th>
+                                <th className="p-3 text-center">Média Diária (peças)</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
+                            {reportData.lotDetails.map(lot => (
+                                <tr key={lot.id}>
+                                    <td className="p-3 font-semibold">{lot.productName}{lot.customName ? ` - ${lot.customName}` : ''} (#{lot.sequentialId})</td>
+                                    <td className="p-3 text-center">{lot.produced} / {lot.target}</td>
+                                    <td className="p-3 text-center">{lot.duration}</td>
+                                    <td className="p-3 text-center font-bold text-green-600 dark:text-green-400">{lot.averageDaily}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+                </>
+            )}
+        </section>
+    );
+};
+
+
+// #####################################################################
+// #                                                                     #
+// #         FIM: COMPONENTES AUXILIARES DO DASHBOARD                    #
 // #                                                                     #
 // #####################################################################
 
