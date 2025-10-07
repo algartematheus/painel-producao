@@ -1333,35 +1333,40 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
     useClickOutside(modalRef, onClose);
     const [selectedUser, setSelectedUser] = useState(null);
     const [editablePermissions, setEditablePermissions] = useState([]);
-
+    
+    // Auto-seleciona o primeiro usuário quando o modal abre
     useEffect(() => {
-        if(isOpen && users.length > 0){
-            // Seleciona o primeiro usuário da lista por padrão ao abrir
+        if (isOpen && users.length > 0 && !selectedUser) {
             setSelectedUser(users[0]);
         }
-    }, [isOpen, users]);
+        if (!isOpen) {
+            setSelectedUser(null); // Limpa a seleção ao fechar
+        }
+    }, [isOpen, users, selectedUser]);
     
+    // Atualiza as permissões editáveis quando um usuário é selecionado
     useEffect(() => {
         if (selectedUser) {
             setEditablePermissions(selectedUser.permissions || []);
         }
     }, [selectedUser]);
 
-
     if (!isOpen) return null;
 
     const handlePermissionChange = (permissionKey, isChecked) => {
         setEditablePermissions(prev => {
+            const newSet = new Set(prev);
             if (isChecked) {
-                return [...new Set([...prev, permissionKey])];
+                newSet.add(permissionKey);
             } else {
-                return prev.filter(p => p !== permissionKey);
+                newSet.delete(permissionKey);
             }
+            return Array.from(newSet);
         });
     };
     
     const applyRoleTemplate = (roleId) => {
-        if(roles[roleId]){
+        if (roles[roleId]) {
             setEditablePermissions(roles[roleId].permissions);
         }
     };
@@ -1372,6 +1377,7 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
             const roleRef = doc(db, 'roles', selectedUser.uid);
             await setDoc(roleRef, { permissions: editablePermissions });
             alert(`Permissões do usuário ${selectedUser.email} salvas com sucesso!`);
+            onClose(); // Fecha o modal após salvar
         } catch (error) {
             console.error("Erro ao salvar permissões:", error);
             alert('Falha ao salvar permissões.');
@@ -3076,7 +3082,7 @@ const AppContent = () => {
             return;
         }
 
-        let unsubDashboards; // Definido aqui para ser acessível na limpeza
+        let unsubDashboards; 
 
         const setupDataAndListeners = async () => {
             try {
@@ -3106,7 +3112,7 @@ const AppContent = () => {
 
                 // --- Etapa 3: Buscar dados de usuários e permissões (apenas uma vez) ---
                 const rolesSnap = await getDocs(collection(db, "roles"));
-                const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()])); // Agora pegamos o objeto todo
+                const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
 
                 const usersSnap = await getDocs(collection(db, "users"));
                 const usersData = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
@@ -3114,17 +3120,19 @@ const AppContent = () => {
                 const combinedUsers = usersData.map(u => ({ ...u, permissions: rolesData.get(u.uid)?.permissions || [] }));
                 setUsersWithRoles(combinedUsers);
 
-                const currentUserPermissions = rolesData.get(user.uid)?.permissions || [];
-                const permissionsMap = {};
-                for (const key in ALL_PERMISSIONS) {
-                    permissionsMap[key] = currentUserPermissions.includes(key);
+                const currentUserPermissionsDoc = rolesData.get(user.uid);
+                let permissionsList = currentUserPermissionsDoc?.permissions || [];
+                
+                // Se o usuário é um 'admin' no documento, ele recebe todas as permissões, sobrepondo as individuais
+                if (currentUserPermissionsDoc?.role === 'admin') {
+                    permissionsList = Object.keys(ALL_PERMISSIONS);
                 }
                 
-                // Garantir que o admin sempre tenha todas as permissões, lendo do DB
-                if (rolesData.get(user.uid)?.role === 'admin') {
-                     Object.keys(ALL_PERMISSIONS).forEach(key => permissionsMap[key] = true);
+                const permissionsMap = {};
+                for (const key in ALL_PERMISSIONS) {
+                    permissionsMap[key] = permissionsList.includes(key);
                 }
-
+                
                 console.log("Permissões do usuário definidas:", permissionsMap);
                 setUserPermissions(permissionsMap);
 
