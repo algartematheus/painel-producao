@@ -1527,7 +1527,7 @@ const ChangePasswordTab = () => {
 };
 
 
-const AdminPanel = ({ isOpen, onClose, users, roles }) => {
+const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
     const [activeTab, setActiveTab] = useState('users');
@@ -2510,7 +2510,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             <LotObservationModal isOpen={modalState.type === 'lotObservation'} onClose={closeModal} lot={modalState.data} onSave={handleSaveLotObservation} />
             <PasswordModal isOpen={modalState.type === 'password'} onClose={closeModal} onSuccess={modalState.data?.onSuccess} adminConfig={{}} />
             <ReasonModal isOpen={modalState.type === 'reason'} onClose={closeModal} onConfirm={modalState.data?.onConfirm} />
-            <AdminPanel isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={roles} />
+            <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={roles} />
             <TvSelectorModal isOpen={modalState.type === 'tvSelector'} onClose={closeModal} onSelect={startTvMode} onStartCarousel={startTvMode} dashboards={dashboards} />
 
             <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-20">
