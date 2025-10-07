@@ -1079,7 +1079,7 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
 
 // #####################################################################
 // #                                                                     #
-// #           INÍCIO: COMPONENTES DE MODAIS (CÓDIGO FALTANTE)           #
+// #           INÍCIO: COMPONENTES DE MODAIS E AUXILIARES                #
 // #                                                                     #
 // #####################################################################
 
@@ -1935,8 +1935,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
     const handleAddDashboard = async (name) => {
         if (dashboards.some(d => d.name.toLowerCase() === name.toLowerCase())) return false;
+        const newOrder = dashboards.length > 0 ? Math.max(...dashboards.map(d => d.order)) + 1 : 1;
         const id = Date.now().toString();
-        await setDoc(doc(db, "dashboards", id), { id, name });
+        await setDoc(doc(db, "dashboards", id), { id, name, order: newOrder });
         return true;
     };
     const handleRenameDashboard = async (id, newName) => {
@@ -1948,6 +1949,26 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         if (dashboards.length <= 1) return;
         alert("A exclusão de quadros e seus sub-dados deve ser feita com cuidado, preferencialmente por uma Cloud Function para garantir a limpeza completa. Esta ação apenas removerá o quadro da lista.");
         await deleteDoc(doc(db, "dashboards", id));
+    };
+
+    const handleMoveDashboard = async (dashboardId, direction) => {
+        const currentIndex = dashboards.findIndex(d => d.id === dashboardId);
+        if (currentIndex === -1) return;
+
+        const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+        if (newIndex < 0 || newIndex >= dashboards.length) return;
+
+        const currentDash = dashboards[currentIndex];
+        const swapDash = dashboards[newIndex];
+
+        const batch = writeBatch(db);
+        const currentDashRef = doc(db, "dashboards", currentDash.id);
+        const swapDashRef = doc(db, "dashboards", swapDash.id);
+
+        batch.update(currentDashRef, { order: swapDash.order });
+        batch.update(swapDashRef, { order: currentDash.order });
+
+        await batch.commit();
     };
     
     const handleSelectTvMode = () => setModalState({ type: 'tvSelector', data: null });
@@ -2347,6 +2368,12 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                 {dashboards.map((dash, index) => (
                                     <div key={dash.id} className="flex items-center justify-between px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">
                                         <div className="flex items-center gap-2">
+                                            {permissions.MANAGE_DASHBOARDS && (
+                                                <div className="flex flex-col">
+                                                    <button onClick={() => handleMoveDashboard(dash.id, 'up')} disabled={index === 0} className="disabled:opacity-20"><ChevronUp size={16} /></button>
+                                                    <button onClick={() => handleMoveDashboard(dash.id, 'down')} disabled={index === dashboards.length - 1} className="disabled:opacity-20"><ChevronDown size={16} /></button>
+                                                </div>
+                                            )}
                                             <button onClick={() => { setCurrentDashboardIndex(index); setIsNavOpen(false); }} className="flex-grow text-left">{dash.name}</button>
                                         </div>
                                         <div className="flex items-center gap-3">
@@ -2666,7 +2693,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 </section>
                 
                 {permissions.VIEW_TRASH && <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg mt-8">
-                    <h2 className="text-xl font-semibold mb-4 flex items-center"><Trash className="mr-2 text-blue-500"/> Lixeira</h2>
+                    <h2 className="text-xl font-semibold mb-4 flex items-center"><Trash2 className="mr-2 text-red-500"/> Lixeira</h2>
                     <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
                         {trashItems.filter(item => item.dashboardId === currentDashboard.id).length > 0 
                             ? trashItems.filter(item => item.dashboardId === currentDashboard.id).map(item=>(
