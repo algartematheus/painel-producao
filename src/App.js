@@ -3244,104 +3244,79 @@ const AppContent = () => {
             setUserPermissions({});
             setDashboards([]);
             setUsersWithRoles([]);
-            return;
+            return; // Sai do hook se não houver usuário
         }
 
-        let unsubDashboards; 
+        // Garante que os dashboards iniciais existam
+        const ensureInitialDashboards = async () => {
+             const dashboardsQuery = query(collection(db, "dashboards"), orderBy("order"));
+             const initialDashboardsSnap = await getDocs(dashboardsQuery);
+             if (initialDashboardsSnap.empty) {
+                 console.log("Nenhum dashboard encontrado, criando dados iniciais...");
+                 const batch = writeBatch(db);
+                 initialDashboards.forEach(dash => {
+                     const docRef = doc(db, "dashboards", dash.id);
+                     batch.set(docRef, dash);
+                 });
+                 await batch.commit();
+             }
+        };
 
-        const setupDataAndListeners = async () => {
-            try {
-                // --- Etapa 1: Verificar e criar dashboards iniciais (apenas uma vez) ---
-                const dashboardsQuery = query(collection(db, "dashboards"), orderBy("order"));
-                const initialDashboardsSnap = await getDocs(dashboardsQuery);
-                
-                if (initialDashboardsSnap.empty) {
-                    console.log("Nenhum dashboard encontrado, criando dados iniciais...");
-                    const batch = writeBatch(db);
-                    initialDashboards.forEach(dash => {
-                        const docRef = doc(db, "dashboards", dash.id);
-                        batch.set(docRef, dash);
-                    });
-                    await batch.commit();
-                    console.log("Dashboards iniciais criados com sucesso.");
+        ensureInitialDashboards().catch(console.error);
+
+        // --- LISTENER PARA DASHBOARDS ---
+        const dashboardsQuery = query(collection(db, "dashboards"), orderBy("order"));
+        const unsubDashboards = onSnapshot(dashboardsQuery, (snap) => {
+            const fetchedDashboards = snap.docs.map(d => d.data());
+            setDashboards(fetchedDashboards);
+        });
+
+        // --- LISTENER PARA USUÁRIOS E FUNÇÕES (COMBINADO) ---
+        // Ouvimos a coleção de 'roles', pois ela determina as permissões.
+        // Quando ela muda, reavaliamos tudo.
+        const rolesQuery = collection(db, "roles");
+        const unsubRoles = onSnapshot(rolesQuery, async (rolesSnap) => {
+            const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
+
+            // Busca os usuários
+            const usersSnap = await getDocs(collection(db, "users"));
+            const usersData = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
+
+            // Combina os dados de usuário e função
+            const combinedUsers = usersData.map(u => ({
+                ...u,
+                // O ID do documento em 'roles' é o email do usuário
+                permissions: rolesData.get(u.email)?.permissions || [],
+                role: rolesData.get(u.email)?.role || 'viewer'
+            }));
+            setUsersWithRoles(combinedUsers);
+
+            // ATUALIZA AS PERMISSÕES DO USUÁRIO LOGADO
+            const currentUserRoleDoc = rolesData.get(user.email);
+            let permissionsList = [];
+
+            if (currentUserRoleDoc) {
+                permissionsList = currentUserRoleDoc.permissions || [];
+                // Se for admin, garante todas as permissões
+                if (currentUserRoleDoc.role === 'admin') {
+                    permissionsList = Object.keys(ALL_PERMISSIONS);
                 }
-
-                // --- Etapa 2: Iniciar o listener em tempo real para dashboards ---
-                unsubDashboards = onSnapshot(dashboardsQuery, (snap) => {
-                    const fetchedDashboards = snap.docs.map(d => d.data());
-                    setDashboards(fetchedDashboards);
-                }, (error) => {
-                    console.error("Erro no listener de Dashboards:", error);
-                });
-
-                // --- Etapa 3: Listener para dados de usuários e permissões ---
-                const usersQuery = collection(db, "users");
-                const rolesQuery = collection(db, "roles");
-
-                const unsubUsers = onSnapshot(usersQuery, (usersSnap) => {
-                    const usersData = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
-                    
-                    // Quando os usuários mudam, buscamos as funções novamente para garantir consistência
-                    getDocs(rolesQuery).then(rolesSnap => {
-                        const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
-                        const combinedUsers = usersData.map(u => ({
-                            ...u,
-                            permissions: rolesData.get(u.email)?.permissions || [],
-                            role: rolesData.get(u.email)?.role || 'viewer'
-                        }));
-                        setUsersWithRoles(combinedUsers);
-                        
-                        // Atualiza as permissões do usuário LOGADO
-                        const currentUserRoleDoc = rolesData.get(user.email);
-                        let permissionsList = currentUserRoleDoc?.permissions || [];
-                        if (currentUserRoleDoc?.role === 'admin') {
-                            permissionsList = Object.keys(ALL_PERMISSIONS);
-                        }
-
-                        const permissionsMap = {};
-                        for (const key in ALL_PERMISSIONS) {
-                            permissionsMap[key] = permissionsList.includes(key);
-                        }
-                        setUserPermissions(permissionsMap);
-                    });
-                });
-                
-                // Listener separado para roles para pegar atualizações de permissões
-                const unsubRoles = onSnapshot(rolesQuery, (rolesSnap) => {
-                     const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
-                     const currentUserRoleDoc = rolesData.get(user.email);
-                     let permissionsList = currentUserRoleDoc?.permissions || [];
-                      if (currentUserRoleDoc?.role === 'admin') {
-                          permissionsList = Object.keys(ALL_PERMISSIONS);
-                      }
-                      const permissionsMap = {};
-                      for (const key in ALL_PERMISSIONS) {
-                          permissionsMap[key] = permissionsList.includes(key);
-                      }
-                      setUserPermissions(permissionsMap);
-                });
-
-                // Função de limpeza
-                return () => {
-                    if (unsubDashboards) unsubDashboards();
-                    if (unsubUsers) unsubUsers();
-                    if (unsubRoles) unsubRoles();
-                };
-
-            } catch (error) {
-                console.error("ERRO CRÍTICO AO CONFIGURAR DADOS:", error);
             }
-        };
+            
+            const permissionsMap = {};
+            for (const key in ALL_PERMISSIONS) {
+                permissionsMap[key] = permissionsList.includes(key);
+            }
+            setUserPermissions(permissionsMap);
+        });
 
-        const cleanup = setupDataAndListeners();
-
-        // Função de limpeza do useEffect
+        // Função de limpeza que será chamada quando o componente for desmontado
         return () => {
-            if (cleanup && typeof cleanup.then === 'function') {
-                cleanup.then(clean => clean && clean());
-            }
+            unsubDashboards();
+            unsubRoles();
         };
-    }, [user]);
+
+    }, [user]); // Este useEffect roda novamente se o objeto 'user' mudar
 
 
     const startTvMode = useCallback((options) => setTvMode(options), []);
