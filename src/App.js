@@ -38,6 +38,7 @@ const initialDashboards = [
 
 const FIXED_PERIODS = ["08:00", "09:00", "10:00", "11:00", "11:45", "14:00", "15:00", "16:00", "17:00"];
 
+// Objeto de permissões reescrito sem o "spread operator" (...) para máxima compatibilidade.
 const ALL_PERMISSIONS = {
     MANAGE_DASHBOARDS: 'Gerenciar Quadros (Criar/Renomear/Excluir/Reordenar)',
     MANAGE_PRODUCTS: 'Gerenciar Produtos (Cronoanálise)',
@@ -3176,16 +3177,13 @@ const AppContent = () => {
         localStorage.setItem('lastDashboardIndex', currentDashboardIndex);
     }, [currentDashboardIndex]);
     
-    // ################### INÍCIO DO BLOCO DE TESTE ###################
-    // A CONEXÃO REAL COM FIREBASE FOI REMOVIDA TEMPORARIAMENTE
     useEffect(() => {
         if (!user) {
-            // Limpa o estado se o usuário fizer logout
             setUserPermissions({});
             setDashboards([]);
             setUsersWithRoles([]);
             return;
-        };
+        }
 
         console.log("DEBUG: Usando dados de teste para compilação. A conexão com o Firebase está desativada.");
 
@@ -3205,8 +3203,7 @@ const AppContent = () => {
             { uid: 'editor@exemplo.com', email: 'editor@exemplo.com', role: 'editor' }
         ]);
         
-    }, [user]); // Este efeito roda quando o usuário faz login ou logout.
-    // ################### FIM DO BLOCO DE TESTE ###################
+    }, [user]);
 
 
     const startTvMode = useCallback((options) => setTvMode(options), []);
