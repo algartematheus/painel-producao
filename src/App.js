@@ -3185,24 +3185,78 @@ const AppContent = () => {
             return;
         }
 
-        console.log("DEBUG: Usando dados de teste para compilação. A conexão com o Firebase está desativada.");
-
-        // 1. Simula permissões de administrador para que toda a interface seja visível
+        // --- BLOCO DE DADOS DE TESTE ---
+        // Este bloco usa dados estáticos para garantir que o app compile.
+        // A conexão real com o Firebase está desativada.
+        console.log("DEBUG: Usando dados de teste para compilação.");
         const allPermissionsMap = {};
         for (const key in ALL_PERMISSIONS) {
             allPermissionsMap[key] = true;
         }
         setUserPermissions(allPermissionsMap);
-
-        // 2. Carrega os dashboards a partir da constante, em vez do Firebase
         setDashboards(initialDashboards);
-
-        // 3. Carrega uma lista de usuários de exemplo para o painel de administração
         setUsersWithRoles([
             { uid: 'admin@racedbull.com', email: 'admin@racedbull.com', role: 'admin' },
             { uid: 'editor@exemplo.com', email: 'editor@exemplo.com', role: 'editor' }
         ]);
-        
+        // --- FIM DO BLOCO DE TESTE ---
+
+        /*
+        // --- CÓDIGO REAL DO FIREBASE (ATUALMENTE DESATIVADO) ---
+        const dashboardsQuery = query(collection(db, "dashboards"), orderBy("order"));
+        const unsubDashboards = onSnapshot(dashboardsQuery, (snap) => {
+            const fetchedDashboards = snap.docs.map(d => d.data());
+            if (fetchedDashboards.length > 0) {
+                setDashboards(fetchedDashboards);
+            } else {
+                getDocs(dashboardsQuery).then(initialSnap => {
+                    if (initialSnap.empty) {
+                        const batch = writeBatch(db);
+                        initialDashboards.forEach(dash => {
+                            batch.set(doc(db, "dashboards", dash.id), dash);
+                        });
+                        batch.commit();
+                    }
+                });
+            }
+        });
+
+        const rolesQuery = collection(db, "roles");
+        const unsubRoles = onSnapshot(rolesQuery, (rolesSnap) => {
+            const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
+            
+            getDocs(collection(db, "users")).then(usersSnap => {
+                const usersData = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
+
+                const combinedUsers = usersData.map(u => ({
+                    ...u,
+                    permissions: rolesData.get(u.email)?.permissions || [],
+                    role: rolesData.get(u.email)?.role || 'viewer'
+                }));
+                setUsersWithRoles(combinedUsers);
+                
+                const currentUserRoleDoc = rolesData.get(user.email);
+                let permissionsList = [];
+                if (currentUserRoleDoc) {
+                    permissionsList = currentUserRoleDoc.permissions || [];
+                    if (currentUserRoleDoc.role === 'admin') {
+                        permissionsList = Object.keys(ALL_PERMISSIONS);
+                    }
+                }
+                
+                const permissionsMap = {};
+                for (const key in ALL_PERMISSIONS) {
+                    permissionsMap[key] = permissionsList.includes(key);
+                }
+                setUserPermissions(permissionsMap);
+            });
+        });
+
+        return () => {
+            unsubDashboards();
+            unsubRoles();
+        };
+        */
     }, [user]);
 
 
