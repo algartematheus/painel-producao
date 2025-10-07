@@ -3192,21 +3192,17 @@ const AppContent = () => {
             return;
         }
 
-        // --- LISTENER PARA DASHBOARDS ---
         const dashboardsQuery = query(collection(db, "dashboards"), orderBy("order"));
         const unsubDashboards = onSnapshot(dashboardsQuery, (snap) => {
             const fetchedDashboards = snap.docs.map(d => d.data());
             if (fetchedDashboards.length > 0) {
                 setDashboards(fetchedDashboards);
             } else {
-                // Se estiver vazio após o listener, pode ser a primeira execução
                 getDocs(dashboardsQuery).then(initialSnap => {
                     if (initialSnap.empty) {
-                        console.log("Nenhum dashboard encontrado, criando dados iniciais...");
                         const batch = writeBatch(db);
                         initialDashboards.forEach(dash => {
-                            const docRef = doc(db, "dashboards", dash.id);
-                            batch.set(docRef, dash);
+                            batch.set(doc(db, "dashboards", dash.id), dash);
                         });
                         batch.commit();
                     }
@@ -3214,41 +3210,37 @@ const AppContent = () => {
             }
         });
 
-        // --- LISTENER PARA PERMISSÕES ---
-        // A fonte da verdade são as 'roles'. Quando elas mudam, buscamos os usuários.
         const rolesQuery = collection(db, "roles");
-        const unsubRoles = onSnapshot(rolesQuery, async (rolesSnap) => {
+        const unsubRoles = onSnapshot(rolesQuery, (rolesSnap) => {
             const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
             
-            const usersSnap = await getDocs(collection(db, "users"));
-            const usersData = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
+            getDocs(collection(db, "users")).then(usersSnap => {
+                const usersData = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
 
-            const combinedUsers = usersData.map(u => ({
-                ...u,
-                permissions: rolesData.get(u.email)?.permissions || [],
-                role: rolesData.get(u.email)?.role || 'viewer'
-            }));
-            setUsersWithRoles(combinedUsers);
-            
-            // ATUALIZA AS PERMISSÕES DO USUÁRIO LOGADO ATUAL
-            const currentUserPermissionsDoc = rolesData.get(user.email);
-            let permissionsList = [];
-            if (currentUserPermissionsDoc) {
-                permissionsList = currentUserPermissionsDoc.permissions || [];
-                if (currentUserPermissionsDoc.role === 'admin') {
-                    permissionsList = Object.keys(ALL_PERMISSIONS);
+                const combinedUsers = usersData.map(u => ({
+                    ...u,
+                    permissions: rolesData.get(u.email)?.permissions || [],
+                    role: rolesData.get(u.email)?.role || 'viewer'
+                }));
+                setUsersWithRoles(combinedUsers);
+                
+                const currentUserRoleDoc = rolesData.get(user.email);
+                let permissionsList = [];
+                if (currentUserRoleDoc) {
+                    permissionsList = currentUserRoleDoc.permissions || [];
+                    if (currentUserRoleDoc.role === 'admin') {
+                        permissionsList = Object.keys(ALL_PERMISSIONS);
+                    }
                 }
-            }
-            
-            const permissionsMap = {};
-            for (const key in ALL_PERMISSIONS) {
-                permissionsMap[key] = permissionsList.includes(key);
-            }
-            setUserPermissions(permissionsMap);
+                
+                const permissionsMap = {};
+                for (const key in ALL_PERMISSIONS) {
+                    permissionsMap[key] = permissionsList.includes(key);
+                }
+                setUserPermissions(permissionsMap);
+            });
         });
 
-
-        // Função de limpeza
         return () => {
             unsubDashboards();
             unsubRoles();
