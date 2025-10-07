@@ -520,10 +520,6 @@ const StockDashboardPage = () => {
     );
 };
 
-// Componentes StockCalendarView, StockMovementsPage, CategoryModal, ProductModal, StockProductsPage, StockTrashPage ...
-// A lógica interna desses componentes pode permanecer a mesma, pois eles dependem do `useStock` hook que agora está conectado ao Firebase.
-// Pequenas adaptações podem ser necessárias. Por exemplo, `getDeletedProducts` agora vem do estado do `StockProvider`.
-
 const StockCalendarView = ({ selectedDate, setSelectedDate, currentMonth, setCurrentMonth, calendarView, setCalendarView, stockMovements }) => {
     const handleNavigation = (offset) => {
         if (calendarView === 'day') setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
@@ -3196,12 +3192,14 @@ const AppContent = () => {
             return;
         }
 
+        // --- LISTENER PARA DASHBOARDS ---
         const dashboardsQuery = query(collection(db, "dashboards"), orderBy("order"));
         const unsubDashboards = onSnapshot(dashboardsQuery, (snap) => {
             const fetchedDashboards = snap.docs.map(d => d.data());
             if (fetchedDashboards.length > 0) {
                 setDashboards(fetchedDashboards);
             } else {
+                // Se estiver vazio após o listener, pode ser a primeira execução
                 getDocs(dashboardsQuery).then(initialSnap => {
                     if (initialSnap.empty) {
                         console.log("Nenhum dashboard encontrado, criando dados iniciais...");
@@ -3216,6 +3214,8 @@ const AppContent = () => {
             }
         });
 
+        // --- LISTENER PARA PERMISSÕES ---
+        // A fonte da verdade são as 'roles'. Quando elas mudam, buscamos os usuários.
         const rolesQuery = collection(db, "roles");
         const unsubRoles = onSnapshot(rolesQuery, async (rolesSnap) => {
             const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
@@ -3230,12 +3230,12 @@ const AppContent = () => {
             }));
             setUsersWithRoles(combinedUsers);
             
-            const currentUserRoleDoc = rolesData.get(user.email);
+            // ATUALIZA AS PERMISSÕES DO USUÁRIO LOGADO ATUAL
+            const currentUserPermissionsDoc = rolesData.get(user.email);
             let permissionsList = [];
-
-            if (currentUserRoleDoc) {
-                permissionsList = currentUserRoleDoc.permissions || [];
-                if (currentUserRoleDoc.role === 'admin') {
+            if (currentUserPermissionsDoc) {
+                permissionsList = currentUserPermissionsDoc.permissions || [];
+                if (currentUserPermissionsDoc.role === 'admin') {
                     permissionsList = Object.keys(ALL_PERMISSIONS);
                 }
             }
@@ -3247,6 +3247,8 @@ const AppContent = () => {
             setUserPermissions(permissionsMap);
         });
 
+
+        // Função de limpeza
         return () => {
             unsubDashboards();
             unsubRoles();
