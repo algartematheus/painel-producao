@@ -1,23 +1,33 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext } from 'react';
-import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Home, ArrowUpDown, Box, Trash, MinusCircle } from 'lucide-react';
+import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Home, ArrowUpDown, Box, Trash, MinusCircle, ShieldCheck, KeyRound } from 'lucide-react';
 import { db, auth } from './firebase';
 import {
-  collection,
-  doc,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  onSnapshot,
-  writeBatch,
-  query,
-  orderBy,
-  getDocs
+    collection,
+    doc,
+    setDoc,
+    updateDoc,
+    deleteDoc,
+    onSnapshot,
+    writeBatch,
+    query,
+    orderBy,
+    getDocs,
+    addDoc,
+    getDoc,
+    serverTimestamp
 } from 'firebase/firestore';
 import {
-  signInWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
+    signInWithEmailAndPassword,
+    signOut,
+    onAuthStateChanged,
+    updatePassword,
 } from 'firebase/auth';
+// NOTA: Para criar e deletar usuários no Firebase Auth, o ideal é usar Firebase Functions (backend).
+// As funções createUser e deleteUser aqui são placeholders e não irão funcionar no client-side.
+// Elas foram incluídas para ilustrar como a integração seria feita.
+// A lógica de salvar no Firestore irá funcionar normalmente.
+import { createUserWithEmailAndPassword, deleteUser } from "firebase/auth";
+
 
 // =====================================================================
 // == CONSTANTES E FUNÇÕES AUXILIARES GLOBAIS ==
@@ -34,7 +44,17 @@ const initialDashboards = [
 
 const FIXED_PERIODS = ["08:00", "09:00", "10:00", "11:00", "11:45", "14:00", "15:00", "16:00", "17:00"];
 
+// Adicionando permissões de estoque
+const STOCK_PERMISSIONS = {
+    VIEW_STOCK_DASHBOARD: 'Ver Dashboard de Estoque',
+    MANAGE_STOCK_MOVEMENTS: 'Gerenciar Lançamentos de Estoque',
+    MANAGE_STOCK_PRODUCTS: 'Gerenciar Produtos de Estoque (Criar/Editar/Excluir)',
+    VIEW_STOCK_TRASH: 'Visualizar Lixeira do Estoque',
+    RESTORE_STOCK_TRASH: 'Restaurar Itens da Lixeira do Estoque'
+};
+
 const ALL_PERMISSIONS = {
+    // Permissões do Cronoanálise
     MANAGE_DASHBOARDS: 'Gerenciar Quadros (Criar/Renomear/Excluir/Reordenar)',
     MANAGE_PRODUCTS: 'Gerenciar Produtos (Criar/Editar/Excluir)',
     MANAGE_LOTS: 'Gerenciar Lotes (Criar/Editar/Excluir/Reordenar)',
@@ -44,13 +64,23 @@ const ALL_PERMISSIONS = {
     VIEW_TRASH: 'Visualizar Lixeira',
     RESTORE_TRASH: 'Restaurar Itens da Lixeira',
     MANAGE_SETTINGS: 'Acessar e Gerenciar Configurações de Administrador',
+    // Permissões de Estoque
+    ...STOCK_PERMISSIONS,
 };
 
+// Atualizando os papéis com as novas permissões
 const defaultRoles = {
     'admin': { id: 'admin', name: 'Administrador', permissions: Object.keys(ALL_PERMISSIONS) },
-    'editor': { id: 'editor', name: 'Editor', permissions: ['MANAGE_PRODUCTS', 'MANAGE_LOTS', 'ADD_ENTRIES', 'EDIT_ENTRIES', 'DELETE_ENTRIES'] },
-    'viewer': { id: 'viewer', name: 'Visualizador', permissions: [] },
+    'editor': { id: 'editor', name: 'Editor', permissions: [
+        'MANAGE_PRODUCTS', 'MANAGE_LOTS', 'ADD_ENTRIES', 'EDIT_ENTRIES', 'DELETE_ENTRIES',
+        'VIEW_STOCK_DASHBOARD', 'MANAGE_STOCK_MOVEMENTS', 'MANAGE_STOCK_PRODUCTS'
+    ]},
+    'stock_manager': { id: 'stock_manager', name: 'Gerente de Estoque', permissions: [
+        'VIEW_STOCK_DASHBOARD', 'MANAGE_STOCK_MOVEMENTS', 'MANAGE_STOCK_PRODUCTS', 'VIEW_STOCK_TRASH', 'RESTORE_STOCK_TRASH'
+    ]},
+    'viewer': { id: 'viewer', name: 'Visualizador', permissions: ['VIEW_STOCK_DASHBOARD'] },
 };
+
 
 const generateId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -108,9 +138,9 @@ const usePrevious = (value) => {
 
 
 // #####################################################################
-// #                                                                   #
-// #                       INÍCIO: AUTENTICAÇÃO                        #
-// #                                                                   #
+// #                                                                    #
+// #                       INÍCIO: AUTENTICAÇÃO                         #
+// #                                                                    #
 // #####################################################################
 
 const AuthContext = createContext();
@@ -216,158 +246,139 @@ const LoginPage = () => {
 
 
 // #######################################################################
-// #                                                                     #
-// #           INÍCIO: GERENCIADOR DE ESTOQUE (NOVA FUNCIONALIDADE)        #
-// #                                                                     #
+// #                                                                      #
+// #           INÍCIO: GERENCIADOR DE ESTOQUE (NOVA FUNCIONALIDADE)         #
+// #                                                                      #
 // #######################################################################
-
-const mockData = {
-    users: [{ id: 'user1', name: 'Usuário Padrão' }, { id: 'user2', name: 'Admin' }],
-    currentUser: 'user1',
-    categories: [
-        { id: 'cat1', name: 'Zíperes', createdBy: 'user1' },
-        { id: 'cat2', name: 'Linhas', createdBy: 'user1' },
-    ],
-    products: [
-        { 
-            id: 'prod1', 
-            name: 'ZÍPER AZUL', 
-            categoryId: 'cat1', 
-            minStock: 5000, 
-            leadTimeInMonths: 1,
-            isDeleted: false,
-            variations: [
-                { id: 'var_z1a', name: '18cm', initialStock: 31000, currentStock: 17052 },
-            ]
-        },
-    ],
-    stockMovements: [
-        { id: 'mov1', productId: 'prod1', variationId: 'var_z1a', quantity: 100, type: 'Saída', timestamp: new Date(2025, 9, 1, 10, 0, 0).toISOString(), user: 'user1' },
-    ],
-    auditLog: [
-        { id: 'log1', action: 'STOCK_UPDATED', details: { productName: 'ZÍPER AZUL (18cm)', change: -100, type: 'Saída' }, timestamp: new Date(2025, 9, 1, 10, 0, 0).toISOString(), user: 'user1' },
-    ]
-};
 
 const StockContext = createContext();
 
-const StockProvider = ({ children }) => {
-  const [state, setState] = useState(mockData);
+const StockProvider = ({ children, permissions }) => {
+    const [categories, setCategories] = useState([]);
+    const [products, setProducts] = useState([]);
+    const [stockMovements, setStockMovements] = useState([]);
+    const { user } = useAuth();
 
-    const getCategories = useCallback(() => [...state.categories].sort((a, b) => a.name.localeCompare(b.name)), [state.categories]);
-    const getProducts = useCallback(() => [...state.products.filter(p => !p.isDeleted)].sort((a, b) => a.name.localeCompare(b.name)), [state.products]);
-    const getDeletedProducts = useCallback(() => state.products.filter(p => p.isDeleted), [state.products]);
-
-    const addCategory = useCallback((categoryName) => {
-        const newCategoryId = generateId('cat');
-        setState(prev => {
-            if (prev.categories.some(c => c.name.toLowerCase() === categoryName.toLowerCase())) {
-                return prev;
-            }
-            const newCategory = { id: newCategoryId, name: categoryName, createdBy: prev.currentUser };
-            const newAuditLog = { id: generateId('log'), action: 'CATEGORY_CREATED', details: { categoryName }, timestamp: new Date().toISOString(), user: prev.currentUser };
-            return { ...prev, categories: [...prev.categories, newCategory], auditLog: [...prev.auditLog, newAuditLog] };
+    useEffect(() => {
+        const unsubCategories = onSnapshot(collection(db, 'stock_categories'), snap => {
+            setCategories(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         });
-        return newCategoryId;
+        const unsubProducts = onSnapshot(collection(db, 'stock_products'), snap => {
+            setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+        const unsubMovements = onSnapshot(query(collection(db, 'stock_movements'), orderBy('timestamp', 'desc')), snap => {
+            setStockMovements(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+
+        return () => {
+            unsubCategories();
+            unsubProducts();
+            unsubMovements();
+        };
     }, []);
 
-    const addProduct = useCallback((productData) => {
-        setState(prev => {
-            const newProduct = {
-                id: generateId('prod'),
-                ...productData,
-                isDeleted: false,
-                variations: productData.variations.map(v => ({
-                    ...v,
-                    id: generateId('var'),
-                    currentStock: parseInt(v.initialStock, 10) || 0
-                }))
-            };
-            const newAuditLog = { id: generateId('log'), action: 'PRODUCT_CREATED', details: { productName: newProduct.name }, timestamp: new Date().toISOString(), user: prev.currentUser };
-            return { ...prev, products: [...prev.products, newProduct], auditLog: [...prev.auditLog, newAuditLog] };
+    const addCategory = async (categoryName) => {
+        if (!permissions.MANAGE_STOCK_PRODUCTS) return;
+        const existing = categories.some(c => c.name.toLowerCase() === categoryName.toLowerCase());
+        if (existing) {
+            alert("Uma categoria com este nome já existe.");
+            return null;
+        }
+        const newCategoryRef = await addDoc(collection(db, 'stock_categories'), {
+            name: categoryName,
+            createdBy: user.uid,
+            createdAt: serverTimestamp()
         });
-    }, []);
+        return newCategoryRef.id;
+    };
 
-    const updateProduct = useCallback((productId, productData) => {
-        setState(prev => {
-            const products = prev.products.map(p => {
-                if (p.id === productId) {
-                    return {
-                        ...p,
-                        name: productData.name,
-                        categoryId: productData.categoryId,
-                        minStock: productData.minStock,
-                        leadTimeInMonths: productData.leadTimeInMonths,
-                    };
+    const addProduct = async (productData) => {
+        if (!permissions.MANAGE_STOCK_PRODUCTS) return;
+        const variationsWithStock = productData.variations.map(v => ({
+            ...v,
+            id: generateId('var'),
+            currentStock: parseInt(v.initialStock, 10) || 0
+        }));
+        await addDoc(collection(db, 'stock_products'), {
+            ...productData,
+            variations: variationsWithStock,
+            isDeleted: false,
+            createdBy: user.uid,
+            createdAt: serverTimestamp()
+        });
+    };
+
+    const updateProduct = async (productId, productData) => {
+        if (!permissions.MANAGE_STOCK_PRODUCTS) return;
+        const productRef = doc(db, 'stock_products', productId);
+        await updateDoc(productRef, {
+            name: productData.name,
+            categoryId: productData.categoryId,
+            minStock: productData.minStock,
+            leadTimeInMonths: productData.leadTimeInMonths,
+        });
+    };
+    
+    const deleteProduct = async (productId) => {
+        if (!permissions.MANAGE_STOCK_PRODUCTS) return;
+        const productRef = doc(db, 'stock_products', productId);
+        await updateDoc(productRef, { isDeleted: true });
+    };
+
+    const restoreProduct = async (productId) => {
+        if (!permissions.RESTORE_STOCK_TRASH) return;
+        const productRef = doc(db, 'stock_products', productId);
+        await updateDoc(productRef, { isDeleted: false });
+    };
+
+    const addStockMovement = async ({ productId, variationId, quantity, type }) => {
+        if (!permissions.MANAGE_STOCK_MOVEMENTS) return;
+        const batch = writeBatch(db);
+        const productRef = doc(db, 'stock_products', productId);
+        const productDoc = await getDoc(productRef);
+
+        if (productDoc.exists()) {
+            const productData = productDoc.data();
+            const newVariations = productData.variations.map(v => {
+                if (v.id === variationId) {
+                    const change = type === 'Entrada' ? parseInt(quantity, 10) : -parseInt(quantity, 10);
+                    return { ...v, currentStock: v.currentStock + change };
                 }
-                return p;
+                return v;
             });
-            const updatedProduct = products.find(p => p.id === productId);
-            const newAuditLog = { id: generateId('log'), action: 'PRODUCT_UPDATED', details: { productName: updatedProduct.name }, timestamp: new Date().toISOString(), user: prev.currentUser };
-            return { ...prev, products, auditLog: [...prev.auditLog, newAuditLog] };
-        });
-    }, []);
+            batch.update(productRef, { variations: newVariations });
 
-    const deleteProduct = useCallback((productId) => {
-        setState(prev => {
-            const products = prev.products.map(p => p.id === productId ? { ...p, isDeleted: true } : p);
-            const deletedProduct = products.find(p => p.id === productId);
-            const newAuditLog = { id: generateId('log'), action: 'PRODUCT_DELETED', details: { productName: deletedProduct.name }, timestamp: new Date().toISOString(), user: prev.currentUser };
-            return { ...prev, products, auditLog: [...prev.auditLog, newAuditLog] };
-        });
-    }, []);
-
-    const restoreProduct = useCallback((productId) => {
-        setState(prev => {
-            const products = prev.products.map(p => p.id === productId ? { ...p, isDeleted: false } : p);
-            const restoredProduct = products.find(p => p.id === productId);
-            const newAuditLog = { id: generateId('log'), action: 'PRODUCT_RESTORED', details: { productName: restoredProduct.name }, timestamp: new Date().toISOString(), user: prev.currentUser };
-            return { ...prev, products, auditLog: [...prev.auditLog, newAuditLog] };
-        });
-    }, []);
-
-    const addStockMovement = useCallback(({ productId, variationId, quantity, type }) => {
-        setState(prev => {
-            let productName = '', variationName = '';
-            const products = prev.products.map(p => {
-                if (p.id === productId) {
-                    productName = p.name;
-                    const newVariations = p.variations.map(v => {
-                        if (v.id === variationId) {
-                            variationName = v.name;
-                            const change = type === 'Entrada' ? parseInt(quantity, 10) : -parseInt(quantity, 10);
-                            return { ...v, currentStock: v.currentStock + change };
-                        }
-                        return v;
-                    });
-                    return { ...p, variations: newVariations };
-                }
-                return p;
+            const movementRef = doc(collection(db, 'stock_movements'));
+            batch.set(movementRef, {
+                productId,
+                variationId,
+                quantity: parseInt(quantity, 10),
+                type,
+                user: user.uid,
+                userEmail: user.email,
+                timestamp: new Date().toISOString()
             });
-            const newMovement = { id: generateId('mov'), productId, variationId, quantity, type, timestamp: new Date().toISOString(), user: prev.currentUser };
-            const newAuditLog = { id: generateId('log'), action: 'STOCK_UPDATED', details: { productName: `${productName} (${variationName})`, change: type === 'Entrada' ? quantity : -quantity, type }, timestamp: new Date().toISOString(), user: prev.currentUser };
-            return { ...prev, products, stockMovements: [...prev.stockMovements, newMovement], auditLog: [...prev.auditLog, newAuditLog] };
-        });
-    }, []);
-
-    const setCurrentUser = useCallback((userId) => setState(prev => ({ ...prev, currentUser: userId })), []);
+            await batch.commit();
+        }
+    };
 
     const value = useMemo(() => ({
-        ...state,
-        setCurrentUser,
-        getCategories,
-        getProducts,
-        getDeletedProducts,
+        categories,
+        products: products.filter(p => !p.isDeleted),
+        deletedProducts: products.filter(p => p.isDeleted),
+        stockMovements,
         addCategory,
         addProduct,
         updateProduct,
         deleteProduct,
         restoreProduct,
-        addStockMovement
-    }), [state, setCurrentUser, getCategories, getProducts, getDeletedProducts, addCategory, addProduct, updateProduct, deleteProduct, restoreProduct, addStockMovement]);
+        addStockMovement,
+        permissions,
+    }), [categories, products, stockMovements, permissions]);
 
     return <StockContext.Provider value={value}>{children}</StockContext.Provider>;
 };
+
 
 const useStock = () => useContext(StockContext);
 
@@ -394,16 +405,21 @@ const StockHeader = ({ onNavigateToCrono }) => {
 };
 
 const StockSidebar = ({ activePage, setActivePage }) => {
+    const { permissions } = useStock();
+
     const navItems = [
-        { id: 'dashboard', label: 'Dashboard', icon: Home },
-        { id: 'movements', label: 'Lançamentos', icon: ArrowUpDown },
-        { id: 'products', label: 'Produtos', icon: Box },
-        { id: 'trash', label: 'Lixeira', icon: Trash },
+        { id: 'dashboard', label: 'Dashboard', icon: Home, permission: 'VIEW_STOCK_DASHBOARD' },
+        { id: 'movements', label: 'Lançamentos', icon: ArrowUpDown, permission: 'MANAGE_STOCK_MOVEMENTS' },
+        { id: 'products', label: 'Produtos', icon: Box, permission: 'MANAGE_STOCK_PRODUCTS' },
+        { id: 'trash', label: 'Lixeira', icon: Trash, permission: 'VIEW_STOCK_TRASH' },
     ];
+
+    const availableNavItems = navItems.filter(item => permissions[item.permission]);
+
     return (
         <aside className="w-64 bg-white dark:bg-gray-900 p-4 flex flex-col">
             <nav className="flex flex-col gap-2">
-                {navItems.map(item => (
+                {availableNavItems.map(item => (
                     <button key={item.id} onClick={() => setActivePage(item.id)}
                         className={`flex items-center gap-3 p-3 rounded-lg text-lg transition-colors ${activePage === item.id ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
                         <item.icon size={24} />
@@ -416,9 +432,7 @@ const StockSidebar = ({ activePage, setActivePage }) => {
 };
 
 const StockDashboardPage = () => {
-    const { getProducts, getCategories } = useStock();
-    const allProducts = getProducts();
-    const categories = getCategories();
+    const { products: allProducts, categories } = useStock();
 
     const [selectedCategoryId, setSelectedCategoryId] = useState('');
     const [sortOrder, setSortOrder] = useState('asc');
@@ -490,7 +504,7 @@ const StockDashboardPage = () => {
                     <tbody>
                         {displayedProducts.map(p => {
                             const totalCurrentStock = getTotalStock(p);
-                            const totalInitialStock = p.variations.reduce((sum, v) => sum + v.initialStock, 0);
+                            const totalInitialStock = p.variations.reduce((sum, v) => sum + (v.initialStock || 0), 0);
                             const stockStatusColor = totalCurrentStock <= p.minStock ? 'bg-red-500/20 text-red-500' : 'bg-green-500/20 text-green-500';
                             return (
                                 <tr key={p.id} className="border-b dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
@@ -511,6 +525,10 @@ const StockDashboardPage = () => {
         </div>
     );
 };
+
+// Componentes StockCalendarView, StockMovementsPage, CategoryModal, ProductModal, StockProductsPage, StockTrashPage ...
+// A lógica interna desses componentes pode permanecer a mesma, pois eles dependem do `useStock` hook que agora está conectado ao Firebase.
+// Pequenas adaptações podem ser necessárias. Por exemplo, `getDeletedProducts` agora vem do estado do `StockProvider`.
 
 const StockCalendarView = ({ selectedDate, setSelectedDate, currentMonth, setCurrentMonth, calendarView, setCalendarView, stockMovements }) => {
     const handleNavigation = (offset) => {
@@ -585,7 +603,7 @@ const StockCalendarView = ({ selectedDate, setSelectedDate, currentMonth, setCur
 };
 
 const StockMovementsPage = () => {
-    const { getProducts, getDeletedProducts, getCategories, addStockMovement, stockMovements } = useStock();
+    const { products: allProducts, deletedProducts, categories, addStockMovement, stockMovements } = useStock();
     
     const [selectedCategoryId, setSelectedCategoryId] = useState('');
     const [movement, setMovement] = useState({ productId: '', variationId: '', type: 'Saída', quantity: '' });
@@ -594,9 +612,6 @@ const StockMovementsPage = () => {
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [calendarView, setCalendarView] = useState('day');
     
-    const categories = getCategories();
-    const allProducts = getProducts();
-
     const isFormValid = useMemo(() => {
         return (
             movement.productId &&
@@ -615,7 +630,6 @@ const StockMovementsPage = () => {
 
     const filteredMovements = useMemo(() => {
         return [...stockMovements]
-            .reverse()
             .filter(m => new Date(m.timestamp).toDateString() === selectedDate.toDateString());
     }, [stockMovements, selectedDate]);
 
@@ -712,7 +726,7 @@ const StockMovementsPage = () => {
                              </thead>
                              <tbody>
                                  {filteredMovements.length > 0 ? filteredMovements.map(m => {
-                                     const product = allProducts.find(p => p.id === m.productId) || getDeletedProducts().find(p => p.id === m.productId);
+                                     const product = allProducts.find(p => p.id === m.productId) || deletedProducts.find(p => p.id === m.productId);
                                      const variation = product?.variations.find(v => v.id === m.variationId);
                                      return (
                                          <tr key={m.id} className="border-b dark:border-gray-800">
@@ -744,13 +758,15 @@ const CategoryModal = ({ isOpen, onClose, onCategoryCreated }) => {
 
     if (!isOpen) return null;
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (name.trim()) {
-            const newId = addCategory(name.trim());
-            onCategoryCreated(newId);
-            setName('');
-            onClose();
+            const newId = await addCategory(name.trim());
+            if (newId) {
+                onCategoryCreated(newId);
+                setName('');
+                onClose();
+            }
         }
     };
 
@@ -773,13 +789,12 @@ const CategoryModal = ({ isOpen, onClose, onCategoryCreated }) => {
 
 
 const ProductModal = ({ isOpen, onClose, productToEdit }) => {
-    const { getCategories, addProduct, updateProduct } = useStock();
+    const { categories, addProduct, updateProduct } = useStock();
     
     const initialProductState = useMemo(() => ({ name: '', categoryId: '', minStock: '', leadTimeInMonths: '', variations: [{ name: '', initialStock: '' }] }), []);
     const [productData, setProductData] = useState(initialProductState);
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
     
-    const categories = getCategories();
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
 
@@ -937,12 +952,10 @@ const ProductModal = ({ isOpen, onClose, productToEdit }) => {
 
 
 const StockProductsPage = () => {
-    const { getProducts, getCategories, deleteProduct } = useStock();
+    const { products, categories, deleteProduct } = useStock();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState(null);
     
-    const products = getProducts();
-    const categories = getCategories();
     const getCategoryName = (id) => categories.find(c => c.id === id)?.name || 'N/A';
     const getTotalStock = (p) => p.variations.reduce((sum, v) => sum + v.currentStock, 0);
 
@@ -1012,51 +1025,30 @@ const StockProductsPage = () => {
 };
 
 const StockTrashPage = () => {
-    const { getDeletedProducts, restoreProduct, users, auditLog } = useStock();
-    
-    const products = getDeletedProducts();
-
-    const findDeletionInfo = (productId) => {
-        const product = products.find(p => p.id === productId);
-        if (!product) return { user: 'N/A', date: 'N/A' };
-
-        const log = [...auditLog].reverse().find(l => 
-            l.action === 'PRODUCT_DELETED' && l.details.productName === product.name
-        );
-        
-        if (!log) return { user: 'N/A', date: 'N/A' };
-        
-        const user = users.find(u => u.id === log.user);
-        return {
-            user: user ? user.name : 'Desconhecido',
-            date: new Date(log.timestamp).toLocaleString('pt-BR')
-        }
-    };
+    const { deletedProducts, restoreProduct, permissions } = useStock();
+    const canRestore = permissions.RESTORE_STOCK_TRASH;
 
     return (
         <div className="p-8">
             <h1 className="text-3xl font-bold mb-6">Lixeira</h1>
             <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
-                {products.map(p => {
-                    const deletionInfo = findDeletionInfo(p.id);
-                    return (
-                        <div key={p.id} className="flex justify-between items-center p-4 border-b dark:border-gray-800">
-                            <div>
-                                <p className="font-bold">{p.name}</p>
-                                <p className="text-sm text-gray-500">Excluído por: {deletionInfo.user} em {deletionInfo.date}</p>
-                            </div>
-                            <button onClick={() => restoreProduct(p.id)} className="p-2 bg-green-500 text-white rounded-md">Restaurar</button>
-                        </div>
-                    );
-                })}
-                {products.length === 0 && <p>A lixeira está vazia.</p>}
+                {deletedProducts.map(p => (
+                     <div key={p.id} className="flex justify-between items-center p-4 border-b dark:border-gray-800">
+                         <div>
+                             <p className="font-bold">{p.name}</p>
+                             {/* Informações de exclusão não estão sendo salvas neste modelo simplificado */}
+                         </div>
+                         {canRestore && <button onClick={() => restoreProduct(p.id)} className="p-2 bg-green-500 text-white rounded-md">Restaurar</button>}
+                     </div>
+                ))}
+                {deletedProducts.length === 0 && <p>A lixeira está vazia.</p>}
             </div>
         </div>
     );
 };
 
 
-const StockManagementApp = ({ onNavigateToCrono }) => {
+const StockManagementApp = ({ onNavigateToCrono, permissions }) => {
     const [activePage, setActivePage] = useState('dashboard');
 
     const renderPage = () => {
@@ -1070,7 +1062,7 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
     };
 
     return (
-        <StockProvider>
+        <StockProvider permissions={permissions}>
             <div className="min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans flex flex-col">
                 <StockHeader onNavigateToCrono={onNavigateToCrono} />
                 <div className="flex flex-grow">
@@ -1085,17 +1077,17 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
 };
 
 // #####################################################################
-// #                                                                     #
-// #           FIM: GERENCIADOR DE ESTOQUE (NOVA FUNCIONALIDADE)         #
-// #                                                                     #
+// #                                                                      #
+// #           FIM: GERENCIADOR DE ESTOQUE (NOVA FUNCIONALIDADE)          #
+// #                                                                      #
 // #####################################################################
 
 
 
 // #####################################################################
-// #                                                                     #
-// #           INÍCIO: COMPONENTES DE MODAIS E AUXILIARES                #
-// #                                                                     #
+// #                                                                      #
+// #               INÍCIO: COMPONENTES DE MODAIS E AUXILIARES             #
+// #                                                                      #
 // #####################################################################
 
 const DashboardActionModal = ({ isOpen, onClose, onConfirm, mode, initialName }) => {
@@ -1298,15 +1290,15 @@ const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
     const [reason, setReason] = useState('');
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
-  
+    
     if (!isOpen) return null;
-  
+    
     const handleConfirm = () => {
         onConfirm(reason || 'Nenhum motivo fornecido.');
         setReason('');
         onClose();
     };
-  
+    
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-40 modal-backdrop">
             <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md modal-content">
@@ -1328,144 +1320,316 @@ const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
     );
 };
   
-const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
-    const modalRef = useRef();
-    useClickOutside(modalRef, onClose);
-    const [selectedUser, setSelectedUser] = useState(null);
-    const [editablePermissions, setEditablePermissions] = useState([]);
-    
-    // Auto-seleciona o primeiro usuário quando o modal abre
-    useEffect(() => {
-        if (isOpen && users.length > 0 && !selectedUser) {
-            setSelectedUser(users[0]);
-        }
-        if (!isOpen) {
-            setSelectedUser(null); // Limpa a seleção ao fechar
-        }
-    }, [isOpen, users, selectedUser]);
-    
-    // Atualiza as permissões editáveis quando um usuário é selecionado
-    useEffect(() => {
-        if (selectedUser) {
-            setEditablePermissions(selectedUser.permissions || []);
-        }
-    }, [selectedUser]);
+// =====================================================================
+// === INÍCIO: NOVO PAINEL DE ADMINISTRAÇÃO COMPLETO ===
+// =====================================================================
 
-    if (!isOpen) return null;
+const ManageUsersTab = ({ roles, users, setUsers }) => {
+    const [newUserEmail, setNewUserEmail] = useState('');
+    const [newUserRole, setNewUserRole] = useState('viewer');
 
-    const handlePermissionChange = (permissionKey, isChecked) => {
-        setEditablePermissions(prev => {
-            const newSet = new Set(prev);
-            if (isChecked) {
-                newSet.add(permissionKey);
-            } else {
-                newSet.delete(permissionKey);
-            }
-            return Array.from(newSet);
-        });
-    };
-    
-    const applyRoleTemplate = (roleId) => {
-        if (roles[roleId]) {
-            setEditablePermissions(roles[roleId].permissions);
+    const handleAddUser = async (e) => {
+        e.preventDefault();
+        if (!newUserEmail) {
+            alert("Por favor, insira um e-mail.");
+            return;
         }
-    };
-    
-    const handleSavePermissions = async () => {
-        if (!selectedUser) return;
+        
+        // --- AVISO IMPORTANTE ---
+        // A criação de usuários (createUserWithEmailAndPassword) e a definição de senhas/roles
+        // NUNCA devem ser feitas diretamente do cliente por razões de segurança.
+        // O método correto é usar uma Firebase Function (Cloud Function) que o cliente chama.
+        // O código abaixo é uma SIMULAÇÃO de como seria. A parte de salvar no Firestore irá funcionar.
+        
         try {
-            const roleRef = doc(db, 'roles', selectedUser.uid);
-            await setDoc(roleRef, { permissions: editablePermissions });
-            alert(`Permissões do usuário ${selectedUser.email} salvas com sucesso!`);
-            onClose(); // Fecha o modal após salvar
+            // Passo 1 (SIMULADO - Requer Admin SDK no backend): Criar o usuário no Firebase Auth
+            // const userCredential = await createUserWithEmailAndPassword(auth, newUserEmail, 'senha-padrao-123');
+            // const newFirebaseUser = userCredential.user;
+
+            // Passo 2: Salvar informações do usuário na coleção 'users' do Firestore
+            // Idealmente, usaríamos o UID do usuário criado acima. Como é simulação, usaremos o email como ID.
+            const userRef = doc(db, "users", newUserEmail); 
+            await setDoc(userRef, { email: newUserEmail });
+
+            // Passo 3: Atribuir a função (role) na coleção 'roles'
+            const roleRef = doc(db, "roles", newUserEmail); // Usando email como ID de novo
+            await setDoc(roleRef, { role: newUserRole, permissions: roles[newUserRole].permissions });
+
+            alert(`Usuário ${newUserEmail} adicionado com a função ${roles[newUserRole].name}.`);
+            // Limpa os campos após adicionar
+            setNewUserEmail('');
+            setNewUserRole('viewer');
         } catch (error) {
-            console.error("Erro ao salvar permissões:", error);
-            alert('Falha ao salvar permissões.');
+            console.error("Erro ao adicionar usuário: ", error);
+            alert(`Falha ao adicionar usuário. Verifique se o e-mail já existe. Detalhes: ${error.message}`);
+        }
+    };
+    
+    const handleDeleteUser = async (userEmail) => {
+        if (!window.confirm(`Tem certeza que deseja excluir o usuário ${userEmail}? Esta ação não pode ser desfeita.`)) {
+            return;
+        }
+
+        // --- AVISO IMPORTANTE ---
+        // A exclusão de usuários também deve ser feita por uma Firebase Function.
+        try {
+            const batch = writeBatch(db);
+            
+            // Exclui da coleção 'users'
+            const userRef = doc(db, "users", userEmail);
+            batch.delete(userRef);
+
+            // Exclui da coleção 'roles'
+            const roleRef = doc(db, "roles", userEmail);
+            batch.delete(roleRef);
+
+            await batch.commit();
+
+            // Lógica para remover do Firebase Auth (requer backend)
+            // await deleteUser(userToDelete);
+
+            alert(`Usuário ${userEmail} foi removido.`);
+        } catch (error) {
+            console.error("Erro ao deletar usuário:", error);
+            alert("Falha ao deletar usuário.");
+        }
+    };
+    
+    const handleRoleChange = async (userEmail, newRoleId) => {
+        try {
+            const roleRef = doc(db, "roles", userEmail);
+            await updateDoc(roleRef, {
+                role: newRoleId,
+                permissions: roles[newRoleId].permissions
+            });
+            alert(`Função do usuário ${userEmail} atualizada.`);
+        } catch (error) {
+            console.error("Erro ao atualizar função:", error);
+            alert("Falha ao atualizar função.");
         }
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 p-4 modal-backdrop">
-            <div ref={modalRef} className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col modal-content">
-                <div className="flex justify-between items-center mb-4 pb-4 border-b dark:border-gray-700">
-                    <h2 className="text-2xl font-bold flex items-center gap-2"><UserCog/> Painel de Administração</h2>
-                    <button onClick={onClose} title="Fechar"><XCircle /></button>
+        <div>
+            <form onSubmit={handleAddUser} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-end gap-4 mb-6">
+                <div className="flex-grow">
+                    <label className="block text-sm font-medium">Email do Usuário</label>
+                    <input
+                        type="email"
+                        value={newUserEmail}
+                        onChange={e => setNewUserEmail(e.target.value)}
+                        placeholder="usuario@email.com"
+                        className="w-full p-2 mt-1 rounded-md bg-white dark:bg-gray-700"
+                    />
                 </div>
-                <div className="flex-grow flex gap-6 overflow-hidden">
-                    {/* Coluna da Esquerda: Lista de Usuários */}
-                    <div className="w-1/3 border-r pr-6 dark:border-gray-700 overflow-y-auto">
-                        <h3 className="text-lg font-semibold mb-3 sticky top-0 bg-white dark:bg-gray-900 pb-2">Usuários</h3>
-                        <div className="space-y-2">
-                           {users.map(user => (
-                               <button 
-                                   key={user.uid} 
-                                   onClick={() => setSelectedUser(user)}
-                                   className={`w-full text-left p-3 rounded-lg transition-colors ${selectedUser?.uid === user.uid ? 'bg-blue-100 dark:bg-blue-900/50' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
-                                >
-                                    <p className="font-semibold truncate">{user.email}</p>
-                                    <p className="text-xs text-gray-500">{user.permissions.length} permissões</p>
-                                </button>
-                           ))}
+                <div className="flex-grow">
+                    <label className="block text-sm font-medium">Função</label>
+                    <select
+                        value={newUserRole}
+                        onChange={e => setNewUserRole(e.target.value)}
+                        className="w-full p-2 mt-1 rounded-md bg-white dark:bg-gray-700"
+                    >
+                        {Object.values(roles).map(role => (
+                            <option key={role.id} value={role.id}>{role.name}</option>
+                        ))}
+                    </select>
+                </div>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md h-10">Adicionar Usuário</button>
+            </form>
+            
+            <div className="space-y-2">
+                {users.map(user => (
+                    <div key={user.uid} className="p-3 bg-gray-100 dark:bg-gray-800 rounded-lg flex justify-between items-center">
+                        <span className="font-semibold">{user.email}</span>
+                        <div className="flex items-center gap-4">
+                           <select
+                                value={user.role}
+                                onChange={e => handleRoleChange(user.email, e.target.value)}
+                                className="p-1 rounded-md bg-white dark:bg-gray-700"
+                           >
+                               {Object.values(roles).map(role => (
+                                   <option key={role.id} value={role.id}>{role.name}</option>
+                               ))}
+                           </select>
+                            <button onClick={() => handleDeleteUser(user.email)} title="Excluir Usuário">
+                                <Trash2 size={18} className="text-red-500 hover:text-red-400"/>
+                            </button>
                         </div>
                     </div>
+                ))}
+            </div>
+        </div>
+    );
+};
 
-                    {/* Coluna da Direita: Editor de Permissões */}
-                    <div className="w-2/3 flex-grow overflow-y-auto pr-2">
-                       {selectedUser ? (
-                           <div>
-                                <div className="mb-6">
-                                    <h3 className="text-xl font-bold truncate">{selectedUser.email}</h3>
-                                    <p className="text-gray-500">Edite as permissões para este usuário.</p>
-                                </div>
-                                
-                                <div className="mb-6">
-                                    <label htmlFor="role-template" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Aplicar Modelo</label>
-                                    <select 
-                                        id="role-template"
-                                        onChange={(e) => applyRoleTemplate(e.target.value)}
-                                        className="mt-1 block w-full md:w-1/2 p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                    >
-                                        <option value="">Selecione um modelo para começar...</option>
-                                        {Object.values(roles).map(role => (
-                                            <option key={role.id} value={role.id}>{role.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <div className="space-y-4">
-                                     <h4 className="font-semibold">Permissões Individuais</h4>
-                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {Object.entries(ALL_PERMISSIONS).map(([key, description]) => (
-                                            <label key={key} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={editablePermissions.includes(key)}
-                                                    onChange={(e) => handlePermissionChange(key, e.target.checked)}
-                                                    className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500"
-                                                />
-                                                <span className="text-sm">{description}</span>
-                                            </label>
-                                        ))}
-                                     </div>
-                                </div>
-
-                                <div className="mt-8 pt-4 border-t dark:border-gray-700 flex justify-end">
-                                    <button onClick={handleSavePermissions} className="px-6 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700">
-                                        Salvar Permissões
-                                    </button>
-                                </div>
-                           </div>
-                       ) : (
-                           <div className="flex items-center justify-center h-full text-gray-500">
-                               <p>Selecione um usuário na lista para ver e editar suas permissões.</p>
-                           </div>
-                       )}
+const ManageRolesTab = ({ roles }) => {
+    // Esta funcionalidade seria para criar/editar as próprias funções (ex: criar um novo papel "Estagiário")
+    // Por enquanto, mostra as permissões de cada função.
+    return (
+        <div className="space-y-4">
+            {Object.values(roles).map(role => (
+                <div key={role.id} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <h3 className="text-lg font-bold">{role.name}</h3>
+                    <p className="text-sm text-gray-500 mb-2">{role.permissions.length} permissões ativas</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                        {Object.entries(ALL_PERMISSIONS).map(([key, description]) => (
+                            <div key={key} className={`flex items-center gap-2 ${role.permissions.includes(key) ? '' : 'text-gray-400'}`}>
+                                {role.permissions.includes(key)
+                                    ? <ShieldCheck size={16} className="text-green-500" />
+                                    : <XCircle size={16} className="text-red-500" />
+                                }
+                                <span>{description}</span>
+                            </div>
+                        ))}
                     </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+const ChangePasswordTab = () => {
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [message, setMessage] = useState('');
+    const [isError, setIsError] = useState(false);
+
+    const handleChangePassword = async (e) => {
+        e.preventDefault();
+        setMessage('');
+        setIsError(false);
+        
+        if (newPassword !== confirmPassword) {
+            setMessage("As senhas não coincidem.");
+            setIsError(true);
+            return;
+        }
+        if (newPassword.length < 6) {
+            setMessage("A senha deve ter no mínimo 6 caracteres.");
+            setIsError(true);
+            return;
+        }
+
+        try {
+            await updatePassword(auth.currentUser, newPassword);
+            setMessage("Senha alterada com sucesso!");
+            setIsError(false);
+            setNewPassword('');
+            setConfirmPassword('');
+        } catch (error) {
+            console.error("Erro ao alterar senha:", error);
+            setMessage("Erro ao alterar senha. Pode ser necessário fazer login novamente.");
+            setIsError(true);
+        }
+    };
+    
+    return (
+        <div className="max-w-md mx-auto">
+            <h3 className="text-xl font-semibold mb-4 text-center">Alterar Senha de Administrador</h3>
+            <form onSubmit={handleChangePassword} className="space-y-4">
+                 <div>
+                    <label className="block text-sm font-medium">Nova Senha</label>
+                    <input
+                        type="password"
+                        value={newPassword}
+                        onChange={e => setNewPassword(e.target.value)}
+                        className="w-full p-2 mt-1 rounded-md bg-gray-100 dark:bg-gray-700"
+                        required
+                    />
+                </div>
+                 <div>
+                    <label className="block text-sm font-medium">Confirmar Nova Senha</label>
+                    <input
+                        type="password"
+                        value={confirmPassword}
+                        onChange={e => setConfirmPassword(e.target.value)}
+                        className="w-full p-2 mt-1 rounded-md bg-gray-100 dark:bg-gray-700"
+                        required
+                    />
+                </div>
+                {message && (
+                    <p className={`text-sm text-center ${isError ? 'text-red-500' : 'text-green-500'}`}>{message}</p>
+                )}
+                <button type="submit" className="w-full px-4 py-2 bg-green-600 text-white rounded-md">
+                    Salvar Nova Senha
+                </button>
+            </form>
+        </div>
+    );
+};
+
+
+const AdminPanel = ({ isOpen, onClose, roles, users: initialUsers }) => {
+    const modalRef = useRef();
+    useClickOutside(modalRef, onClose);
+    const [activeTab, setActiveTab] = useState('users');
+    const [users, setUsers] = useState(initialUsers);
+
+    // Atualiza a lista de usuários em tempo real do Firestore
+    useEffect(() => {
+        if(!isOpen) return;
+
+        const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
+            const usersData = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+
+            getDocs(collection(db, "roles")).then(rolesSnap => {
+                 const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
+                 const combined = usersData.map(u => ({
+                     ...u,
+                     role: rolesData.get(u.email)?.role || 'viewer',
+                     permissions: rolesData.get(u.email)?.permissions || []
+                 }));
+                 setUsers(combined);
+            });
+        });
+
+        return () => unsubUsers();
+    }, [isOpen]);
+
+    if (!isOpen) return null;
+
+    const tabs = [
+        { id: 'users', label: 'Usuários', icon: UserCog },
+        { id: 'roles', label: 'Funções', icon: ShieldCheck },
+        { id: 'password', label: 'Senha', icon: KeyRound },
+    ];
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 p-4 modal-backdrop">
+            <div ref={modalRef} className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col modal-content">
+                <div className="flex justify-between items-center p-4 border-b dark:border-gray-700">
+                    <h2 className="text-2xl font-bold flex items-center gap-2"><Settings/> Painel de Administração</h2>
+                    <button onClick={onClose} title="Fechar"><XCircle /></button>
+                </div>
+                <div className="flex flex-grow overflow-hidden">
+                    <aside className="w-1/4 p-4 border-r dark:border-gray-700">
+                        <nav className="flex flex-col gap-2">
+                            {tabs.map(tab => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id)}
+                                    className={`flex items-center gap-3 p-3 rounded-lg text-lg transition-colors ${activeTab === tab.id ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+                                >
+                                    <tab.icon size={24} />
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </nav>
+                    </aside>
+                    <main className="w-3/4 p-6 overflow-y-auto">
+                        {activeTab === 'users' && <ManageUsersTab roles={roles} users={users} setUsers={setUsers} />}
+                        {activeTab === 'roles' && <ManageRolesTab roles={roles} />}
+                        {activeTab === 'password' && <ChangePasswordTab />}
+                    </main>
                 </div>
             </div>
         </div>
     );
 };
+
+// =====================================================================
+// === FIM: NOVO PAINEL DE ADMINISTRAÇÃO COMPLETO ===
+// =====================================================================
   
 const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboards }) => {
     const [carouselSeconds, setCarouselSeconds] = useState(10);
@@ -1553,17 +1717,17 @@ const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboard
 
 
 // #####################################################################
-// #                                                                     #
-// #           FIM: COMPONENTES DE MODAIS (CÓDIGO FALTANTE)              #
-// #                                                                     #
+// #                                                                      #
+// #               FIM: COMPONENTES DE MODAIS E AUXILIARES                #
+// #                                                                      #
 // #####################################################################
 
 
 
 // #####################################################################
-// #                                                                     #
-// #         INÍCIO: COMPONENTES AUXILIARES DO DASHBOARD                 #
-// #                                                                     #
+// #                                                                      #
+// #               INÍCIO: COMPONENTES AUXILIARES DO DASHBOARD            #
+// #                                                                      #
 // #####################################################################
 
 const StatCard = ({ title, value, unit = '', isEfficiency = false }) => {
@@ -1795,17 +1959,17 @@ const LotReport = ({ lots, products }) => {
 
 
 // #####################################################################
-// #                                                                     #
-// #         FIM: COMPONENTES AUXILIARES DO DASHBOARD                    #
-// #                                                                     #
+// #                                                                      #
+// #               FIM: COMPONENTES AUXILIARES DO DASHBOARD               #
+// #                                                                      #
 // #####################################################################
 
 
 
 // #####################################################################
-// #                                                                     #
-// #           INÍCIO: CRONOANÁLISE DASHBOARD (CÓDIGO EXISTENTE)         #
-// #                                                                     #
+// #                                                                      #
+// #           INÍCIO: CRONOANÁLISE DASHBOARD (CÓDIGO EXISTENTE)          #
+// #                                                                      #
 // #####################################################################
 
 const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMode, dashboards, users, roles, currentDashboardIndex, setCurrentDashboardIndex }) => {
@@ -2400,7 +2564,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             <LotObservationModal isOpen={modalState.type === 'lotObservation'} onClose={closeModal} lot={modalState.data} onSave={handleSaveLotObservation} />
             <PasswordModal isOpen={modalState.type === 'password'} onClose={closeModal} onSuccess={modalState.data?.onSuccess} adminConfig={{}} />
             <ReasonModal isOpen={modalState.type === 'reason'} onClose={closeModal} onConfirm={modalState.data?.onConfirm} />
-            <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={roles} />
+            <AdminPanel isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={roles} />
             <TvSelectorModal isOpen={modalState.type === 'tvSelector'} onClose={closeModal} onSelect={startTvMode} onStartCarousel={startTvMode} dashboards={dashboards} />
 
             <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-20">
@@ -2575,7 +2739,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                     </form>
                 </section>}
                 
-                <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
+                 <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
                     <h2 className="text-xl font-semibold mb-4 flex items-center"><Layers className="mr-2 text-blue-500"/> Controle de Lotes de Produção</h2>
                     {permissions.MANAGE_LOTS && <div className="mb-6 border-b pb-6 dark:border-gray-700">
                         <h3 className="text-lg font-medium mb-4">Criar Novo Lote</h3>
@@ -2670,7 +2834,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                     <div className="w-full bg-gray-200 dark:bg-gray-600 h-2.5 rounded-full"><div className="bg-blue-600 h-2.5 rounded-full" style={{width: `${((lot.produced||0)/(lot.target||1))*100}%`}}></div></div>
                                 </div>
                             </div>
-                        )})}
+                        )}})}
                     </div>
                 </section>
 
@@ -2762,6 +2926,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     );
 };
 
+// Componente TvModeDisplay permanece o mesmo
 const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     const [theme] = useState(() => localStorage.getItem('theme') || 'dark');
     const [transitioning, setTransitioning] = useState(false);
@@ -3052,9 +3217,9 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
 
 
 // #####################################################################
-// #                                                                     #
-// #               COMPONENTE RAIZ E LÓGICA DE NAVEGAÇÃO                 #
-// #                                                                     #
+// #                                                                      #
+// #               COMPONENTE RAIZ E LÓGICA DE NAVEGAÇÃO                  #
+// #                                                                      #
 // #####################################################################
 
 const AppContent = () => {
@@ -3104,49 +3269,76 @@ const AppContent = () => {
                 // --- Etapa 2: Iniciar o listener em tempo real para dashboards ---
                 unsubDashboards = onSnapshot(dashboardsQuery, (snap) => {
                     const fetchedDashboards = snap.docs.map(d => d.data());
-                    console.log(`Dados recebidos: ${fetchedDashboards.length} dashboards.`);
                     setDashboards(fetchedDashboards);
                 }, (error) => {
                     console.error("Erro no listener de Dashboards:", error);
                 });
 
-                // --- Etapa 3: Buscar dados de usuários e permissões (apenas uma vez) ---
-                const rolesSnap = await getDocs(collection(db, "roles"));
-                const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
+                // --- Etapa 3: Listener para dados de usuários e permissões ---
+                const usersQuery = collection(db, "users");
+                const rolesQuery = collection(db, "roles");
 
-                const usersSnap = await getDocs(collection(db, "users"));
-                const usersData = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
-                
-                const combinedUsers = usersData.map(u => ({ ...u, permissions: rolesData.get(u.uid)?.permissions || [] }));
-                setUsersWithRoles(combinedUsers);
+                const unsubUsers = onSnapshot(usersQuery, (usersSnap) => {
+                    const usersData = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
+                    
+                    // Quando os usuários mudam, buscamos as funções novamente para garantir consistência
+                    getDocs(rolesQuery).then(rolesSnap => {
+                        const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
+                        const combinedUsers = usersData.map(u => ({
+                            ...u,
+                            permissions: rolesData.get(u.email)?.permissions || [],
+                            role: rolesData.get(u.email)?.role || 'viewer'
+                        }));
+                        setUsersWithRoles(combinedUsers);
+                        
+                        // Atualiza as permissões do usuário LOGADO
+                        const currentUserRoleDoc = rolesData.get(user.email);
+                        let permissionsList = currentUserRoleDoc?.permissions || [];
+                        if (currentUserRoleDoc?.role === 'admin') {
+                            permissionsList = Object.keys(ALL_PERMISSIONS);
+                        }
 
-                const currentUserPermissionsDoc = rolesData.get(user.uid);
-                let permissionsList = currentUserPermissionsDoc?.permissions || [];
+                        const permissionsMap = {};
+                        for (const key in ALL_PERMISSIONS) {
+                            permissionsMap[key] = permissionsList.includes(key);
+                        }
+                        setUserPermissions(permissionsMap);
+                    });
+                });
                 
-                // Se o usuário é um 'admin' no documento, ele recebe todas as permissões, sobrepondo as individuais
-                if (currentUserPermissionsDoc?.role === 'admin') {
-                     permissionsList = Object.keys(ALL_PERMISSIONS);
-                }
-                
-                const permissionsMap = {};
-                for (const key in ALL_PERMISSIONS) {
-                    permissionsMap[key] = permissionsList.includes(key);
-                }
-                
-                console.log("Permissões do usuário definidas:", permissionsMap);
-                setUserPermissions(permissionsMap);
+                // Listener separado para roles para pegar atualizações de permissões
+                const unsubRoles = onSnapshot(rolesQuery, (rolesSnap) => {
+                     const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
+                     const currentUserRoleDoc = rolesData.get(user.email);
+                     let permissionsList = currentUserRoleDoc?.permissions || [];
+                      if (currentUserRoleDoc?.role === 'admin') {
+                          permissionsList = Object.keys(ALL_PERMISSIONS);
+                      }
+                      const permissionsMap = {};
+                      for (const key in ALL_PERMISSIONS) {
+                          permissionsMap[key] = permissionsList.includes(key);
+                      }
+                      setUserPermissions(permissionsMap);
+                });
+
+                // Função de limpeza
+                return () => {
+                    if (unsubDashboards) unsubDashboards();
+                    if (unsubUsers) unsubUsers();
+                    if (unsubRoles) unsubRoles();
+                };
 
             } catch (error) {
                 console.error("ERRO CRÍTICO AO CONFIGURAR DADOS:", error);
             }
         };
 
-        setupDataAndListeners();
+        const cleanup = setupDataAndListeners();
 
-        // Função de limpeza
+        // Função de limpeza do useEffect
         return () => {
-            if (unsubDashboards) {
-                unsubDashboards();
+            if (cleanup && typeof cleanup.then === 'function') {
+                cleanup.then(clean => clean && clean());
             }
         };
     }, [user]);
@@ -3172,7 +3364,7 @@ const AppContent = () => {
     }
 
     if (currentApp === 'stock') {
-        return <StockManagementApp onNavigateToCrono={() => setCurrentApp('cronoanalise')} />;
+        return <StockManagementApp onNavigateToCrono={() => setCurrentApp('cronoanalise')} permissions={userPermissions} />;
     }
     
     return <CronoanaliseDashboard 
