@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext } from 'react';
-import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, EyeOff, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, ShieldCheck, Users, BarChart, Film, Warehouse, Home, ArrowUpDown, Box, Trash, MinusCircle } from 'lucide-react';
+import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Home, ArrowUpDown, Box, Trash, MinusCircle } from 'lucide-react';
 import { db, auth } from './firebase';
 import {
   collection,
@@ -3125,7 +3125,7 @@ const AppContent = () => {
                 
                 // Se o usuário é um 'admin' no documento, ele recebe todas as permissões, sobrepondo as individuais
                 if (currentUserPermissionsDoc?.role === 'admin') {
-                    permissionsList = Object.keys(ALL_PERMISSIONS);
+                     permissionsList = Object.keys(ALL_PERMISSIONS);
                 }
                 
                 const permissionsMap = {};
