@@ -38,7 +38,6 @@ const initialDashboards = [
 
 const FIXED_PERIODS = ["08:00", "09:00", "10:00", "11:00", "11:45", "14:00", "15:00", "16:00", "17:00"];
 
-// Objeto de permissões reescrito sem o "spread operator" (...) para máxima compatibilidade.
 const ALL_PERMISSIONS = {
     MANAGE_DASHBOARDS: 'Gerenciar Quadros (Criar/Renomear/Excluir/Reordenar)',
     MANAGE_PRODUCTS: 'Gerenciar Produtos (Cronoanálise)',
@@ -1504,7 +1503,7 @@ const ChangePasswordTab = () => {
                         type="password"
                         value={confirmPassword}
                         onChange={e => setConfirmPassword(e.target.value)}
-                        className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                        className="w-full p-2 mt-1 rounded-md bg-gray-100 dark:bg-gray-700"
                         required
                     />
                 </div>
@@ -2696,7 +2695,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                         </form>
                     </div>}
                      <div className="flex gap-2 mb-4 border-b pb-2 dark:border-gray-700 flex-wrap">
-                        <button onClick={() => setLotFilter('ongoing')} className={`px-3 py-1 text-sm rounded-full ${lotFilter==='ongoing' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}>Em Andamento</button>
+                        <button onClick={() => setLotFilter('ongoing')} className={`px-3 py-1 text-sm rounded-full ${lotFilter==='ongoing' ? 'bg-blue-600 text-white' : 'hover:bg-gray-200 dark:bg-gray-700'}`}>Em Andamento</button>
                         <button onClick={() => setLotFilter('completed')} className={`px-3 py-1 text-sm rounded-full ${lotFilter==='completed' ? 'bg-green-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}>Concluídos</button>
                     </div>
                     <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
@@ -3177,68 +3176,31 @@ const AppContent = () => {
         localStorage.setItem('lastDashboardIndex', currentDashboardIndex);
     }, [currentDashboardIndex]);
     
+    // ################### INÍCIO DO BLOCO DE TESTE ###################
+    // A CONEXÃO REAL COM FIREBASE FOI REMOVIDA TEMPORARIAMENTE
     useEffect(() => {
-        if (!user) {
-            setUserPermissions({});
-            setDashboards([]);
-            setUsersWithRoles([]);
-            return;
+        if (!user) return; // Só executa se o usuário estiver logado
+
+        console.log("USANDO DADOS DE TESTE PARA DEBUG - SEM CONEXÃO COM FIREBASE");
+
+        // 1. Define permissões de administrador para teste
+        const allPermissionsMap = {};
+        for (const key in ALL_PERMISSIONS) {
+            allPermissionsMap[key] = true;
         }
+        setUserPermissions(allPermissionsMap);
 
-        const dashboardsQuery = query(collection(db, "dashboards"), orderBy("order"));
-        const unsubDashboards = onSnapshot(dashboardsQuery, (snap) => {
-            const fetchedDashboards = snap.docs.map(d => d.data());
-            if (fetchedDashboards.length > 0) {
-                setDashboards(fetchedDashboards);
-            } else {
-                getDocs(dashboardsQuery).then(initialSnap => {
-                    if (initialSnap.empty) {
-                        const batch = writeBatch(db);
-                        initialDashboards.forEach(dash => {
-                            batch.set(doc(db, "dashboards", dash.id), dash);
-                        });
-                        batch.commit();
-                    }
-                });
-            }
-        });
+        // 2. Carrega os dashboards iniciais (dados estáticos)
+        setDashboards(initialDashboards);
 
-        const rolesQuery = collection(db, "roles");
-        const unsubRoles = onSnapshot(rolesQuery, (rolesSnap) => {
-            const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
-            
-            getDocs(collection(db, "users")).then(usersSnap => {
-                const usersData = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
-
-                const combinedUsers = usersData.map(u => ({
-                    ...u,
-                    permissions: rolesData.get(u.email)?.permissions || [],
-                    role: rolesData.get(u.email)?.role || 'viewer'
-                }));
-                setUsersWithRoles(combinedUsers);
-                
-                const currentUserRoleDoc = rolesData.get(user.email);
-                let permissionsList = [];
-                if (currentUserRoleDoc) {
-                    permissionsList = currentUserRoleDoc.permissions || [];
-                    if (currentUserRoleDoc.role === 'admin') {
-                        permissionsList = Object.keys(ALL_PERMISSIONS);
-                    }
-                }
-                
-                const permissionsMap = {};
-                for (const key in ALL_PERMISSIONS) {
-                    permissionsMap[key] = permissionsList.includes(key);
-                }
-                setUserPermissions(permissionsMap);
-            });
-        });
-
-        return () => {
-            unsubDashboards();
-            unsubRoles();
-        };
-    }, [user]);
+        // 3. Carrega uma lista de usuários de exemplo
+        setUsersWithRoles([
+            { uid: 'admin@racedbull.com', email: 'admin@racedbull.com', role: 'admin' },
+            { uid: 'outro@email.com', email: 'outro@email.com', role: 'editor' }
+        ]);
+        
+    }, [user]); // Roda apenas quando o usuário muda
+    // ################### FIM DO BLOCO DE TESTE ###################
 
 
     const startTvMode = useCallback((options) => setTvMode(options), []);
