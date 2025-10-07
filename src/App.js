@@ -22,12 +22,6 @@ import {
     onAuthStateChanged,
     updatePassword,
 } from 'firebase/auth';
-// NOTA: Para criar e deletar usuários no Firebase Auth, o ideal é usar Firebase Functions (backend).
-// As funções createUser e deleteUser aqui são placeholders e não irão funcionar no client-side.
-// Elas foram incluídas para ilustrar como a integração seria feita.
-// A lógica de salvar no Firestore irá funcionar normalmente.
-import { createUserWithEmailAndPassword, deleteUser } from "firebase/auth";
-
 
 // =====================================================================
 // == CONSTANTES E FUNÇÕES AUXILIARES GLOBAIS ==
@@ -56,14 +50,14 @@ const STOCK_PERMISSIONS = {
 const ALL_PERMISSIONS = {
     // Permissões do Cronoanálise
     MANAGE_DASHBOARDS: 'Gerenciar Quadros (Criar/Renomear/Excluir/Reordenar)',
-    MANAGE_PRODUCTS: 'Gerenciar Produtos (Criar/Editar/Excluir)',
-    MANAGE_LOTS: 'Gerenciar Lotes (Criar/Editar/Excluir/Reordenar)',
+    MANAGE_PRODUCTS: 'Gerenciar Produtos (Cronoanálise)',
+    MANAGE_LOTS: 'Gerenciar Lotes (Cronoanálise)',
     ADD_ENTRIES: 'Adicionar Lançamentos de Produção',
     EDIT_ENTRIES: 'Editar Lançamentos de Produção',
     DELETE_ENTRIES: 'Excluir Lançamentos de Produção',
-    VIEW_TRASH: 'Visualizar Lixeira',
-    RESTORE_TRASH: 'Restaurar Itens da Lixeira',
-    MANAGE_SETTINGS: 'Acessar e Gerenciar Configurações de Administrador',
+    VIEW_TRASH: 'Visualizar Lixeira (Cronoanálise)',
+    RESTORE_TRASH: 'Restaurar Itens da Lixeira (Cronoanálise)',
+    MANAGE_SETTINGS: 'Acessar Painel de Administração',
     // Permissões de Estoque
     ...STOCK_PERMISSIONS,
 };
@@ -1324,7 +1318,7 @@ const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
 // === INÍCIO: NOVO PAINEL DE ADMINISTRAÇÃO COMPLETO ===
 // =====================================================================
 
-const ManageUsersTab = ({ roles, users, setUsers }) => {
+const ManageUsersTab = ({ roles, users }) => {
     const [newUserEmail, setNewUserEmail] = useState('');
     const [newUserRole, setNewUserRole] = useState('viewer');
 
@@ -1335,28 +1329,18 @@ const ManageUsersTab = ({ roles, users, setUsers }) => {
             return;
         }
         
-        // --- AVISO IMPORTANTE ---
-        // A criação de usuários (createUserWithEmailAndPassword) e a definição de senhas/roles
-        // NUNCA devem ser feitas diretamente do cliente por razões de segurança.
-        // O método correto é usar uma Firebase Function (Cloud Function) que o cliente chama.
-        // O código abaixo é uma SIMULAÇÃO de como seria. A parte de salvar no Firestore irá funcionar.
+        // AVISO: A criação de usuários no Firebase Auth requer um ambiente seguro (backend/Cloud Function).
+        // Este código apenas adicionará o usuário às coleções 'users' e 'roles' no Firestore.
+        // O usuário precisará ser criado no painel do Firebase Authentication manualmente.
         
         try {
-            // Passo 1 (SIMULADO - Requer Admin SDK no backend): Criar o usuário no Firebase Auth
-            // const userCredential = await createUserWithEmailAndPassword(auth, newUserEmail, 'senha-padrao-123');
-            // const newFirebaseUser = userCredential.user;
-
-            // Passo 2: Salvar informações do usuário na coleção 'users' do Firestore
-            // Idealmente, usaríamos o UID do usuário criado acima. Como é simulação, usaremos o email como ID.
             const userRef = doc(db, "users", newUserEmail); 
             await setDoc(userRef, { email: newUserEmail });
 
-            // Passo 3: Atribuir a função (role) na coleção 'roles'
-            const roleRef = doc(db, "roles", newUserEmail); // Usando email como ID de novo
+            const roleRef = doc(db, "roles", newUserEmail);
             await setDoc(roleRef, { role: newUserRole, permissions: roles[newUserRole].permissions });
 
-            alert(`Usuário ${newUserEmail} adicionado com a função ${roles[newUserRole].name}.`);
-            // Limpa os campos após adicionar
+            alert(`Usuário ${newUserEmail} adicionado com a função ${roles[newUserRole].name}. Crie a conta de login para este e-mail no painel do Firebase.`);
             setNewUserEmail('');
             setNewUserRole('viewer');
         } catch (error) {
@@ -1366,29 +1350,19 @@ const ManageUsersTab = ({ roles, users, setUsers }) => {
     };
     
     const handleDeleteUser = async (userEmail) => {
-        if (!window.confirm(`Tem certeza que deseja excluir o usuário ${userEmail}? Esta ação não pode ser desfeita.`)) {
+        if (!window.confirm(`Tem certeza que deseja excluir o usuário ${userEmail}? Suas permissões serão removidas.`)) {
             return;
         }
 
-        // --- AVISO IMPORTANTE ---
-        // A exclusão de usuários também deve ser feita por uma Firebase Function.
+        // AVISO: A exclusão de usuários do Firebase Auth também requer um backend.
+        // Este código removerá o usuário apenas do controle de permissões no Firestore.
         try {
             const batch = writeBatch(db);
-            
-            // Exclui da coleção 'users'
-            const userRef = doc(db, "users", userEmail);
-            batch.delete(userRef);
-
-            // Exclui da coleção 'roles'
-            const roleRef = doc(db, "roles", userEmail);
-            batch.delete(roleRef);
-
+            batch.delete(doc(db, "users", userEmail));
+            batch.delete(doc(db, "roles", userEmail));
             await batch.commit();
 
-            // Lógica para remover do Firebase Auth (requer backend)
-            // await deleteUser(userToDelete);
-
-            alert(`Usuário ${userEmail} foi removido.`);
+            alert(`Usuário ${userEmail} foi removido do sistema de permissões.`);
         } catch (error) {
             console.error("Erro ao deletar usuário:", error);
             alert("Falha ao deletar usuário.");
@@ -1398,10 +1372,10 @@ const ManageUsersTab = ({ roles, users, setUsers }) => {
     const handleRoleChange = async (userEmail, newRoleId) => {
         try {
             const roleRef = doc(db, "roles", userEmail);
-            await updateDoc(roleRef, {
+            await setDoc(roleRef, {
                 role: newRoleId,
                 permissions: roles[newRoleId].permissions
-            });
+            }, { merge: true });
             alert(`Função do usuário ${userEmail} atualizada.`);
         } catch (error) {
             console.error("Erro ao atualizar função:", error);
@@ -1463,8 +1437,6 @@ const ManageUsersTab = ({ roles, users, setUsers }) => {
 };
 
 const ManageRolesTab = ({ roles }) => {
-    // Esta funcionalidade seria para criar/editar as próprias funções (ex: criar um novo papel "Estagiário")
-    // Por enquanto, mostra as permissões de cada função.
     return (
         <div className="space-y-4">
             {Object.values(roles).map(role => (
@@ -1518,7 +1490,7 @@ const ChangePasswordTab = () => {
             setConfirmPassword('');
         } catch (error) {
             console.error("Erro ao alterar senha:", error);
-            setMessage("Erro ao alterar senha. Pode ser necessário fazer login novamente.");
+            setMessage("Erro ao alterar senha. Pode ser necessário fazer login novamente para completar esta ação.");
             setIsError(true);
         }
     };
@@ -1559,32 +1531,10 @@ const ChangePasswordTab = () => {
 };
 
 
-const AdminPanel = ({ isOpen, onClose, roles, users: initialUsers }) => {
+const AdminPanel = ({ isOpen, onClose, users, roles }) => {
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
     const [activeTab, setActiveTab] = useState('users');
-    const [users, setUsers] = useState(initialUsers);
-
-    // Atualiza a lista de usuários em tempo real do Firestore
-    useEffect(() => {
-        if(!isOpen) return;
-
-        const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
-            const usersData = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
-
-            getDocs(collection(db, "roles")).then(rolesSnap => {
-                 const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
-                 const combined = usersData.map(u => ({
-                     ...u,
-                     role: rolesData.get(u.email)?.role || 'viewer',
-                     permissions: rolesData.get(u.email)?.permissions || []
-                 }));
-                 setUsers(combined);
-            });
-        });
-
-        return () => unsubUsers();
-    }, [isOpen]);
 
     if (!isOpen) return null;
 
@@ -1617,7 +1567,7 @@ const AdminPanel = ({ isOpen, onClose, roles, users: initialUsers }) => {
                         </nav>
                     </aside>
                     <main className="w-3/4 p-6 overflow-y-auto">
-                        {activeTab === 'users' && <ManageUsersTab roles={roles} users={users} setUsers={setUsers} />}
+                        {activeTab === 'users' && <ManageUsersTab roles={roles} users={users} />}
                         {activeTab === 'roles' && <ManageRolesTab roles={roles} />}
                         {activeTab === 'password' && <ChangePasswordTab />}
                     </main>
@@ -2926,7 +2876,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     );
 };
 
-// Componente TvModeDisplay permanece o mesmo
 const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     const [theme] = useState(() => localStorage.getItem('theme') || 'dark');
     const [transitioning, setTransitioning] = useState(false);
@@ -3244,60 +3193,48 @@ const AppContent = () => {
             setUserPermissions({});
             setDashboards([]);
             setUsersWithRoles([]);
-            return; // Sai do hook se não houver usuário
+            return;
         }
 
-        // Garante que os dashboards iniciais existam
-        const ensureInitialDashboards = async () => {
-             const dashboardsQuery = query(collection(db, "dashboards"), orderBy("order"));
-             const initialDashboardsSnap = await getDocs(dashboardsQuery);
-             if (initialDashboardsSnap.empty) {
-                 console.log("Nenhum dashboard encontrado, criando dados iniciais...");
-                 const batch = writeBatch(db);
-                 initialDashboards.forEach(dash => {
-                     const docRef = doc(db, "dashboards", dash.id);
-                     batch.set(docRef, dash);
-                 });
-                 await batch.commit();
-             }
-        };
-
-        ensureInitialDashboards().catch(console.error);
-
-        // --- LISTENER PARA DASHBOARDS ---
         const dashboardsQuery = query(collection(db, "dashboards"), orderBy("order"));
         const unsubDashboards = onSnapshot(dashboardsQuery, (snap) => {
             const fetchedDashboards = snap.docs.map(d => d.data());
-            setDashboards(fetchedDashboards);
+            if (fetchedDashboards.length > 0) {
+                setDashboards(fetchedDashboards);
+            } else {
+                getDocs(dashboardsQuery).then(initialSnap => {
+                    if (initialSnap.empty) {
+                        console.log("Nenhum dashboard encontrado, criando dados iniciais...");
+                        const batch = writeBatch(db);
+                        initialDashboards.forEach(dash => {
+                            const docRef = doc(db, "dashboards", dash.id);
+                            batch.set(docRef, dash);
+                        });
+                        batch.commit();
+                    }
+                });
+            }
         });
 
-        // --- LISTENER PARA USUÁRIOS E FUNÇÕES (COMBINADO) ---
-        // Ouvimos a coleção de 'roles', pois ela determina as permissões.
-        // Quando ela muda, reavaliamos tudo.
         const rolesQuery = collection(db, "roles");
         const unsubRoles = onSnapshot(rolesQuery, async (rolesSnap) => {
             const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
-
-            // Busca os usuários
+            
             const usersSnap = await getDocs(collection(db, "users"));
             const usersData = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
 
-            // Combina os dados de usuário e função
             const combinedUsers = usersData.map(u => ({
                 ...u,
-                // O ID do documento em 'roles' é o email do usuário
                 permissions: rolesData.get(u.email)?.permissions || [],
                 role: rolesData.get(u.email)?.role || 'viewer'
             }));
             setUsersWithRoles(combinedUsers);
-
-            // ATUALIZA AS PERMISSÕES DO USUÁRIO LOGADO
+            
             const currentUserRoleDoc = rolesData.get(user.email);
             let permissionsList = [];
 
             if (currentUserRoleDoc) {
                 permissionsList = currentUserRoleDoc.permissions || [];
-                // Se for admin, garante todas as permissões
                 if (currentUserRoleDoc.role === 'admin') {
                     permissionsList = Object.keys(ALL_PERMISSIONS);
                 }
@@ -3310,13 +3247,11 @@ const AppContent = () => {
             setUserPermissions(permissionsMap);
         });
 
-        // Função de limpeza que será chamada quando o componente for desmontado
         return () => {
             unsubDashboards();
             unsubRoles();
         };
-
-    }, [user]); // Este useEffect roda novamente se o objeto 'user' mudar
+    }, [user]);
 
 
     const startTvMode = useCallback((options) => setTvMode(options), []);
