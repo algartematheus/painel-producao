@@ -597,6 +597,15 @@ const StockMovementsPage = () => {
     const categories = getCategories();
     const allProducts = getProducts();
 
+    const isFormValid = useMemo(() => {
+        return (
+            movement.productId &&
+            movement.variationId &&
+            movement.quantity &&
+            parseInt(movement.quantity, 10) > 0
+        );
+    }, [movement]);
+
     const filteredProducts = useMemo(() => {
         if (!selectedCategoryId) return allProducts;
         return allProducts.filter(p => p.categoryId === selectedCategoryId);
@@ -621,9 +630,9 @@ const StockMovementsPage = () => {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        if(!movement.productId || !movement.variationId || !movement.quantity || parseInt(movement.quantity) <= 0) return;
+        if(!isFormValid) return;
         addStockMovement({ ...movement, quantity: parseInt(movement.quantity) });
-        setMovement({ ...movement, quantity: '' });
+        setMovement({ ...movement, quantity: '', variationId: '', productId: '' });
     };
 
     return (
@@ -680,7 +689,13 @@ const StockMovementsPage = () => {
                             <label className="block mb-1">Quantidade</label>
                             <input type="number" min="1" value={movement.quantity} onChange={e => setMovement({...movement, quantity: e.target.value})} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700" />
                         </div>
-                        <button type="submit" className="w-full h-10 bg-blue-600 text-white rounded-md mt-2">Registrar</button>
+                        <button 
+                            type="submit" 
+                            disabled={!isFormValid} 
+                            className="w-full h-10 bg-blue-600 text-white rounded-md mt-2 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        >
+                            Registrar
+                        </button>
                     </form>
                 </div>
                  <div className="lg:col-span-2 bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
@@ -2928,7 +2943,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         ];
         
         return (
-            <div className="overflow-x-auto w-full text-center p-6 border-4 border-blue-900 rounded-xl shadow-2xl bg-white dark:bg-gray-900">
+            <div className="overflow-x-auto w-full text-center p-6 border-4 border-blue-900 rounded-xl shadow-2xl bg-white text-gray-900">
                 <table className="min-w-full table-fixed">
                     <thead className="text-white bg-blue-500 dark:bg-blue-600">
                         <tr><th colSpan={FIXED_PERIODS.length + 1} className="p-4 text-5xl relative">
@@ -2947,10 +2962,10 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                         <tr><th className="p-2 text-left">Alteração</th>{FIXED_PERIODS.map(p => <th key={p} className="p-2 text-base">{getAlteracaoValue(p)}</th>)}</tr>
                         <tr><th className="p-3 text-left">Hora</th>{FIXED_PERIODS.map(p => <th key={p} className="p-3 text-3xl">{p}</th>)}</tr>
                     </thead>
-                    <tbody className="text-2xl divide-y dark:divide-gray-700">
+                    <tbody className="text-2xl divide-y divide-gray-200">
                         {TV_ROWS.map(row => (
-                            <tr key={row.key} className={row.isMonthly ? 'bg-gray-100 dark:bg-gray-800' : ''}>
-                                <td className="p-3 font-bold text-left sticky left-0 bg-gray-200 dark:bg-gray-800">{row.label}</td>
+                            <tr key={row.key} className={row.isMonthly ? 'bg-gray-100' : ''}>
+                                <td className="p-3 font-bold text-left sticky left-0 bg-gray-200">{row.label}</td>
                                 {row.isMonthly ? (
                                     <td colSpan={FIXED_PERIODS.length} className={`p-3 font-extrabold ${row.isColor ? (parseFloat(row.value) < 65 ? 'text-red-500' : 'text-green-600') : ''}`}>{row.value}</td>
                                 ) : (
@@ -2960,7 +2975,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                                             const metaInfo = row.formatter(p);
                                             cellContent = metaInfo.value;
                                             if (cellContent !== '-') {
-                                                cellClass += metaInfo.isLaunched ? ' text-blue-600 dark:text-blue-400' : ' text-yellow-500 dark:text-yellow-400';
+                                                cellClass += metaInfo.isLaunched ? ' text-blue-600' : ' text-yellow-500';
                                             }
                                         } else {
                                             cellContent = row.formatter(p);
