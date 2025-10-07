@@ -1331,111 +1331,132 @@ const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
 const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
-    const [activeTab, setActiveTab] = useState('users');
+    const [selectedUser, setSelectedUser] = useState(null);
+    const [editablePermissions, setEditablePermissions] = useState([]);
+
+    useEffect(() => {
+        if(isOpen && users.length > 0){
+            // Seleciona o primeiro usuário da lista por padrão ao abrir
+            setSelectedUser(users[0]);
+        }
+    }, [isOpen, users]);
+    
+    useEffect(() => {
+        if (selectedUser) {
+            setEditablePermissions(selectedUser.permissions || []);
+        }
+    }, [selectedUser]);
+
 
     if (!isOpen) return null;
+
+    const handlePermissionChange = (permissionKey, isChecked) => {
+        setEditablePermissions(prev => {
+            if (isChecked) {
+                return [...new Set([...prev, permissionKey])];
+            } else {
+                return prev.filter(p => p !== permissionKey);
+            }
+        });
+    };
     
-    const handleRoleChange = async (userId, newRole) => {
-        if (!userId || !newRole) return;
+    const applyRoleTemplate = (roleId) => {
+        if(roles[roleId]){
+            setEditablePermissions(roles[roleId].permissions);
+        }
+    };
+    
+    const handleSavePermissions = async () => {
+        if (!selectedUser) return;
         try {
-            const roleRef = doc(db, 'roles', userId);
-            await setDoc(roleRef, { role: newRole });
-            alert('Permissão atualizada com sucesso!');
+            const roleRef = doc(db, 'roles', selectedUser.uid);
+            await setDoc(roleRef, { permissions: editablePermissions });
+            alert(`Permissões do usuário ${selectedUser.email} salvas com sucesso!`);
         } catch (error) {
-            console.error("Erro ao atualizar permissão:", error);
-            alert('Falha ao atualizar permissão.');
+            console.error("Erro ao salvar permissões:", error);
+            alert('Falha ao salvar permissões.');
         }
     };
 
-    const renderUsersTab = () => (
-        <div>
-            <h3 className="text-xl font-bold mb-4">Gerenciar Usuários</h3>
-            <div className="max-h-[60vh] overflow-y-auto">
-                <table className="w-full text-left">
-                    <thead className='sticky top-0 bg-white dark:bg-gray-800'>
-                        <tr>
-                            <th className="p-2">Usuário (Email)</th>
-                            <th className="p-2">Permissão</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y dark:divide-gray-700">
-                        {users.map(user => (
-                            <tr key={user.uid}>
-                                <td className="p-2">{user.email}</td>
-                                <td className="p-2">
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 p-4 modal-backdrop">
+            <div ref={modalRef} className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col modal-content">
+                <div className="flex justify-between items-center mb-4 pb-4 border-b dark:border-gray-700">
+                    <h2 className="text-2xl font-bold flex items-center gap-2"><UserCog/> Painel de Administração</h2>
+                    <button onClick={onClose} title="Fechar"><XCircle /></button>
+                </div>
+                <div className="flex-grow flex gap-6 overflow-hidden">
+                    {/* Coluna da Esquerda: Lista de Usuários */}
+                    <div className="w-1/3 border-r pr-6 dark:border-gray-700 overflow-y-auto">
+                        <h3 className="text-lg font-semibold mb-3 sticky top-0 bg-white dark:bg-gray-900 pb-2">Usuários</h3>
+                        <div className="space-y-2">
+                           {users.map(user => (
+                               <button 
+                                   key={user.uid} 
+                                   onClick={() => setSelectedUser(user)}
+                                   className={`w-full text-left p-3 rounded-lg transition-colors ${selectedUser?.uid === user.uid ? 'bg-blue-100 dark:bg-blue-900/50' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+                                >
+                                    <p className="font-semibold truncate">{user.email}</p>
+                                    <p className="text-xs text-gray-500">{user.permissions.length} permissões</p>
+                                </button>
+                           ))}
+                        </div>
+                    </div>
+
+                    {/* Coluna da Direita: Editor de Permissões */}
+                    <div className="w-2/3 flex-grow overflow-y-auto pr-2">
+                       {selectedUser ? (
+                           <div>
+                                <div className="mb-6">
+                                    <h3 className="text-xl font-bold truncate">{selectedUser.email}</h3>
+                                    <p className="text-gray-500">Edite as permissões para este usuário.</p>
+                                </div>
+                                
+                                <div className="mb-6">
+                                    <label htmlFor="role-template" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Aplicar Modelo</label>
                                     <select 
-                                        value={user.role} 
-                                        onChange={(e) => handleRoleChange(user.uid, e.target.value)}
-                                        className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                        id="role-template"
+                                        onChange={(e) => applyRoleTemplate(e.target.value)}
+                                        className="mt-1 block w-full md:w-1/2 p-2 rounded-md bg-gray-100 dark:bg-gray-700"
                                     >
+                                        <option value="">Selecione um modelo para começar...</option>
                                         {Object.values(roles).map(role => (
                                             <option key={role.id} value={role.id}>{role.name}</option>
                                         ))}
                                     </select>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    );
+                                </div>
 
-    const renderRolesTab = () => (
-        <div>
-            <h3 className="text-xl font-bold mb-4">Funções e Permissões (Visão Geral)</h3>
-            <div className="space-y-4">
-                {Object.values(roles).map(role => (
-                    <div key={role.id} className="p-4 border dark:border-gray-700 rounded-lg">
-                        <h4 className="text-lg font-bold">{role.name}</h4>
-                        <ul className="list-disc list-inside mt-2 text-sm">
-                            {role.permissions.map(permKey => (
-                                <li key={permKey}>{ALL_PERMISSIONS[permKey]}</li>
-                            ))}
-                            {role.permissions.length === 0 && <li>Nenhuma permissão especial.</li>}
-                        </ul>
+                                <div className="space-y-4">
+                                     <h4 className="font-semibold">Permissões Individuais</h4>
+                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {Object.entries(ALL_PERMISSIONS).map(([key, description]) => (
+                                            <label key={key} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={editablePermissions.includes(key)}
+                                                    onChange={(e) => handlePermissionChange(key, e.target.checked)}
+                                                    className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500"
+                                                />
+                                                <span className="text-sm">{description}</span>
+                                            </label>
+                                        ))}
+                                     </div>
+                                </div>
+
+                                <div className="mt-8 pt-4 border-t dark:border-gray-700 flex justify-end">
+                                    <button onClick={handleSavePermissions} className="px-6 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700">
+                                        Salvar Permissões
+                                    </button>
+                                </div>
+                           </div>
+                       ) : (
+                           <div className="flex items-center justify-center h-full text-gray-500">
+                               <p>Selecione um usuário na lista para ver e editar suas permissões.</p>
+                           </div>
+                       )}
                     </div>
-                ))}
+                </div>
             </div>
-        </div>
-    );
-
-    const renderPasswordTab = () => (
-        <div>
-            <h3 className="text-xl font-bold mb-4">Alterar Senha (Funcionalidade Futura)</h3>
-            <p>A interface para alteração de senha de administrador será implementada aqui.</p>
-        </div>
-    );
-
-    const tabs = [
-        { id: 'users', label: 'Usuários', icon: <Users/>, content: renderUsersTab() },
-        { id: 'roles', label: 'Funções', icon: <ShieldCheck/>, content: renderRolesTab() },
-        { id: 'password', label: 'Senha', icon: <EyeOff/>, content: renderPasswordTab() },
-    ];
-
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4 modal-backdrop">
-             <div ref={modalRef} className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col modal-content">
-                 <div className="flex justify-between items-center mb-4 pb-4 border-b dark:border-gray-700">
-                     <h2 className="text-2xl font-bold flex items-center gap-2"><UserCog/> Painel de Administração</h2>
-                     <button onClick={onClose} title="Fechar"><XCircle /></button>
-                 </div>
-                 <div className="flex-grow flex gap-6 overflow-hidden">
-                     <div className="flex flex-col gap-1 border-r pr-6 dark:border-gray-700">
-                         {tabs.map(tab => (
-                             <button key={tab.id} onClick={() => setActiveTab(tab.id)} 
-                                 className={`flex items-center gap-3 px-4 py-2 rounded-md text-left ${activeTab === tab.id ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
-                                 {tab.icon}
-                                 <span className="font-semibold">{tab.label}</span>
-                             </button>
-                         ))}
-                     </div>
-                     <div className="flex-grow overflow-y-auto pr-2">
-                         {tabs.find(t => t.id === activeTab)?.content}
-                     </div>
-                 </div>
-             </div>
         </div>
     );
 };
@@ -1445,6 +1466,12 @@ const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboard
     const [selectedDashboards, setSelectedDashboards] = useState(() => dashboards.map(d => d.id));
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
+
+    useEffect(() => {
+        if (isOpen) {
+            setSelectedDashboards(dashboards.map(d => d.id));
+        }
+    }, [isOpen, dashboards]);
 
     if (!isOpen) return null;
 
@@ -1497,7 +1524,7 @@ const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboard
                         <div className="space-y-2 max-h-48 overflow-y-auto pr-2 mb-4">
                             {dashboards.map(dash => (
                                 <label key={dash.id} className="flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer">
-                                    <input type="checkbox" checked={selectedDashboards.includes(dash.id)} onChange={() => handleToggle(dash.id)} className="h-5 w-5 rounded"/>
+                                    <input type="checkbox" checked={selectedDashboards.includes(dash.id)} onChange={() => handleToggle(dash.id)} className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500"/>
                                     <span>{dash.name}</span>
                                 </label>
                             ))}
@@ -2945,7 +2972,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         return (
             <div className="overflow-x-auto w-full text-center p-6 border-4 border-blue-900 rounded-xl shadow-2xl bg-white text-gray-900">
                 <table className="min-w-full table-fixed">
-                    <thead className="text-white bg-blue-500 dark:bg-blue-600">
+                    <thead className="text-white bg-blue-500">
                         <tr><th colSpan={FIXED_PERIODS.length + 1} className="p-4 text-5xl relative">
                             <div className="absolute top-2 left-2 flex items-center gap-2">
                                 <button onClick={stopTvMode} className="p-2 bg-red-600 text-white rounded-full flex items-center gap-1 text-sm"><XCircle size={18} /> SAIR</button>
@@ -3079,29 +3106,30 @@ const AppContent = () => {
 
                 // --- Etapa 3: Buscar dados de usuários e permissões (apenas uma vez) ---
                 const rolesSnap = await getDocs(collection(db, "roles"));
-                const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data().role]));
+                const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()])); // Agora pegamos o objeto todo
 
                 const usersSnap = await getDocs(collection(db, "users"));
                 const usersData = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
                 
-                const combinedUsers = usersData.map(u => ({ ...u, role: rolesData.get(u.uid) || 'viewer' }));
+                const combinedUsers = usersData.map(u => ({ ...u, permissions: rolesData.get(u.uid)?.permissions || [] }));
                 setUsersWithRoles(combinedUsers);
 
-                const currentUserRole = rolesData.get(user.uid) || 'viewer';
-                const permissionsList = defaultRoles[currentUserRole]?.permissions || [];
+                const currentUserPermissions = rolesData.get(user.uid)?.permissions || [];
                 const permissionsMap = {};
                 for (const key in ALL_PERMISSIONS) {
-                    permissionsMap[key] = permissionsList.includes(key);
+                    permissionsMap[key] = currentUserPermissions.includes(key);
                 }
-                if (currentUserRole === 'admin') {
-                    Object.keys(ALL_PERMISSIONS).forEach(key => permissionsMap[key] = true);
+                
+                // Garantir que o admin sempre tenha todas as permissões, lendo do DB
+                if (rolesData.get(user.uid)?.role === 'admin') {
+                     Object.keys(ALL_PERMISSIONS).forEach(key => permissionsMap[key] = true);
                 }
+
                 console.log("Permissões do usuário definidas:", permissionsMap);
                 setUserPermissions(permissionsMap);
 
             } catch (error) {
                 console.error("ERRO CRÍTICO AO CONFIGURAR DADOS:", error);
-                // Este log é vital. Se houver um erro de permissão, ele aparecerá aqui.
             }
         };
 
@@ -3127,7 +3155,6 @@ const AppContent = () => {
         return <LoginPage />;
     }
 
-    // NOVA VERIFICAÇÃO: Garante que os dados essenciais foram carregados antes de renderizar o dashboard.
     if (dashboards.length === 0 || Object.keys(userPermissions).length === 0) {
         return <div className="min-h-screen bg-gray-100 dark:bg-black flex justify-center items-center"><p className="text-xl">Carregando dados do usuário...</p></div>;
     }
