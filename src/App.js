@@ -38,14 +38,7 @@ const initialDashboards = [
 
 const FIXED_PERIODS = ["08:00", "09:00", "10:00", "11:00", "11:45", "14:00", "15:00", "16:00", "17:00"];
 
-const STOCK_PERMISSIONS = {
-    VIEW_STOCK_DASHBOARD: 'Ver Dashboard de Estoque',
-    MANAGE_STOCK_MOVEMENTS: 'Gerenciar Lançamentos de Estoque',
-    MANAGE_STOCK_PRODUCTS: 'Gerenciar Produtos de Estoque (Criar/Editar/Excluir)',
-    VIEW_STOCK_TRASH: 'Visualizar Lixeira do Estoque',
-    RESTORE_STOCK_TRASH: 'Restaurar Itens da Lixeira do Estoque'
-};
-
+// Objeto de permissões reescrito sem o "spread operator" (...) para máxima compatibilidade.
 const ALL_PERMISSIONS = {
     MANAGE_DASHBOARDS: 'Gerenciar Quadros (Criar/Renomear/Excluir/Reordenar)',
     MANAGE_PRODUCTS: 'Gerenciar Produtos (Cronoanálise)',
@@ -56,7 +49,11 @@ const ALL_PERMISSIONS = {
     VIEW_TRASH: 'Visualizar Lixeira (Cronoanálise)',
     RESTORE_TRASH: 'Restaurar Itens da Lixeira (Cronoanálise)',
     MANAGE_SETTINGS: 'Acessar Painel de Administração',
-    ...STOCK_PERMISSIONS,
+    VIEW_STOCK_DASHBOARD: 'Ver Dashboard de Estoque',
+    MANAGE_STOCK_MOVEMENTS: 'Gerenciar Lançamentos de Estoque',
+    MANAGE_STOCK_PRODUCTS: 'Gerenciar Produtos de Estoque (Criar/Editar/Excluir)',
+    VIEW_STOCK_TRASH: 'Visualizar Lixeira do Estoque',
+    RESTORE_STOCK_TRASH: 'Restaurar Itens da Lixeira do Estoque'
 };
 
 const defaultRoles = {
@@ -1306,260 +1303,272 @@ const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
     );
 };
   
-// --- INÍCIO DO CÓDIGO DESATIVADO PARA TESTE ---
+// =====================================================================
+// === INÍCIO: NOVO PAINEL DE ADMINISTRAÇÃO COMPLETO ===
+// =====================================================================
 
-// const ManageUsersTab = ({ roles, users }) => {
-//     const [newUserEmail, setNewUserEmail] = useState('');
-//     const [newUserRole, setNewUserRole] = useState('viewer');
+const ManageUsersTab = ({ roles, users }) => {
+    const [newUserEmail, setNewUserEmail] = useState('');
+    const [newUserRole, setNewUserRole] = useState('viewer');
 
-//     const handleAddUser = async (e) => {
-//         e.preventDefault();
-//         if (!newUserEmail) {
-//             alert("Por favor, insira um e-mail.");
-//             return;
-//         }
+    const handleAddUser = async (e) => {
+        e.preventDefault();
+        if (!newUserEmail) {
+            alert("Por favor, insira um e-mail.");
+            return;
+        }
         
-//         try {
-//             const userRef = doc(db, "users", newUserEmail); 
-//             await setDoc(userRef, { email: newUserEmail });
+        // AVISO: A criação de usuários no Firebase Auth requer um ambiente seguro (backend/Cloud Function).
+        // Este código apenas adicionará o usuário às coleções 'users' e 'roles' no Firestore.
+        // O usuário precisará ser criado no painel do Firebase Authentication manualmente.
+        
+        try {
+            const userRef = doc(db, "users", newUserEmail); 
+            await setDoc(userRef, { email: newUserEmail });
 
-//             const roleRef = doc(db, "roles", newUserEmail);
-//             await setDoc(roleRef, { role: newUserRole, permissions: roles[newUserRole].permissions });
+            const roleRef = doc(db, "roles", newUserEmail);
+            await setDoc(roleRef, { role: newUserRole, permissions: roles[newUserRole].permissions });
 
-//             alert(`Usuário ${newUserEmail} adicionado com a função ${roles[newUserRole].name}. Crie a conta de login para este e-mail no painel do Firebase.`);
-//             setNewUserEmail('');
-//             setNewUserRole('viewer');
-//         } catch (error) {
-//             console.error("Erro ao adicionar usuário: ", error);
-//             alert(`Falha ao adicionar usuário. Detalhes: ${error.message}`);
-//         }
-//     };
+            alert(`Usuário ${newUserEmail} adicionado com a função ${roles[newUserRole].name}. Crie a conta de login para este e-mail no painel do Firebase.`);
+            setNewUserEmail('');
+            setNewUserRole('viewer');
+        } catch (error) {
+            console.error("Erro ao adicionar usuário: ", error);
+            alert(`Falha ao adicionar usuário. Verifique se o e-mail já existe. Detalhes: ${error.message}`);
+        }
+    };
     
-//     const handleDeleteUser = async (userEmail) => {
-//         if (!window.confirm(`Tem certeza que deseja excluir o usuário ${userEmail}? Suas permissões serão removidas.`)) {
-//             return;
-//         }
-//         try {
-//             const batch = writeBatch(db);
-//             batch.delete(doc(db, "users", userEmail));
-//             batch.delete(doc(db, "roles", userEmail));
-//             await batch.commit();
-//             alert(`Usuário ${userEmail} foi removido do sistema de permissões.`);
-//         } catch (error) {
-//             console.error("Erro ao deletar usuário:", error);
-//             alert("Falha ao deletar usuário.");
-//         }
-//     };
-    
-//     const handleRoleChange = async (userEmail, newRoleId) => {
-//         try {
-//             const roleRef = doc(db, "roles", userEmail);
-//             await setDoc(roleRef, {
-//                 role: newRoleId,
-//                 permissions: roles[newRoleId].permissions
-//             }, { merge: true });
-//             alert(`Função do usuário ${userEmail} atualizada.`);
-//         } catch (error) {
-//             console.error("Erro ao atualizar função:", error);
-//             alert("Falha ao atualizar função.");
-//         }
-//     };
+    const handleDeleteUser = async (userEmail) => {
+        if (!window.confirm(`Tem certeza que deseja excluir o usuário ${userEmail}? Suas permissões serão removidas.`)) {
+            return;
+        }
 
-//     return (
-//         <div>
-//             <form onSubmit={handleAddUser} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-end gap-4 mb-6">
-//                 <div className="flex-grow">
-//                     <label className="block text-sm font-medium">Email do Usuário</label>
-//                     <input
-//                         type="email"
-//                         value={newUserEmail}
-//                         onChange={e => setNewUserEmail(e.target.value)}
-//                         placeholder="usuario@email.com"
-//                         className="w-full p-2 mt-1 rounded-md bg-white dark:bg-gray-700"
-//                     />
-//                 </div>
-//                 <div className="flex-grow">
-//                     <label className="block text-sm font-medium">Função</label>
-//                     <select
-//                         value={newUserRole}
-//                         onChange={e => setNewUserRole(e.target.value)}
-//                         className="w-full p-2 mt-1 rounded-md bg-white dark:bg-gray-700"
-//                     >
-//                         {Object.values(roles).map(role => (
-//                             <option key={role.id} value={role.id}>{role.name}</option>
-//                         ))}
-//                     </select>
-//                 </div>
-//                 <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md h-10">Adicionar Usuário</button>
-//             </form>
+        // AVISO: A exclusão de usuários do Firebase Auth também requer um backend.
+        // Este código removerá o usuário apenas do controle de permissões no Firestore.
+        try {
+            const batch = writeBatch(db);
+            batch.delete(doc(db, "users", userEmail));
+            batch.delete(doc(db, "roles", userEmail));
+            await batch.commit();
+
+            alert(`Usuário ${userEmail} foi removido do sistema de permissões.`);
+        } catch (error) {
+            console.error("Erro ao deletar usuário:", error);
+            alert("Falha ao deletar usuário.");
+        }
+    };
+    
+    const handleRoleChange = async (userEmail, newRoleId) => {
+        try {
+            const roleRef = doc(db, "roles", userEmail);
+            await setDoc(roleRef, {
+                role: newRoleId,
+                permissions: roles[newRoleId].permissions
+            }, { merge: true });
+            alert(`Função do usuário ${userEmail} atualizada.`);
+        } catch (error) {
+            console.error("Erro ao atualizar função:", error);
+            alert("Falha ao atualizar função.");
+        }
+    };
+
+    return (
+        <div>
+            <form onSubmit={handleAddUser} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-end gap-4 mb-6">
+                <div className="flex-grow">
+                    <label className="block text-sm font-medium">Email do Usuário</label>
+                    <input
+                        type="email"
+                        value={newUserEmail}
+                        onChange={e => setNewUserEmail(e.target.value)}
+                        placeholder="usuario@email.com"
+                        className="w-full p-2 mt-1 rounded-md bg-white dark:bg-gray-700"
+                    />
+                </div>
+                <div className="flex-grow">
+                    <label className="block text-sm font-medium">Função</label>
+                    <select
+                        value={newUserRole}
+                        onChange={e => setNewUserRole(e.target.value)}
+                        className="w-full p-2 mt-1 rounded-md bg-white dark:bg-gray-700"
+                    >
+                        {Object.values(roles).map(role => (
+                            <option key={role.id} value={role.id}>{role.name}</option>
+                        ))}
+                    </select>
+                </div>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md h-10">Adicionar Usuário</button>
+            </form>
             
-//             <div className="space-y-2">
-//                 {users.map(user => (
-//                     <div key={user.uid} className="p-3 bg-gray-100 dark:bg-gray-800 rounded-lg flex justify-between items-center">
-//                         <span className="font-semibold">{user.email}</span>
-//                         <div className="flex items-center gap-4">
-//                            <select
-//                                 value={user.role}
-//                                 onChange={e => handleRoleChange(user.email, e.target.value)}
-//                                 className="p-1 rounded-md bg-white dark:bg-gray-700"
-//                            >
-//                                {Object.values(roles).map(role => (
-//                                    <option key={role.id} value={role.id}>{role.name}</option>
-//                                ))}
-//                            </select>
-//                             <button onClick={() => handleDeleteUser(user.email)} title="Excluir Usuário">
-//                                 <Trash2 size={18} className="text-red-500 hover:text-red-400"/>
-//                             </button>
-//                         </div>
-//                     </div>
-//                 ))}
-//             </div>
-//         </div>
-//     );
-// };
+            <div className="space-y-2">
+                {users.map(user => (
+                    <div key={user.uid} className="p-3 bg-gray-100 dark:bg-gray-800 rounded-lg flex justify-between items-center">
+                        <span className="font-semibold">{user.email}</span>
+                        <div className="flex items-center gap-4">
+                           <select
+                                value={user.role}
+                                onChange={e => handleRoleChange(user.email, e.target.value)}
+                                className="p-1 rounded-md bg-white dark:bg-gray-700"
+                           >
+                               {Object.values(roles).map(role => (
+                                   <option key={role.id} value={role.id}>{role.name}</option>
+                               ))}
+                           </select>
+                            <button onClick={() => handleDeleteUser(user.email)} title="Excluir Usuário">
+                                <Trash2 size={18} className="text-red-500 hover:text-red-400"/>
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
 
-// const ManageRolesTab = ({ roles }) => {
-//     return (
-//         <div className="space-y-4">
-//             {Object.values(roles).map(role => (
-//                 <div key={role.id} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-//                     <h3 className="text-lg font-bold">{role.name}</h3>
-//                     <p className="text-sm text-gray-500 mb-2">{role.permissions.length} permissões ativas</p>
-//                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1 text-sm">
-//                         {Object.entries(ALL_PERMISSIONS).map(([key, description]) => (
-//                             <div key={key} className={`flex items-center gap-2 ${role.permissions.includes(key) ? '' : 'text-gray-400'}`}>
-//                                 {role.permissions.includes(key)
-//                                     ? <ShieldCheck size={16} className="text-green-500" />
-//                                     : <XCircle size={16} className="text-red-500" />
-//                                 }
-//                                 <span>{description}</span>
-//                             </div>
-//                         ))}
-//                     </div>
-//                 </div>
-//             ))}
-//         </div>
-//     );
-// };
+const ManageRolesTab = ({ roles }) => {
+    return (
+        <div className="space-y-4">
+            {Object.values(roles).map(role => (
+                <div key={role.id} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <h3 className="text-lg font-bold">{role.name}</h3>
+                    <p className="text-sm text-gray-500 mb-2">{role.permissions.length} permissões ativas</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                        {Object.entries(ALL_PERMISSIONS).map(([key, description]) => (
+                            <div key={key} className={`flex items-center gap-2 ${role.permissions.includes(key) ? '' : 'text-gray-400'}`}>
+                                {role.permissions.includes(key)
+                                    ? <ShieldCheck size={16} className="text-green-500" />
+                                    : <XCircle size={16} className="text-red-500" />
+                                }
+                                <span>{description}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
 
-// const ChangePasswordTab = () => {
-//     const [newPassword, setNewPassword] = useState('');
-//     const [confirmPassword, setConfirmPassword] = useState('');
-//     const [message, setMessage] = useState('');
-//     const [isError, setIsError] = useState(false);
+const ChangePasswordTab = () => {
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [message, setMessage] = useState('');
+    const [isError, setIsError] = useState(false);
 
-//     const handleChangePassword = async (e) => {
-//         e.preventDefault();
-//         setMessage('');
-//         setIsError(false);
+    const handleChangePassword = async (e) => {
+        e.preventDefault();
+        setMessage('');
+        setIsError(false);
         
-//         if (newPassword !== confirmPassword) {
-//             setMessage("As senhas não coincidem.");
-//             setIsError(true);
-//             return;
-//         }
-//         if (newPassword.length < 6) {
-//             setMessage("A senha deve ter no mínimo 6 caracteres.");
-//             setIsError(true);
-//             return;
-//         }
+        if (newPassword !== confirmPassword) {
+            setMessage("As senhas não coincidem.");
+            setIsError(true);
+            return;
+        }
+        if (newPassword.length < 6) {
+            setMessage("A senha deve ter no mínimo 6 caracteres.");
+            setIsError(true);
+            return;
+        }
 
-//         try {
-//             await updatePassword(auth.currentUser, newPassword);
-//             setMessage("Senha alterada com sucesso!");
-//             setIsError(false);
-//             setNewPassword('');
-//             setConfirmPassword('');
-//         } catch (error) {
-//             console.error("Erro ao alterar senha:", error);
-//             setMessage("Erro ao alterar senha. Pode ser necessário fazer login novamente para completar esta ação.");
-//             setIsError(true);
-//         }
-//     };
+        try {
+            await updatePassword(auth.currentUser, newPassword);
+            setMessage("Senha alterada com sucesso!");
+            setIsError(false);
+            setNewPassword('');
+            setConfirmPassword('');
+        } catch (error) {
+            console.error("Erro ao alterar senha:", error);
+            setMessage("Erro ao alterar senha. Pode ser necessário fazer login novamente para completar esta ação.");
+            setIsError(true);
+        }
+    };
     
-//     return (
-//         <div className="max-w-md mx-auto">
-//             <h3 className="text-xl font-semibold mb-4 text-center">Alterar Senha de Administrador</h3>
-//             <form onSubmit={handleChangePassword} className="space-y-4">
-//                  <div>
-//                     <label className="block text-sm font-medium">Nova Senha</label>
-//                     <input
-//                         type="password"
-//                         value={newPassword}
-//                         onChange={e => setNewPassword(e.target.value)}
-//                         className="w-full p-2 mt-1 rounded-md bg-gray-100 dark:bg-gray-700"
-//                         required
-//                     />
-//                 </div>
-//                  <div>
-//                     <label className="block text-sm font-medium">Confirmar Nova Senha</label>
-//                     <input
-//                         type="password"
-//                         value={confirmPassword}
-//                         onChange={e => setConfirmPassword(e.target.value)}
-//                         className="w-full p-2 mt-1 rounded-md bg-gray-100 dark:bg-gray-700"
-//                         required
-//                     />
-//                 </div>
-//                 {message && (
-//                     <p className={`text-sm text-center ${isError ? 'text-red-500' : 'text-green-500'}`}>{message}</p>
-//                 )}
-//                 <button type="submit" className="w-full px-4 py-2 bg-green-600 text-white rounded-md">
-//                     Salvar Nova Senha
-//                 </button>
-//             </form>
-//         </div>
-//     );
-// };
+    return (
+        <div className="max-w-md mx-auto">
+            <h3 className="text-xl font-semibold mb-4 text-center">Alterar Senha de Administrador</h3>
+            <form onSubmit={handleChangePassword} className="space-y-4">
+                 <div>
+                    <label className="block text-sm font-medium">Nova Senha</label>
+                    <input
+                        type="password"
+                        value={newPassword}
+                        onChange={e => setNewPassword(e.target.value)}
+                        className="w-full p-2 mt-1 rounded-md bg-gray-100 dark:bg-gray-700"
+                        required
+                    />
+                </div>
+                 <div>
+                    <label className="block text-sm font-medium">Confirmar Nova Senha</label>
+                    <input
+                        type="password"
+                        value={confirmPassword}
+                        onChange={e => setConfirmPassword(e.target.value)}
+                        className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                        required
+                    />
+                </div>
+                {message && (
+                    <p className={`text-sm text-center ${isError ? 'text-red-500' : 'text-green-500'}`}>{message}</p>
+                )}
+                <button type="submit" className="w-full px-4 py-2 bg-green-600 text-white rounded-md">
+                    Salvar Nova Senha
+                </button>
+            </form>
+        </div>
+    );
+};
 
 
-// const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
-//     const modalRef = useRef();
-//     useClickOutside(modalRef, onClose);
-//     const [activeTab, setActiveTab] = useState('users');
+const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
+    const modalRef = useRef();
+    useClickOutside(modalRef, onClose);
+    const [activeTab, setActiveTab] = useState('users');
 
-//     if (!isOpen) return null;
+    if (!isOpen) return null;
 
-//     const tabs = [
-//         { id: 'users', label: 'Usuários', icon: UserCog },
-//         { id: 'roles', label: 'Funções', icon: ShieldCheck },
-//         { id: 'password', label: 'Senha', icon: KeyRound },
-//     ];
+    const tabs = [
+        { id: 'users', label: 'Usuários', icon: UserCog },
+        { id: 'roles', label: 'Funções', icon: ShieldCheck },
+        { id: 'password', label: 'Senha', icon: KeyRound },
+    ];
 
-//     return (
-//         <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 p-4 modal-backdrop">
-//             <div ref={modalRef} className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col modal-content">
-//                 <div className="flex justify-between items-center p-4 border-b dark:border-gray-700">
-//                     <h2 className="text-2xl font-bold flex items-center gap-2"><Settings/> Painel de Administração</h2>
-//                     <button onClick={onClose} title="Fechar"><XCircle /></button>
-//                 </div>
-//                 <div className="flex flex-grow overflow-hidden">
-//                     <aside className="w-1/4 p-4 border-r dark:border-gray-700">
-//                         <nav className="flex flex-col gap-2">
-//                             {tabs.map(tab => (
-//                                 <button
-//                                     key={tab.id}
-//                                     onClick={() => setActiveTab(tab.id)}
-//                                     className={`flex items-center gap-3 p-3 rounded-lg text-lg transition-colors ${activeTab === tab.id ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
-//                                 >
-//                                     <tab.icon size={24} />
-//                                     {tab.label}
-//                                 </button>
-//                             ))}
-//                         </nav>
-//                     </aside>
-//                     <main className="w-3/4 p-6 overflow-y-auto">
-//                         {activeTab === 'users' && <ManageUsersTab roles={roles} users={users} />}
-//                         {activeTab === 'roles' && <ManageRolesTab roles={roles} />}
-//                         {activeTab === 'password' && <ChangePasswordTab />}
-//                     </main>
-//                 </div>
-//             </div>
-//         </div>
-//     );
-// };
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 p-4 modal-backdrop">
+            <div ref={modalRef} className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col modal-content">
+                <div className="flex justify-between items-center p-4 border-b dark:border-gray-700">
+                    <h2 className="text-2xl font-bold flex items-center gap-2"><Settings/> Painel de Administração</h2>
+                    <button onClick={onClose} title="Fechar"><XCircle /></button>
+                </div>
+                <div className="flex flex-grow overflow-hidden">
+                    <aside className="w-1/4 p-4 border-r dark:border-gray-700">
+                        <nav className="flex flex-col gap-2">
+                            {tabs.map(tab => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id)}
+                                    className={`flex items-center gap-3 p-3 rounded-lg text-lg transition-colors ${activeTab === tab.id ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+                                >
+                                    <tab.icon size={24} />
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </nav>
+                    </aside>
+                    <main className="w-3/4 p-6 overflow-y-auto">
+                        {activeTab === 'users' && <ManageUsersTab roles={roles} users={users} />}
+                        {activeTab === 'roles' && <ManageRolesTab roles={roles} />}
+                        {activeTab === 'password' && <ChangePasswordTab />}
+                    </main>
+                </div>
+            </div>
+        </div>
+    );
+};
 
-// --- FIM DO CÓDIGO DESATIVADO PARA TESTE ---
+// =====================================================================
+// === FIM: NOVO PAINEL DE ADMINISTRAÇÃO COMPLETO ===
+// =====================================================================
   
 const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboards }) => {
     const [carouselSeconds, setCarouselSeconds] = useState(10);
@@ -2494,7 +2503,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             <LotObservationModal isOpen={modalState.type === 'lotObservation'} onClose={closeModal} lot={modalState.data} onSave={handleSaveLotObservation} />
             <PasswordModal isOpen={modalState.type === 'password'} onClose={closeModal} onSuccess={modalState.data?.onSuccess} adminConfig={{}} />
             <ReasonModal isOpen={modalState.type === 'reason'} onClose={closeModal} onConfirm={modalState.data?.onConfirm} />
-            {/* <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={roles} /> */}
+            <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={roles} />
             <TvSelectorModal isOpen={modalState.type === 'tvSelector'} onClose={closeModal} onSelect={startTvMode} onStartCarousel={startTvMode} dashboards={dashboards} />
 
             <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-20">
@@ -2538,7 +2547,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                     <span className='text-sm text-gray-500 dark:text-gray-400 hidden md:block'>{user.email}</span>
                     <button onClick={logout} title="Sair" className="p-2 rounded-full bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/50 dark:text-red-400 dark:hover:bg-red-900"><LogOut size={20} /></button>
                     <button onClick={handleSelectTvMode} title="Modo TV" className="p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700"><Monitor size={20} /></button>
-                    {/* {permissions.MANAGE_SETTINGS && <button onClick={() => setModalState({ type: 'adminSettings' })} title="Configurações" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"><Settings size={20} /></button>} */}
+                    {permissions.MANAGE_SETTINGS && <button onClick={() => setModalState({ type: 'adminSettings' })} title="Configurações" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"><Settings size={20} /></button>}
                     <button onClick={toggleTheme} title={theme === 'light' ? "Mudar para Tema Escuro" : "Mudar para Tema Claro"} className="p-2 rounded-full bg-gray-200 dark:bg-gray-700">{theme === 'light' ? <Moon size={20}/> : <Sun size={20}/>}</button>
                 </div>
             </header>
