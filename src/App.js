@@ -1668,7 +1668,7 @@ const TrashItemDisplay = ({ item, products, user, onRestore, canRestore }) => {
     return null;
 };
 
-const LotReport = ({ lots }) => {
+const LotReport = ({ lots, products }) => {
     const reportData = useMemo(() => {
         const completedLots = lots.filter(l => l.status.startsWith('completed') && l.startDate && l.endDate);
         if (completedLots.length === 0) {
@@ -3126,7 +3126,7 @@ const AppContent = () => {
     }
     
     return <CronoanaliseDashboard 
-        onNavigateToStock={() => setCurrentApp('cronoanalise')}
+        onNavigateToStock={() => setCurrentApp('stock')}
         user={user}
         permissions={userPermissions}
         startTvMode={startTvMode} 
