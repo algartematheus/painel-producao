@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext } from 'react';
-import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Home, ArrowUpDown, Box, Trash, MinusCircle, ShieldCheck } from 'lucide-react';
+import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Home, ArrowUpDown, Box, Trash, MinusCircle } from 'lucide-react';
 import { db, auth } from './firebase';
 import {
   collection,
@@ -17,8 +17,6 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  createUserWithEmailAndPassword,
-  updatePassword
 } from 'firebase/auth';
 
 // =====================================================================
@@ -46,15 +44,12 @@ const ALL_PERMISSIONS = {
     VIEW_TRASH: 'Visualizar Lixeira',
     RESTORE_TRASH: 'Restaurar Itens da Lixeira',
     MANAGE_SETTINGS: 'Acessar e Gerenciar Configurações de Administrador',
-    VIEW_STOCK: 'Visualizar Gerenciamento de Estoque',
-    MANAGE_STOCK: 'Gerenciar Estoque (Adicionar/Editar Produtos)',
-    MAKE_STOCK_ENTRIES: 'Realizar Lançamentos no Estoque',
 };
 
 const defaultRoles = {
     'admin': { id: 'admin', name: 'Administrador', permissions: Object.keys(ALL_PERMISSIONS) },
-    'editor': { id: 'editor', name: 'Editor', permissions: ['MANAGE_PRODUCTS', 'MANAGE_LOTS', 'ADD_ENTRIES', 'EDIT_ENTRIES', 'DELETE_ENTRIES', 'VIEW_STOCK', 'MAKE_STOCK_ENTRIES'] },
-    'viewer': { id: 'viewer', name: 'Visualizador', permissions: ['VIEW_STOCK'] },
+    'editor': { id: 'editor', name: 'Editor', permissions: ['MANAGE_PRODUCTS', 'MANAGE_LOTS', 'ADD_ENTRIES', 'EDIT_ENTRIES', 'DELETE_ENTRIES'] },
+    'viewer': { id: 'viewer', name: 'Visualizador', permissions: [] },
 };
 
 const generateId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
