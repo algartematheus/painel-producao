@@ -12,7 +12,8 @@ import {
   query,
   orderBy,
   getDocs,
-  increment // NOVO: Importado para atualizações atômicas
+  increment,
+  Timestamp
 } from 'firebase/firestore';
 import {
   signInWithEmailAndPassword,
@@ -215,157 +216,176 @@ const LoginPage = () => {
 };
 
 
-
 // #######################################################################
-// #                                                                     #
-// #       INÍCIO: GERENCIADOR DE ESTOQUE (NOVA FUNCIONALIDADE)          #
-// #                                                                     #
+// #       INÍCIO: GERENCIADOR DE ESTOQUE (AGORA COM FIREBASE)           #
 // #######################################################################
-
-const mockData = {
-    users: [{ id: 'user1', name: 'Usuário Padrão' }, { id: 'user2', name: 'Admin' }],
-    currentUser: 'user1',
-    categories: [
-        { id: 'cat1', name: 'Zíperes', createdBy: 'user1' },
-        { id: 'cat2', name: 'Linhas', createdBy: 'user1' },
-    ],
-    products: [
-        { 
-            id: 'prod1', 
-            name: 'ZÍPER AZUL', 
-            categoryId: 'cat1', 
-            minStock: 5000, 
-            leadTimeInMonths: 1,
-            isDeleted: false,
-            variations: [
-                { id: 'var_z1a', name: '18cm', initialStock: 31000, currentStock: 17052 },
-            ]
-        },
-    ],
-    stockMovements: [
-        { id: 'mov1', productId: 'prod1', variationId: 'var_z1a', quantity: 100, type: 'Saída', timestamp: new Date(2025, 9, 1, 10, 0, 0).toISOString(), user: 'user1' },
-    ],
-    auditLog: [
-        { id: 'log1', action: 'STOCK_UPDATED', details: { productName: 'ZÍPER AZUL (18cm)', change: -100, type: 'Saída' }, timestamp: new Date(2025, 9, 1, 10, 0, 0).toISOString(), user: 'user1' },
-    ]
-};
 
 const StockContext = createContext();
 
+// ALTERADO: StockProvider foi reescrito para usar Firebase
 const StockProvider = ({ children }) => {
-  const [state, setState] = useState(mockData);
+    const { user } = useAuth();
+    const [categories, setCategories] = useState([]);
+    const [products, setProducts] = useState([]);
+    const [stockMovements, setStockMovements] = useState([]);
+    const [loading, setLoading] = useState(true);
 
-    const getCategories = useCallback(() => [...state.categories].sort((a, b) => a.name.localeCompare(b.name)), [state.categories]);
-    const getProducts = useCallback(() => [...state.products.filter(p => !p.isDeleted)].sort((a, b) => a.name.localeCompare(b.name)), [state.products]);
-    const getDeletedProducts = useCallback(() => state.products.filter(p => p.isDeleted), [state.products]);
+    // Listeners em tempo real para os dados do estoque no Firebase
+    useEffect(() => {
+        if (!user) return; // Não faz nada se não houver usuário logado
+        setLoading(true);
 
-    const addCategory = useCallback((categoryName) => {
-        const newCategoryId = generateId('cat');
-        setState(prev => {
-            if (prev.categories.some(c => c.name.toLowerCase() === categoryName.toLowerCase())) {
-                return prev;
-            }
-            const newCategory = { id: newCategoryId, name: categoryName, createdBy: prev.currentUser };
-            const newAuditLog = { id: generateId('log'), action: 'CATEGORY_CREATED', details: { categoryName }, timestamp: new Date().toISOString(), user: prev.currentUser };
-            return { ...prev, categories: [...prev.categories, newCategory], auditLog: [...prev.auditLog, newAuditLog] };
+        const unsubCategories = onSnapshot(query(collection(db, "stock/data/categories"), orderBy("name")), (snap) => {
+            setCategories(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         });
-        return newCategoryId;
-    }, []);
 
-    const addProduct = useCallback((productData) => {
-        setState(prev => {
-            const newProduct = {
-                id: generateId('prod'),
-                ...productData,
-                isDeleted: false,
-                variations: productData.variations.map(v => ({
-                    ...v,
-                    id: generateId('var'),
-                    currentStock: parseInt(v.initialStock, 10) || 0
-                }))
-            };
-            const newAuditLog = { id: generateId('log'), action: 'PRODUCT_CREATED', details: { productName: newProduct.name }, timestamp: new Date().toISOString(), user: prev.currentUser };
-            return { ...prev, products: [...prev.products, newProduct], auditLog: [...prev.auditLog, newAuditLog] };
+        const unsubProducts = onSnapshot(query(collection(db, "stock/data/products"), orderBy("name")), (snap) => {
+            setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         });
-    }, []);
 
-    const updateProduct = useCallback((productId, productData) => {
-        setState(prev => {
-            const products = prev.products.map(p => {
-                if (p.id === productId) {
-                    return {
-                        ...p,
-                        name: productData.name,
-                        categoryId: productData.categoryId,
-                        minStock: productData.minStock,
-                        leadTimeInMonths: productData.leadTimeInMonths,
-                    };
+        const unsubMovements = onSnapshot(query(collection(db, "stock/data/movements"), orderBy("timestamp", "desc")), (snap) => {
+            setStockMovements(snap.docs.map(d => {
+                const data = d.data();
+                return {
+                    id: d.id,
+                    ...data,
+                    timestamp: data.timestamp ? data.timestamp.toDate() : new Date()
+                };
+            }));
+        });
+
+        setLoading(false);
+
+        return () => {
+            unsubCategories();
+            unsubProducts();
+            unsubMovements();
+        };
+    }, [user]);
+
+    // Funções para manipular os dados no Firebase
+    const addCategory = async (categoryName) => {
+        const newId = generateId('cat');
+        const exists = categories.some(c => c.name.toLowerCase() === categoryName.toLowerCase());
+        if (exists) {
+            alert("Uma categoria com este nome já existe.");
+            return null;
+        }
+        await setDoc(doc(db, "stock/data/categories", newId), {
+            name: categoryName,
+            createdBy: user.uid,
+            createdAt: Timestamp.now(),
+        });
+        return newId;
+    };
+
+    const addProduct = async (productData) => {
+        const newId = generateId('prod');
+        const newProduct = {
+            ...productData,
+            isDeleted: false,
+            createdAt: Timestamp.now(),
+            createdBy: user.uid,
+            variations: productData.variations.map(v => ({
+                ...v,
+                id: generateId('var'),
+                currentStock: parseInt(v.initialStock, 10) || 0
+            }))
+        };
+        await setDoc(doc(db, "stock/data/products", newId), newProduct);
+    };
+
+    const updateProduct = async (productId, productData) => {
+        const { id, ...dataToUpdate } = productData; // Evita salvar o id dentro do documento
+        const productRef = doc(db, "stock/data/products", productId);
+        await updateDoc(productRef, dataToUpdate);
+    };
+
+    const deleteProduct = async (productId) => {
+        await updateDoc(doc(db, "stock/data/products", productId), {
+            isDeleted: true,
+            deletedAt: Timestamp.now()
+        });
+    };
+
+    const restoreProduct = async (productId) => {
+        await updateDoc(doc(db, "stock/data/products", productId), {
+            isDeleted: false,
+            deletedAt: null // Usa null para limpar o campo
+        });
+    };
+
+    const addStockMovement = async ({ productId, variationId, quantity, type }) => {
+        const batch = writeBatch(db);
+
+        const newMovementId = generateId('mov');
+        const movementRef = doc(db, "stock/data/movements", newMovementId);
+        batch.set(movementRef, {
+            productId,
+            variationId,
+            quantity: parseInt(quantity, 10),
+            type,
+            user: user.uid,
+            userEmail: user.email,
+            timestamp: Timestamp.now()
+        });
+
+        const productRef = doc(db, "stock/data/products", productId);
+        const productDoc = products.find(p => p.id === productId);
+        if (productDoc) {
+            const updatedVariations = productDoc.variations.map(v => {
+                if (v.id === variationId) {
+                    const change = type === 'Entrada' ? parseInt(quantity, 10) : -parseInt(quantity, 10);
+                    return { ...v, currentStock: v.currentStock + change };
                 }
-                return p;
+                return v;
             });
-            const updatedProduct = products.find(p => p.id === productId);
-            const newAuditLog = { id: generateId('log'), action: 'PRODUCT_UPDATED', details: { productName: updatedProduct.name }, timestamp: new Date().toISOString(), user: prev.currentUser };
-            return { ...prev, products, auditLog: [...prev.auditLog, newAuditLog] };
-        });
-    }, []);
+            batch.update(productRef, { variations: updatedVariations });
+        }
 
-    const deleteProduct = useCallback((productId) => {
-        setState(prev => {
-            const products = prev.products.map(p => p.id === productId ? { ...p, isDeleted: true } : p);
-            const deletedProduct = products.find(p => p.id === productId);
-            const newAuditLog = { id: generateId('log'), action: 'PRODUCT_DELETED', details: { productName: deletedProduct.name }, timestamp: new Date().toISOString(), user: prev.currentUser };
-            return { ...prev, products, auditLog: [...prev.auditLog, newAuditLog] };
-        });
-    }, []);
+        await batch.commit();
+    };
 
-    const restoreProduct = useCallback((productId) => {
-        setState(prev => {
-            const products = prev.products.map(p => p.id === productId ? { ...p, isDeleted: false } : p);
-            const restoredProduct = products.find(p => p.id === productId);
-            const newAuditLog = { id: generateId('log'), action: 'PRODUCT_RESTORED', details: { productName: restoredProduct.name }, timestamp: new Date().toISOString(), user: prev.currentUser };
-            return { ...prev, products, auditLog: [...prev.auditLog, newAuditLog] };
-        });
-    }, []);
+    const deleteStockMovement = async (movement) => {
+        const { id, productId, variationId, quantity, type } = movement;
+        if (!id) return;
 
-    const addStockMovement = useCallback(({ productId, variationId, quantity, type }) => {
-        setState(prev => {
-            let productName = '', variationName = '';
-            const products = prev.products.map(p => {
-                if (p.id === productId) {
-                    productName = p.name;
-                    const newVariations = p.variations.map(v => {
-                        if (v.id === variationId) {
-                            variationName = v.name;
-                            const change = type === 'Entrada' ? parseInt(quantity, 10) : -parseInt(quantity, 10);
-                            return { ...v, currentStock: v.currentStock + change };
-                        }
-                        return v;
-                    });
-                    return { ...p, variations: newVariations };
+        const batch = writeBatch(db);
+
+        const movementRef = doc(db, "stock/data/movements", id);
+        batch.delete(movementRef);
+
+        const productRef = doc(db, "stock/data/products", productId);
+        const productDoc = products.find(p => p.id === productId);
+        if (productDoc) {
+            const updatedVariations = productDoc.variations.map(v => {
+                if (v.id === variationId) {
+                    const change = type === 'Entrada' ? -parseInt(quantity, 10) : parseInt(quantity, 10);
+                    return { ...v, currentStock: v.currentStock + change };
                 }
-                return p;
+                return v;
             });
-            const newMovement = { id: generateId('mov'), productId, variationId, quantity, type, timestamp: new Date().toISOString(), user: prev.currentUser };
-            const newAuditLog = { id: generateId('log'), action: 'STOCK_UPDATED', details: { productName: `${productName} (${variationName})`, change: type === 'Entrada' ? quantity : -quantity, type }, timestamp: new Date().toISOString(), user: prev.currentUser };
-            return { ...prev, products, stockMovements: [...prev.stockMovements, newMovement], auditLog: [...prev.auditLog, newAuditLog] };
-        });
-    }, []);
+            batch.update(productRef, { variations: updatedVariations });
+        }
 
-    const setCurrentUser = useCallback((userId) => setState(prev => ({ ...prev, currentUser: userId })), []);
+        await batch.commit();
+    };
+
 
     const value = useMemo(() => ({
-        ...state,
-        setCurrentUser,
-        getCategories,
-        getProducts,
-        getDeletedProducts,
+        loading,
+        categories,
+        products: products.filter(p => !p.isDeleted),
+        deletedProducts: products.filter(p => p.isDeleted),
+        stockMovements,
         addCategory,
         addProduct,
         updateProduct,
         deleteProduct,
         restoreProduct,
-        addStockMovement
-    }), [state, setCurrentUser, getCategories, getProducts, getDeletedProducts, addCategory, addProduct, updateProduct, deleteProduct, restoreProduct, addStockMovement]);
+        addStockMovement,
+        deleteStockMovement,
+    }), [loading, categories, products, stockMovements]);
 
     return <StockContext.Provider value={value}>{children}</StockContext.Provider>;
 };
@@ -417,20 +437,17 @@ const StockSidebar = ({ activePage, setActivePage }) => {
 };
 
 const StockDashboardPage = () => {
-    const { getProducts, getCategories } = useStock();
-    const allProducts = getProducts();
-    const categories = getCategories();
-
+    const { products, categories, loading } = useStock();
     const [selectedCategoryId, setSelectedCategoryId] = useState('');
     const [sortOrder, setSortOrder] = useState('asc');
 
     const getTotalStock = (p) => p.variations.reduce((sum, v) => sum + v.currentStock, 0);
 
     const displayedProducts = useMemo(() => {
-        let filteredProducts = allProducts;
+        let filteredProducts = products;
 
         if (selectedCategoryId) {
-            filteredProducts = allProducts.filter(p => p.categoryId === selectedCategoryId);
+            filteredProducts = products.filter(p => p.categoryId === selectedCategoryId);
         }
 
         return [...filteredProducts].sort((a, b) => {
@@ -440,7 +457,9 @@ const StockDashboardPage = () => {
                 return b.name.localeCompare(a.name);
             }
         });
-    }, [allProducts, selectedCategoryId, sortOrder]);
+    }, [products, selectedCategoryId, sortOrder]);
+    
+    if (loading) return <div>Carregando...</div>;
 
     return (
         <div className="p-8">
@@ -484,14 +503,14 @@ const StockDashboardPage = () => {
                         <tr>
                             <th className="p-3 text-left">Produto</th>
                             <th className="p-3 text-center">Estoque Inicial (Total)</th>
-                            <th className="p-3 text-center">Estoque Final (Total)</th>
+                            <th className="p-3 text-center">Estoque Atual (Total)</th>
                             <th className="p-3 text-center">Estoque Mínimo</th>
                         </tr>
                     </thead>
                     <tbody>
                         {displayedProducts.map(p => {
                             const totalCurrentStock = getTotalStock(p);
-                            const totalInitialStock = p.variations.reduce((sum, v) => sum + v.initialStock, 0);
+                            const totalInitialStock = p.variations.reduce((sum, v) => sum + (v.initialStock || 0), 0);
                             const stockStatusColor = totalCurrentStock <= p.minStock ? 'bg-red-500/20 text-red-500' : 'bg-green-500/20 text-green-500';
                             return (
                                 <tr key={p.id} className="border-b dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
@@ -529,7 +548,7 @@ const StockCalendarView = ({ selectedDate, setSelectedDate, currentMonth, setCur
     const movementsByDate = useMemo(() => {
         const map = new Map();
         stockMovements.forEach(mov => {
-            const dateStr = new Date(mov.timestamp).toDateString();
+            const dateStr = mov.timestamp.toDateString();
             if (!map.has(dateStr)) {
                 map.set(dateStr, []);
             }
@@ -585,8 +604,9 @@ const StockCalendarView = ({ selectedDate, setSelectedDate, currentMonth, setCur
     );
 };
 
-const StockMovementsPage = () => {
-    const { getProducts, getDeletedProducts, getCategories, addStockMovement, stockMovements } = useStock();
+// ALTERADO: StockMovementsPage agora tem o botão de apagar e usa setConfirmation
+const StockMovementsPage = ({ setConfirmation }) => {
+    const { products, categories, addStockMovement, stockMovements, deleteStockMovement } = useStock();
     
     const [selectedCategoryId, setSelectedCategoryId] = useState('');
     const [movement, setMovement] = useState({ productId: '', variationId: '', type: 'Saída', quantity: '' });
@@ -594,9 +614,6 @@ const StockMovementsPage = () => {
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [calendarView, setCalendarView] = useState('day');
-    
-    const categories = getCategories();
-    const allProducts = getProducts();
 
     const isFormValid = useMemo(() => {
         return (
@@ -608,16 +625,15 @@ const StockMovementsPage = () => {
     }, [movement]);
 
     const filteredProducts = useMemo(() => {
-        if (!selectedCategoryId) return allProducts;
-        return allProducts.filter(p => p.categoryId === selectedCategoryId);
-    }, [selectedCategoryId, allProducts]);
+        if (!selectedCategoryId) return products;
+        return products.filter(p => p.categoryId === selectedCategoryId);
+    }, [selectedCategoryId, products]);
 
-    const selectedProduct = useMemo(() => allProducts.find(p => p.id === movement.productId), [movement.productId, allProducts]);
+    const selectedProduct = useMemo(() => products.find(p => p.id === movement.productId), [movement.productId, products]);
 
     const filteredMovements = useMemo(() => {
-        return [...stockMovements]
-            .reverse()
-            .filter(m => new Date(m.timestamp).toDateString() === selectedDate.toDateString());
+        return stockMovements
+            .filter(m => m.timestamp.toDateString() === selectedDate.toDateString());
     }, [stockMovements, selectedDate]);
 
     useEffect(() => {
@@ -629,11 +645,20 @@ const StockMovementsPage = () => {
     }, [movement.productId]);
 
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if(!isFormValid) return;
-        addStockMovement({ ...movement, quantity: parseInt(movement.quantity) });
-        setMovement({ ...movement, quantity: '', variationId: '', productId: '' });
+        await addStockMovement({ ...movement, quantity: parseInt(movement.quantity) });
+        setMovement({ productId: '', variationId: '', type: 'Saída', quantity: '' });
+    };
+
+    const handleDeleteClick = (mov) => {
+        setConfirmation({
+            isOpen: true,
+            title: "Confirmar Exclusão",
+            message: `Tem certeza que deseja apagar este lançamento? A alteração de estoque (${mov.quantity} un.) será revertida.`,
+            onConfirm: () => () => deleteStockMovement(mov) // Retorna uma função que executa o delete
+        });
     };
 
     return (
@@ -709,23 +734,29 @@ const StockMovementsPage = () => {
                                      <th className="p-3 text-left">Produto (Variação)</th>
                                      <th className="p-3 text-center">Tipo</th>
                                      <th className="p-3 text-center">Quantidade</th>
+                                     <th className="p-3 text-center">Ações</th>
                                  </tr>
                              </thead>
                              <tbody>
                                  {filteredMovements.length > 0 ? filteredMovements.map(m => {
-                                     const product = allProducts.find(p => p.id === m.productId) || getDeletedProducts().find(p => p.id === m.productId);
+                                     const product = products.find(p => p.id === m.productId);
                                      const variation = product?.variations.find(v => v.id === m.variationId);
                                      return (
                                          <tr key={m.id} className="border-b dark:border-gray-800">
-                                             <td className="p-3">{new Date(m.timestamp).toLocaleTimeString('pt-BR')}</td>
+                                             <td className="p-3">{m.timestamp.toLocaleTimeString('pt-BR')}</td>
                                              <td className="p-3">{product?.name || 'Excluído'} {variation && `(${variation.name})`}</td>
                                              <td className={`p-3 text-center font-semibold ${m.type === 'Entrada' ? 'text-green-500' : 'text-red-500'}`}>{m.type}</td>
                                              <td className="p-3 text-center">{m.quantity}</td>
+                                             <td className="p-3 text-center">
+                                                <button onClick={() => handleDeleteClick(m)} title="Apagar Lançamento">
+                                                    <Trash2 size={18} className="text-red-500 hover:text-red-400"/>
+                                                </button>
+                                             </td>
                                          </tr>
                                      );
                                  }) : (
                                      <tr>
-                                         <td colSpan="4" className="text-center p-8 text-gray-500">Nenhuma movimentação para esta data.</td>
+                                         <td colSpan="5" className="text-center p-8 text-gray-500">Nenhuma movimentação para esta data.</td>
                                      </tr>
                                  )}
                              </tbody>
@@ -745,13 +776,15 @@ const CategoryModal = ({ isOpen, onClose, onCategoryCreated }) => {
 
     if (!isOpen) return null;
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (name.trim()) {
-            const newId = addCategory(name.trim());
-            onCategoryCreated(newId);
-            setName('');
-            onClose();
+            const newId = await addCategory(name.trim());
+            if (newId) {
+                onCategoryCreated(newId);
+                setName('');
+                onClose();
+            }
         }
     };
 
@@ -774,13 +807,12 @@ const CategoryModal = ({ isOpen, onClose, onCategoryCreated }) => {
 
 
 const ProductModal = ({ isOpen, onClose, productToEdit }) => {
-    const { getCategories, addProduct, updateProduct } = useStock();
+    const { categories, addProduct, updateProduct } = useStock();
     
     const initialProductState = useMemo(() => ({ name: '', categoryId: '', minStock: '', leadTimeInMonths: '', variations: [{ name: '', initialStock: '' }] }), []);
     const [productData, setProductData] = useState(initialProductState);
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
     
-    const categories = getCategories();
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
 
@@ -788,6 +820,7 @@ const ProductModal = ({ isOpen, onClose, productToEdit }) => {
         if (isOpen) {
             if (productToEdit) {
                 setProductData({
+                    id: productToEdit.id, // Manter o ID para edição
                     name: productToEdit.name,
                     categoryId: productToEdit.categoryId,
                     minStock: productToEdit.minStock,
@@ -845,7 +878,7 @@ const ProductModal = ({ isOpen, onClose, productToEdit }) => {
         setProductData(prev => ({...prev, variations}));
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         const data = {
             ...productData,
@@ -857,9 +890,9 @@ const ProductModal = ({ isOpen, onClose, productToEdit }) => {
             }))
         };
         if (productToEdit) {
-            updateProduct(productToEdit.id, data);
+            await updateProduct(productToEdit.id, data);
         } else {
-            addProduct(data);
+            await addProduct(data);
         }
         onClose();
     };
@@ -921,7 +954,7 @@ const ProductModal = ({ isOpen, onClose, productToEdit }) => {
                                  </div>
                              </div>
                         ))}
-                        <button type="button" onClick={addVariation} className="mt-2 text-sm text-blue-600 hover:underline">+ Adicionar Variação</button>
+                        <button type="button" onClick={addVariation} disabled={!!productToEdit} className="mt-2 text-sm text-blue-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed">+ Adicionar Variação</button>
                     </div>
 
 
@@ -937,13 +970,11 @@ const ProductModal = ({ isOpen, onClose, productToEdit }) => {
 };
 
 
-const StockProductsPage = () => {
-    const { getProducts, getCategories, deleteProduct } = useStock();
+const StockProductsPage = ({ setConfirmation }) => {
+    const { products, categories, deleteProduct } = useStock();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState(null);
     
-    const products = getProducts();
-    const categories = getCategories();
     const getCategoryName = (id) => categories.find(c => c.id === id)?.name || 'N/A';
     const getTotalStock = (p) => p.variations.reduce((sum, v) => sum + v.currentStock, 0);
 
@@ -955,6 +986,15 @@ const StockProductsPage = () => {
     const handleOpenEditModal = (product) => {
         setEditingProduct(product);
         setIsModalOpen(true);
+    };
+
+    const handleDeleteClick = (product) => {
+        setConfirmation({
+            isOpen: true,
+            title: `Excluir Produto`,
+            message: `Tem certeza que deseja excluir "${product.name}"? O produto será movido para a lixeira.`,
+            onConfirm: () => () => deleteProduct(product.id)
+        });
     };
 
     return (
@@ -994,7 +1034,7 @@ const StockProductsPage = () => {
                                 <td className="p-3">
                                     <div className="flex gap-2 justify-center">
                                         <button onClick={() => handleOpenEditModal(p)} title="Editar"><Edit size={18} className="text-yellow-500 hover:text-yellow-400"/></button>
-                                        <button onClick={() => deleteProduct(p.id)} title="Excluir"><Trash2 size={18} className="text-red-500 hover:text-red-400"/></button>
+                                        <button onClick={() => handleDeleteClick(p)} title="Excluir"><Trash2 size={18} className="text-red-500 hover:text-red-400"/></button>
                                     </div>
                                 </td>
                             </tr>
@@ -1013,44 +1053,24 @@ const StockProductsPage = () => {
 };
 
 const StockTrashPage = () => {
-    const { getDeletedProducts, restoreProduct, users, auditLog } = useStock();
-    
-    const products = getDeletedProducts();
-
-    const findDeletionInfo = (productId) => {
-        const product = products.find(p => p.id === productId);
-        if (!product) return { user: 'N/A', date: 'N/A' };
-
-        const log = [...auditLog].reverse().find(l => 
-            l.action === 'PRODUCT_DELETED' && l.details.productName === product.name
-        );
-        
-        if (!log) return { user: 'N/A', date: 'N/A' };
-        
-        const user = users.find(u => u.id === log.user);
-        return {
-            user: user ? user.name : 'Desconhecido',
-            date: new Date(log.timestamp).toLocaleString('pt-BR')
-        }
-    };
+    const { deletedProducts, restoreProduct } = useStock();
 
     return (
         <div className="p-8">
-            <h1 className="text-3xl font-bold mb-6">Lixeira</h1>
+            <h1 className="text-3xl font-bold mb-6">Lixeira de Estoque</h1>
             <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
-                {products.map(p => {
-                    const deletionInfo = findDeletionInfo(p.id);
+                {deletedProducts.map(p => {
                     return (
                         <div key={p.id} className="flex justify-between items-center p-4 border-b dark:border-gray-800">
                             <div>
                                 <p className="font-bold">{p.name}</p>
-                                <p className="text-sm text-gray-500">Excluído por: {deletionInfo.user} em {deletionInfo.date}</p>
+                                <p className="text-sm text-gray-500">Excluído em: {p.deletedAt ? p.deletedAt.toDate().toLocaleString('pt-BR') : 'Data desconhecida'}</p>
                             </div>
                             <button onClick={() => restoreProduct(p.id)} className="p-2 bg-green-500 text-white rounded-md">Restaurar</button>
                         </div>
                     );
                 })}
-                {products.length === 0 && <p>A lixeira está vazia.</p>}
+                {deletedProducts.length === 0 && <p>A lixeira está vazia.</p>}
             </div>
         </div>
     );
@@ -1059,20 +1079,36 @@ const StockTrashPage = () => {
 
 const StockManagementApp = ({ onNavigateToCrono }) => {
     const [activePage, setActivePage] = useState('dashboard');
+    const [confirmation, setConfirmation] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
 
     const renderPage = () => {
+        const props = { setConfirmation };
         switch (activePage) {
-            case 'dashboard': return <StockDashboardPage />;
-            case 'movements': return <StockMovementsPage />;
-            case 'products': return <StockProductsPage />;
-            case 'trash': return <StockTrashPage />;
-            default: return <StockDashboardPage />;
+            case 'dashboard': return <StockDashboardPage {...props} />;
+            case 'movements': return <StockMovementsPage {...props} />;
+            case 'products': return <StockProductsPage {...props} />;
+            case 'trash': return <StockTrashPage {...props} />;
+            default: return <StockDashboardPage {...props} />;
         }
+    };
+
+    const handleConfirm = () => {
+        if (confirmation.onConfirm) {
+            confirmation.onConfirm()();
+        }
+        setConfirmation({ isOpen: false });
     };
 
     return (
         <StockProvider>
             <div className="min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans flex flex-col">
+                <ConfirmationModal 
+                    isOpen={confirmation.isOpen}
+                    onClose={() => setConfirmation({ isOpen: false, title: '', message: '', onConfirm: () => {} })}
+                    onConfirm={handleConfirm}
+                    title={confirmation.title}
+                    message={confirmation.message}
+                />
                 <StockHeader onNavigateToCrono={onNavigateToCrono} />
                 <div className="flex flex-grow">
                     <StockSidebar activePage={activePage} setActivePage={setActivePage} />
@@ -1087,7 +1123,7 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
 
 // #####################################################################
 // #                                                                   #
-// #       FIM: GERENCIADOR DE ESTOQUE (NOVA FUNCIONALIDADE)           #
+// #       FIM: GERENCIADOR DE ESTOQUE (AGORA COM FIREBASE)            #
 // #                                                                   #
 // #####################################################################
 
@@ -1099,7 +1135,6 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
 // #                                                                   #
 // #####################################################################
 
-// NOVO: Modal para editar um lançamento de produção
 const EditEntryModal = ({ isOpen, onClose, entry, onSave, products }) => {
     const [entryData, setEntryData] = useState(null);
     const modalRef = useRef();
@@ -1110,7 +1145,6 @@ const EditEntryModal = ({ isOpen, onClose, entry, onSave, products }) => {
             setEntryData({
                 people: entry.people,
                 availableTime: entry.availableTime,
-                // Mapeia os detalhes da produção para um formato fácil de usar no formulário
                 productions: entry.productionDetails.reduce((acc, detail) => {
                     acc[detail.productId] = detail.produced.toString();
                     return acc;
@@ -1132,7 +1166,6 @@ const EditEntryModal = ({ isOpen, onClose, entry, onSave, products }) => {
     };
 
     const handleSave = () => {
-        // Converte os valores do formulário de volta para números
         const updatedProductions = Object.entries(entryData.productions).map(([productId, produced]) => ({
             productId,
             produced: parseInt(produced, 10) || 0
@@ -1261,7 +1294,7 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }) => {
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-30 modal-backdrop">
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 modal-backdrop">
             <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md modal-content">
                 <h2 className="text-xl font-bold mb-4">{title || 'Confirmar Ação'}</h2>
                 <p className="mb-6">{message || 'Você tem certeza?'}</p>
@@ -1440,17 +1473,15 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
     const [selectedUser, setSelectedUser] = useState(null);
     const [editablePermissions, setEditablePermissions] = useState([]);
     
-    // Auto-seleciona o primeiro usuário quando o modal abre
     useEffect(() => {
         if (isOpen && users.length > 0 && !selectedUser) {
             setSelectedUser(users[0]);
         }
         if (!isOpen) {
-            setSelectedUser(null); // Limpa a seleção ao fechar
+            setSelectedUser(null);
         }
     }, [isOpen, users, selectedUser]);
     
-    // Atualiza as permissões editáveis quando um usuário é selecionado
     useEffect(() => {
         if (selectedUser) {
             setEditablePermissions(selectedUser.permissions || []);
@@ -1483,7 +1514,7 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
             const roleRef = doc(db, 'roles', selectedUser.uid);
             await setDoc(roleRef, { permissions: editablePermissions });
             alert(`Permissões do usuário ${selectedUser.email} salvas com sucesso!`);
-            onClose(); // Fecha o modal após salvar
+            onClose();
         } catch (error) {
             console.error("Erro ao salvar permissões:", error);
             alert('Falha ao salvar permissões.');
@@ -1498,7 +1529,6 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
                     <button onClick={onClose} title="Fechar"><XCircle /></button>
                 </div>
                 <div className="flex-grow flex gap-6 overflow-hidden">
-                    {/* Coluna da Esquerda: Lista de Usuários */}
                     <div className="w-1/3 border-r pr-6 dark:border-gray-700 overflow-y-auto">
                         <h3 className="text-lg font-semibold mb-3 sticky top-0 bg-white dark:bg-gray-900 pb-2">Usuários</h3>
                         <div className="space-y-2">
@@ -1514,8 +1544,6 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
                            ))}
                         </div>
                     </div>
-
-                    {/* Coluna da Direita: Editor de Permissões */}
                     <div className="w-2/3 flex-grow overflow-y-auto pr-2">
                        {selectedUser ? (
                            <div>
@@ -1523,7 +1551,6 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
                                     <h3 className="text-xl font-bold truncate">{selectedUser.email}</h3>
                                     <p className="text-gray-500">Edite as permissões para este usuário.</p>
                                 </div>
-                                
                                 <div className="mb-6">
                                     <label htmlFor="role-template" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Aplicar Modelo</label>
                                     <select 
@@ -1537,7 +1564,6 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
                                         ))}
                                     </select>
                                 </div>
-
                                 <div className="space-y-4">
                                      <h4 className="font-semibold">Permissões Individuais</h4>
                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1554,7 +1580,6 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
                                         ))}
                                      </div>
                                 </div>
-
                                 <div className="mt-8 pt-4 border-t dark:border-gray-700 flex justify-end">
                                     <button onClick={handleSavePermissions} className="px-6 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700">
                                         Salvar Permissões
@@ -1612,7 +1637,6 @@ const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboard
                     </h2>
                     <button onClick={onClose} title="Fechar"><XCircle size={24} /></button>
                 </div>
-                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div>
                         <h3 className="font-bold text-lg mb-2">Exibição Única</h3>
@@ -1656,7 +1680,6 @@ const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboard
         </div>
     );
 };
-
 
 // #####################################################################
 // #                                                                   #
