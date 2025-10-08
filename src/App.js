@@ -222,8 +222,6 @@ const LoginPage = () => {
 
 const StockContext = createContext();
 
-// ALTERADO: Componente StockProvider inteiro foi reescrito para usar useCallback e corrigir o erro de build.
-
 const StockProvider = ({ children }) => {
     const { user } = useAuth();
     const [categories, setCategories] = useState([]);
@@ -281,7 +279,7 @@ const StockProvider = ({ children }) => {
             createdAt: Timestamp.now(),
         });
         return newId;
-    }, [user, categories]); // Depende de 'user' e 'categories'
+    }, [user, categories]);
 
     const addProduct = useCallback(async (productData) => {
         const newId = generateId('prod');
@@ -297,7 +295,7 @@ const StockProvider = ({ children }) => {
             }))
         };
         await setDoc(doc(db, "stock/data/products", newId), newProduct);
-    }, [user]); // Depende de 'user'
+    }, [user]);
 
     const updateProduct = useCallback(async (productId, productData) => {
         const { id, ...dataToUpdate } = productData;
@@ -348,7 +346,7 @@ const StockProvider = ({ children }) => {
         }
 
         await batch.commit();
-    }, [user, products]); // Depende de 'user' e 'products'
+    }, [user, products]);
 
     const deleteStockMovement = useCallback(async (movement) => {
         const { id, productId, variationId, quantity, type } = movement;
@@ -373,7 +371,7 @@ const StockProvider = ({ children }) => {
         }
 
         await batch.commit();
-    }, [products]); // Depende de 'products'
+    }, [products]);
 
 
     const value = useMemo(() => ({
@@ -394,13 +392,13 @@ const StockProvider = ({ children }) => {
         categories, 
         products, 
         stockMovements,
-        addCategory,          // Adicionado
-        addProduct,           // Adicionado
-        updateProduct,        // Adicionado
-        deleteProduct,        // Adicionado
-        restoreProduct,       // Adicionado
-        addStockMovement,     // Adicionado
-        deleteStockMovement   // Adicionado
+        addCategory,
+        addProduct,
+        updateProduct,
+        deleteProduct,
+        restoreProduct,
+        addStockMovement,
+        deleteStockMovement
     ]);
 
     return <StockContext.Provider value={value}>{children}</StockContext.Provider>;
@@ -475,7 +473,7 @@ const StockDashboardPage = () => {
         });
     }, [products, selectedCategoryId, sortOrder]);
     
-    if (loading) return <div>Carregando...</div>;
+    if (loading) return <div className="p-8 text-center">Carregando dados do estoque...</div>;
 
     return (
         <div className="p-8">
@@ -620,7 +618,6 @@ const StockCalendarView = ({ selectedDate, setSelectedDate, currentMonth, setCur
     );
 };
 
-// ALTERADO: StockMovementsPage agora tem o botão de apagar e usa setConfirmation
 const StockMovementsPage = ({ setConfirmation }) => {
     const { products, categories, addStockMovement, stockMovements, deleteStockMovement } = useStock();
     
@@ -673,7 +670,7 @@ const StockMovementsPage = ({ setConfirmation }) => {
             isOpen: true,
             title: "Confirmar Exclusão",
             message: `Tem certeza que deseja apagar este lançamento? A alteração de estoque (${mov.quantity} un.) será revertida.`,
-            onConfirm: () => () => deleteStockMovement(mov) // Retorna uma função que executa o delete
+            onConfirm: () => () => deleteStockMovement(mov)
         });
     };
 
@@ -808,7 +805,7 @@ const CategoryModal = ({ isOpen, onClose, onCategoryCreated }) => {
         <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-[60] modal-backdrop">
             <div 
                 ref={modalRef} 
-                onMouseDown={(e) => e.stopPropagation()} // <-- ESTA É A LINHA QUE CORRIGE O BUG
+                onMouseDown={(e) => e.stopPropagation()}
                 className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-sm modal-content"
             >
                 <form onSubmit={handleSubmit}>
@@ -1949,7 +1946,6 @@ const LotReport = ({ lots, products }) => {
 // #                                                                   #
 // #####################################################################
 
-// ALTERADO: Componente CronoanaliseDashboard modificado para enviar a "meta prevista" para o Firebase
 const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMode, dashboards, users, roles, currentDashboardIndex, setCurrentDashboardIndex }) => {
     const { logout } = useAuth();
     const [theme, setTheme] = useState(() => localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
@@ -2053,6 +2049,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             return () => {
                 clearTimeout(handler); // Limpa o timeout se o usuário continuar digitando
             };
+        } else if (currentDashboard?.id) {
+            // Limpa a prévia se os campos forem limpos
+            const previewRef = doc(db, `dashboards/${currentDashboard.id}/previews/live`);
+            deleteDoc(previewRef);
         }
     }, [goalPreview, newEntry, currentDashboard, productsForSelectedDate]);
 
@@ -2110,7 +2110,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     }, [isEntryFormValid, showUrgent, urgentProduction, predictedLots, newEntry, allProductionData, dateKey, lots, currentDashboard, goalPreview]);
     
     
-    // NOVO: Função para salvar o lançamento editado
     const handleSaveEntry = async (entryId, updatedData) => {
       const originalEntry = productionData.find(e => e.id === entryId);
       if (!originalEntry) {
@@ -2121,35 +2120,28 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
       const batch = writeBatch(db);
       const prodDataRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, "data");
   
-      // 1. Calcular as diferenças de produção para cada produto (delta)
       const productionDeltas = new Map();
   
-      // Subtrai os valores antigos do delta
       originalEntry.productionDetails.forEach(detail => {
           productionDeltas.set(detail.productId, (productionDeltas.get(detail.productId) || 0) - detail.produced);
       });
   
-      // Soma os novos valores ao delta
       updatedData.productions.forEach(detail => {
           productionDeltas.set(detail.productId, (productionDeltas.get(detail.productId) || 0) + detail.produced);
       });
   
-      // 2. Atualizar o estoque dos lotes com base nos deltas
       for (const [productId, delta] of productionDeltas.entries()) {
-          if (delta === 0) continue; // Pula se não houver alteração
+          if (delta === 0) continue;
   
           const lotToUpdate = lots.find(l => l.productId === productId);
           if (lotToUpdate) {
               const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id);
               batch.update(lotRef, {
-                  produced: increment(delta) // Usa increment() para uma atualização atômica e segura
+                  produced: increment(delta)
               });
-              // Nota: A lógica de reabertura do lote (de 'completed' para 'ongoing') não está incluída
-              // para simplicidade, mas pode ser adicionada aqui se necessário, comparando o novo total com a meta.
           }
       }
       
-      // 3. Atualizar o próprio lançamento no array do dia
       const updatedDayData = productionData.map(e => {
           if (e.id === entryId) {
               return {
@@ -2172,6 +2164,47 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
       }
     };
 
+
+    const executeSoftDelete = async (reason, itemId, itemType, itemDoc) => {
+        try {
+            const trashId = Date.now().toString();
+            const trashItem = {
+                id: trashId,
+                originalId: itemId,
+                itemType: itemType,
+                originalDoc: itemDoc,
+                deletedByEmail: user.email,
+                deletedAt: new Date().toISOString(),
+                reason,
+                dashboardId: currentDashboard.id,
+            };
+
+            const batch = writeBatch(db);
+            batch.set(doc(db, "trash", trashId), trashItem);
+
+            if (itemType === 'lot') {
+                batch.delete(doc(db, `dashboards/${currentDashboard.id}/lots`, itemId));
+            } else if (itemType === 'product') {
+                batch.delete(doc(db, `dashboards/${currentDashboard.id}/products`, itemId));
+            } else if (itemType === 'entry') {
+                const updatedDayData = productionData.filter(e => e.id !== itemId);
+                const updatedProdData = { ...allProductionData, [dateKey]: updatedDayData };
+                batch.set(doc(db, `dashboards/${currentDashboard.id}/productionData`, "data"), updatedProdData, { merge: true });
+                
+                for (const detail of itemDoc.productionDetails) {
+                    const lotToUpdate = lots.find(l => l.productId === detail.productId);
+                    if(lotToUpdate){
+                        const newProduced = Math.max(0, (lotToUpdate.produced || 0) - detail.produced);
+                        const newStatus = (lotToUpdate.status.startsWith('completed') && newProduced < lotToUpdate.target) ? 'ongoing' : lotToUpdate.status;
+                        batch.update(doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id), { produced: newProduced, status: newStatus });
+                    }
+                }
+            }
+            await batch.commit();
+
+        } catch (e) { console.error('Erro ao mover item para lixeira:', e); } 
+        finally { closeModal(); }
+    };
 
     const handleRestoreItem = async (itemToRestore) => {
       const { itemType, originalDoc, dashboardId, id: trashId } = itemToRestore;
@@ -2449,54 +2482,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     }, [newEntry, showUrgent, urgentProduction]);
 
 
-    const handleAddEntry = useCallback(async (e) => {
-        e.preventDefault();
-        if (!isEntryFormValid || !currentDashboard) return;
-
-        const productionDetails = [];
-        if (showUrgent && urgentProduction.productId && urgentProduction.produced > 0) {
-            productionDetails.push({ productId: urgentProduction.productId, produced: parseInt(urgentProduction.produced, 10) });
-        }
-        predictedLots.filter(p => !p.isUrgent).forEach((lot, index) => {
-            const producedAmount = parseInt(newEntry.productions[index], 10) || 0;
-            if (lot && producedAmount > 0) {
-                productionDetails.push({ productId: lot.productId, produced: producedAmount });
-            }
-        });
-        
-        const newEntryData = { id: Date.now().toString(), period: newEntry.period, people: newEntry.people, availableTime: newEntry.availableTime, productionDetails, observation: '', goalDisplay: goalPreview, primaryProductId: newEntry.productId };
-        
-        const batch = writeBatch(db);
-        const prodDataRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, "data");
-
-        const updatedDayData = [...(allProductionData[dateKey] || []), newEntryData];
-        batch.set(prodDataRef, { [dateKey]: updatedDayData }, { merge: true });
-
-        for (const detail of productionDetails) {
-            const lotToUpdate = lots.find(l => l.productId === detail.productId);
-            if(lotToUpdate){
-                const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id);
-                const newProduced = (lotToUpdate.produced || 0) + detail.produced;
-                const updatePayload = { produced: newProduced };
-                if (lotToUpdate.status === 'future' && newProduced > 0) {
-                    updatePayload.status = 'ongoing';
-                    updatePayload.startDate = new Date().toISOString();
-                }
-                if (newProduced >= lotToUpdate.target && !lotToUpdate.status.startsWith('completed')) {
-                    updatePayload.status = 'completed';
-                    updatePayload.endDate = new Date().toISOString();
-                }
-                batch.update(lotRef, updatePayload);
-            }
-        }
-        
-        await batch.commit();
-        
-        setNewEntry({ period: '', people: '', availableTime: 60, productId: newEntry.productId, productions: [] });
-        setUrgentProduction({productId: '', produced: ''});
-        setShowUrgent(false);
-    }, [isEntryFormValid, showUrgent, urgentProduction, predictedLots, newEntry, allProductionData, dateKey, lots, currentDashboard, goalPreview]);
-    
     const handleInputChange = (e) => { const { name, value } = e.target; setNewEntry(prev => ({ ...prev, [name]: value, ...(name === 'productId' && { productions: [] }) })); };
     const handleUrgentChange = (e) => setUrgentProduction(prev => ({...prev, [e.target.name]: e.target.value}));
     const handleProductionChange = (index, value) => { const newProductions = [...newEntry.productions]; newProductions[index] = value; setNewEntry(prev => ({ ...prev, productions: newProductions })); };
@@ -2641,7 +2626,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     return (
         <div className="min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans">
             <GlobalStyles/>
-            {/* // NOVO: Adiciona o EditEntryModal à árvore de componentes */}
             <EditEntryModal 
                 isOpen={modalState.type === 'editEntry'} 
                 onClose={closeModal} 
@@ -2760,7 +2744,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                           </td>
                                           <td className="p-3">
                                               <div className="flex gap-2 justify-center">
-                                                {/* // ALTERADO: Botão de editar agora abre o modal e está funcional */}
                                                 {permissions.EDIT_ENTRIES && 
                                                     <button 
                                                         onClick={() => setModalState({ type: 'editEntry', data: d })} 
@@ -3027,7 +3010,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     );
 };
 
-// ALTERADO: Componente TvModeDisplay modificado para receber e exibir a "Meta Prevista"
 const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     const [theme] = useState(() => localStorage.getItem('theme') || 'dark');
     const [transitioning, setTransitioning] = useState(false);
@@ -3065,7 +3047,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     const [products, setProducts] = useState([]);
     const [lots, setLots] = useState([]);
     const [allProductionData, setAllProductionData] = useState({});
-    const [previewData, setPreviewData] = useState(null); // NOVO: Estado para a prévia
+    const [previewData, setPreviewData] = useState(null);
 
     useEffect(() => {
         if (!currentDashboard) return;
@@ -3082,7 +3064,6 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             setAllProductionData(snap.exists() ? snap.data() : {});
         });
 
-        // NOVO: Listener para o documento de prévia
         const unsubPreview = onSnapshot(doc(db, `dashboards/${currentDashboard.id}/previews/live`), (doc) => {
             if (doc.exists()) {
                 setPreviewData(doc.data());
@@ -3095,7 +3076,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             unsubProducts();
             unsubLots();
             unsubProdData();
-            unsubPreview(); // Limpa o listener de prévia
+            unsubPreview();
         };
 
     }, [currentDashboard]);
@@ -3103,15 +3084,131 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     
     const today = useMemo(() => new Date(), []);
     
-    // ... O resto da lógica do componente (productsForToday, processedData, etc) continua igual ...
-    const processedData = useMemo(() => {
-      // ...
-    }, [productionData, productMapForToday]);
+    const productsForToday = useMemo(() => {
+        const targetDate = new Date(today);
+        targetDate.setHours(23, 59, 59, 999);
 
+        return products
+            .map(p => {
+                if (!p.standardTimeHistory || p.standardTimeHistory.length === 0) return null;
+                const validTimeEntry = p.standardTimeHistory.filter(h => new Date(h.effectiveDate) <= targetDate).pop();
+                if (!validTimeEntry) return null;
+                return { ...p, standardTime: validTimeEntry.time };
+            })
+            .filter(Boolean);
+    }, [products, today]);
+
+
+    const dateKey = today.toISOString().slice(0, 10);
+    const productionData = useMemo(() => allProductionData[dateKey] || [], [allProductionData, dateKey]);
+    
+    const productMapForToday = useMemo(() => new Map(productsForToday.map(p => [p.id, p])), [productsForToday]);
+
+    const processedData = useMemo(() => {
+        if (!productionData || productionData.length === 0) return [];
+        let cumulativeProduction = 0, cumulativeGoal = 0, cumulativeEfficiencySum = 0;
+        return [...productionData].sort((a,b)=>(a.period||"").localeCompare(b.period||"")).map((item, index) => {
+            let totalTimeValue = 0, totalProducedInPeriod = 0;
+            const producedForDisplay = (item.productionDetails || []).map(d => `${d.produced || 0}`).join(' / ');
+            (item.productionDetails || []).forEach(detail => {
+                const product = productMapForToday.get(detail.productId);
+                if (product?.standardTime) {
+                    totalTimeValue += (detail.produced || 0) * product.standardTime;
+                    totalProducedInPeriod += (detail.produced || 0);
+                }
+            });
+            const totalAvailableTime = (item.people || 0) * (item.availableTime || 0);
+            const efficiency = totalAvailableTime > 0 ? parseFloat(((totalTimeValue / totalAvailableTime) * 100).toFixed(2)) : 0;
+            const numericGoal = (item.goalDisplay||"0").split(' / ').reduce((a,v)=>a+(parseInt(v.trim(),10)||0),0);
+            cumulativeProduction += totalProducedInPeriod;
+            cumulativeGoal += numericGoal;
+            cumulativeEfficiencySum += efficiency;
+            const cumulativeEfficiency = parseFloat((cumulativeEfficiencySum / (index + 1)).toFixed(2));
+            return { ...item, produced:totalProducedInPeriod, goal:numericGoal, goalForDisplay: item.goalDisplay, producedForDisplay, efficiency, cumulativeProduction, cumulativeGoal, cumulativeEfficiency };
+        });
+    }, [productionData, productMapForToday]);
+    
+    const prevProductionData = usePrevious(productionData);
+    useEffect(() => {
+        if (prevProductionData && productionData.length > prevProductionData.length) {
+            const newEntry = processedData.find(d => !prevProductionData.some(pd => pd.id === d.id));
+            if (newEntry && newEntry.produced < newEntry.goal) {
+                setAlertInfo({ period: newEntry.period, type: 'emoji' });
+                
+                const blinkTimer = setTimeout(() => {
+                    setAlertInfo({ period: newEntry.period, type: 'blink' });
+                }, 5000);
+
+                const clearTimer = setTimeout(() => {
+                    setAlertInfo({ period: null, type: null });
+                }, 10000);
+
+                return () => {
+                    clearTimeout(blinkTimer);
+                    clearTimeout(clearTimer);
+                };
+            }
+        }
+    }, [productionData, prevProductionData, processedData]);
+
+
+    const monthlySummary = useMemo(() => {
+        const year = today.getFullYear();
+        const month = today.getMonth();
+        let totalMonthlyProduction = 0, totalMonthlyGoal = 0, totalDailyAverageEfficiencies = 0, productiveDaysCount = 0;
+        
+        Object.keys(allProductionData).forEach(dateStr => {
+            try {
+                const date = new Date(dateStr + "T00:00:00");
+                const productsForDateMap = new Map(products
+                    .map(p => {
+                        const validTimeEntry = p.standardTimeHistory?.filter(h => new Date(h.effectiveDate) <= date).pop();
+                        if (!validTimeEntry) return null;
+                        return [p.id, { ...p, standardTime: validTimeEntry.time }];
+                    })
+                    .filter(Boolean));
+                if(date.getFullYear() === year && date.getMonth() === month) {
+                    const dayData = allProductionData[dateStr];
+                    if (dayData && dayData.length > 0) {
+                        productiveDaysCount++;
+                        let dailyProduction = 0, dailyGoal = 0, dailyEfficiencySum = 0;
+                        dayData.forEach(item => {
+                            let periodProduction = 0, totalTimeValue = 0;
+                            (item.productionDetails || []).forEach(detail => {
+                                periodProduction += (detail.produced || 0);
+                                const product = productsForDateMap.get(detail.productId);
+                                if (product?.standardTime) totalTimeValue += (detail.produced || 0) * product.standardTime;
+                            });
+                            if (item.goalDisplay) dailyGoal += item.goalDisplay.split(' / ').reduce((acc, val) => acc + (parseInt(val.trim(), 10) || 0), 0);
+                            dailyProduction += periodProduction;
+                            const totalAvailableTime = (item.people || 0) * (item.availableTime || 0);
+                            dailyEfficiencySum += totalAvailableTime > 0 ? (totalTimeValue / totalAvailableTime) * 100 : 0;
+                        });
+                        totalDailyAverageEfficiencies += dayData.length > 0 ? dailyEfficiencySum / dayData.length : 0;
+                        totalMonthlyProduction += dailyProduction;
+                        totalMonthlyGoal += dailyGoal;
+                    }
+                }
+            } catch(e) { console.error("Data inválida no sumário mensal:", dateStr); }
+        });
+        const averageMonthlyEfficiency = productiveDaysCount > 0 ? parseFloat((totalDailyAverageEfficiencies / productiveDaysCount).toFixed(2)) : 0;
+        return { totalProduction: totalMonthlyProduction, totalGoal: totalMonthlyGoal, averageEfficiency: averageMonthlyEfficiency };
+    }, [allProductionData, today, products]);
+
+    const handleNextDash = () => {
+        const i = dashboards.findIndex(d=>d.id===currentDashboardId);
+        const nextId = dashboards[(i+1)%dashboards.length].id;
+        changeDashboard(nextId);
+    };
+    const handlePrevDash = () => {
+        const i = dashboards.findIndex(d=>d.id===currentDashboardId);
+        const prevId = dashboards[(i-1+dashboards.length)%dashboards.length].id;
+        changeDashboard(prevId);
+    };
+    
     const renderTvTable = () => {
         const dataByPeriod = processedData.reduce((acc, curr) => ({ ...acc, [curr.period]: curr }), {});
         
-        // As funções auxiliares continuam aqui
         const getPeopleTimeValue = (p) => dataByPeriod[p] ? `${dataByPeriod[p].people} / ${dataByPeriod[p].availableTime} min` : '- / -';
         const getProductionValue = (p) => dataByPeriod[p]?.producedForDisplay || '-';
         const getAlteracaoValue = (p) => {
@@ -3119,7 +3216,6 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             if (launched && launched.productionDetails?.length > 0) {
                 return launched.productionDetails.map(d => productMapForToday.get(d.productId)?.name).filter(Boolean).join(' / ');
             }
-            // NOVO: Mostra o nome do produto da prévia
             if (previewData && previewData.period === p) {
                 return previewData.productName;
             }
@@ -3130,14 +3226,37 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             { key: 'meta', label: 'Meta'},
             { key: 'producedForDisplay', label: 'Produção', formatter: getProductionValue },
             { key: 'efficiency', label: 'Eficiência', isColor: true, formatter: (p) => dataByPeriod[p] ? `${dataByPeriod[p].efficiency}%` : '-' },
-            // ... resto do array TV_ROWS
+            { key: 'cumulativeGoal', label: 'Meta Acum.', formatter: (p) => dataByPeriod[p]?.cumulativeGoal.toLocaleString('pt-BR') || '-' },
+            { key: 'cumulativeProduction', label: 'Prod. Acum.', formatter: (p) => dataByPeriod[p]?.cumulativeProduction.toLocaleString('pt-BR') || '-' },
+            { key: 'cumulativeEfficiency', label: 'Efic. Acum.', isColor: true, formatter: (p) => dataByPeriod[p] ? `${dataByPeriod[p].cumulativeEfficiency}%` : '-' },
+            { key: 'monthlyGoal', label: 'Meta Mês', isMonthly: true, value: monthlySummary.totalGoal.toLocaleString('pt-BR') },
+            { key: 'monthlyProduction', label: 'Prod. Mês', isMonthly: true, value: monthlySummary.totalProduction.toLocaleString('pt-BR') },
+            { key: 'monthlyEfficiency', label: 'Efic. Mês', isMonthly: true, isColor: true, value: `${monthlySummary.averageEfficiency}%` },
         ];
         
         return (
             <div className="overflow-x-auto w-full text-center p-6 border-4 border-blue-900 rounded-xl shadow-2xl bg-white text-gray-900">
                 <table className="min-w-full table-fixed">
                     <thead className="text-white bg-blue-500">
-                        {/* ... Thead original ... */}
+                        <tr><th colSpan={FIXED_PERIODS.length + 1} className="p-4 text-5xl relative">
+                            <div className="absolute top-2 left-2 flex items-center gap-2">
+                                <button onClick={stopTvMode} className="p-2 bg-red-600 text-white rounded-full flex items-center gap-1 text-sm"><XCircle size={18} /> SAIR</button>
+                                {!isCarousel && (
+                                    <>
+                                        <button onClick={handlePrevDash} className="p-2 bg-blue-700 text-white rounded-full"><ArrowLeft size={18} /></button>
+                                        <button onClick={handleNextDash} className="p-2 bg-blue-700 text-white rounded-full"><ArrowRight size={18} /></button>
+                                    </>
+                                )}
+                            </div>
+                            {currentDashboard.name.toUpperCase()} - {today.toLocaleDateString('pt-BR')}
+                        </th></tr>
+                        <tr><th className="p-2 text-left">Resumo</th>{FIXED_PERIODS.map(p => <th key={p} className="p-2 text-sm">{getPeopleTimeValue(p)}</th>)}</tr>
+                        <tr><th className="p-2 text-left">Alteração</th>{FIXED_PERIODS.map(p => {
+                             const launched = dataByPeriod[p];
+                             const isPreviewSlot = previewData && previewData.period === p && !launched;
+                             return <th key={p} className={`p-2 text-base ${isPreviewSlot ? 'text-yellow-300' : ''}`}>{getAlteracaoValue(p)}</th>
+                        })}</tr>
+                        <tr><th className="p-3 text-left">Hora</th>{FIXED_PERIODS.map(p => <th key={p} className="p-3 text-3xl">{p}</th>)}</tr>
                     </thead>
                     <tbody className="text-2xl divide-y divide-gray-200">
                         {TV_ROWS.map(row => (
@@ -3150,13 +3269,11 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                                         const launched = dataByPeriod[p];
                                         let cellContent, cellClass = 'p-3 font-extrabold';
                                         
-                                        // LÓGICA ALTERADA PARA A LINHA "META"
                                         if (row.key === 'meta') {
                                             if (launched) {
                                                 cellContent = launched.goalForDisplay;
                                                 cellClass += ' text-blue-600';
                                             } else if (previewData && previewData.period === p) {
-                                                // NOVO: Exibe a meta prevista em amarelo se o período corresponder
                                                 cellContent = previewData.goalDisplay;
                                                 cellClass += ' text-yellow-500';
                                             } else {
@@ -3164,12 +3281,18 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                                             }
                                         } else {
                                             cellContent = row.formatter(p);
+                                            if (row.key === 'efficiency' && alertInfo.period === p && alertInfo.type === 'blink') {
+                                                cellClass += ' blinking-red';
+                                            }
                                             if (row.isColor && cellContent !== '-') {
                                                 const numericVal = dataByPeriod[p]?.[row.key];
                                                 cellClass += numericVal < 65 ? 'text-red-500' : 'text-green-600';
                                             }
                                         }
-                                        return <td key={p} className={cellClass}>{cellContent}</td>;
+                                        return <td key={p} className={cellClass}>
+                                            {row.key === 'producedForDisplay' && alertInfo.period === p && alertInfo.type === 'emoji' && <span role="img" aria-label="Alerta">⚠️ </span>}
+                                            {cellContent}
+                                        </td>;
                                     })
                                 )}
                             </tr>
@@ -3248,7 +3371,6 @@ const AppContent = () => {
                 // --- Etapa 2: Iniciar o listener em tempo real para dashboards ---
                 unsubDashboards = onSnapshot(dashboardsQuery, (snap) => {
                     const fetchedDashboards = snap.docs.map(d => d.data());
-                    // console.log(`Dados recebidos: ${fetchedDashboards.length} dashboards.`);
                     setDashboards(fetchedDashboards);
                 }, (error) => {
                     console.error("Erro no listener de Dashboards:", error);
@@ -3267,7 +3389,6 @@ const AppContent = () => {
                 const currentUserPermissionsDoc = rolesData.get(user.uid);
                 let permissionsList = currentUserPermissionsDoc?.permissions || [];
                 
-                // Se o usuário é um 'admin' no documento, ele recebe todas as permissões, sobrepondo as individuais
                 if (currentUserPermissionsDoc?.role === 'admin') {
                      permissionsList = Object.keys(ALL_PERMISSIONS);
                 }
@@ -3277,7 +3398,6 @@ const AppContent = () => {
                     permissionsMap[key] = permissionsList.includes(key);
                 }
                 
-                // console.log("Permissões do usuário definidas:", permissionsMap);
                 setUserPermissions(permissionsMap);
 
             } catch (error) {
@@ -3287,7 +3407,6 @@ const AppContent = () => {
 
         setupDataAndListeners();
 
-        // Função de limpeza
         return () => {
             if (unsubDashboards) {
                 unsubDashboards();
