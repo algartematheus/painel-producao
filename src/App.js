@@ -806,7 +806,11 @@ const CategoryModal = ({ isOpen, onClose, onCategoryCreated }) => {
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-[60] modal-backdrop">
-            <div ref={modalRef} className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-sm modal-content">
+            <div 
+                ref={modalRef} 
+                onMouseDown={(e) => e.stopPropagation()} // <-- ESTA É A LINHA QUE CORRIGE O BUG
+                className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-2xl w-full max-w-sm modal-content"
+            >
                 <form onSubmit={handleSubmit}>
                     <h2 className="text-xl font-bold mb-4">Criar Nova Categoria</h2>
                     <label htmlFor="category-name" className="block mb-2 text-sm font-medium">Nome da Categoria</label>
