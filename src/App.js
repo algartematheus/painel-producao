@@ -222,7 +222,8 @@ const LoginPage = () => {
 
 const StockContext = createContext();
 
-// ALTERADO: StockProvider foi reescrito para usar Firebase
+// ALTERADO: Componente StockProvider inteiro foi reescrito para usar useCallback e corrigir o erro de build.
+
 const StockProvider = ({ children }) => {
     const { user } = useAuth();
     const [categories, setCategories] = useState([]);
@@ -232,7 +233,10 @@ const StockProvider = ({ children }) => {
 
     // Listeners em tempo real para os dados do estoque no Firebase
     useEffect(() => {
-        if (!user) return; // Não faz nada se não houver usuário logado
+        if (!user) {
+            setLoading(false);
+            return;
+        };
         setLoading(true);
 
         const unsubCategories = onSnapshot(query(collection(db, "stock/data/categories"), orderBy("name")), (snap) => {
@@ -246,14 +250,14 @@ const StockProvider = ({ children }) => {
         const unsubMovements = onSnapshot(query(collection(db, "stock/data/movements"), orderBy("timestamp", "desc")), (snap) => {
             setStockMovements(snap.docs.map(d => {
                 const data = d.data();
-                return {
-                    id: d.id,
+                return { 
+                    id: d.id, 
                     ...data,
-                    timestamp: data.timestamp ? data.timestamp.toDate() : new Date()
+                    timestamp: data.timestamp ? data.timestamp.toDate() : new Date() 
                 };
             }));
         });
-
+        
         setLoading(false);
 
         return () => {
@@ -263,23 +267,23 @@ const StockProvider = ({ children }) => {
         };
     }, [user]);
 
-    // Funções para manipular os dados no Firebase
-    const addCategory = async (categoryName) => {
+    // Funções para manipular os dados no Firebase, agora envolvidas em useCallback
+    const addCategory = useCallback(async (categoryName) => {
         const newId = generateId('cat');
         const exists = categories.some(c => c.name.toLowerCase() === categoryName.toLowerCase());
         if (exists) {
             alert("Uma categoria com este nome já existe.");
             return null;
         }
-        await setDoc(doc(db, "stock/data/categories", newId), {
-            name: categoryName,
+        await setDoc(doc(db, "stock/data/categories", newId), { 
+            name: categoryName, 
             createdBy: user.uid,
             createdAt: Timestamp.now(),
         });
         return newId;
-    };
+    }, [user, categories]); // Depende de 'user' e 'categories'
 
-    const addProduct = async (productData) => {
+    const addProduct = useCallback(async (productData) => {
         const newId = generateId('prod');
         const newProduct = {
             ...productData,
@@ -293,31 +297,31 @@ const StockProvider = ({ children }) => {
             }))
         };
         await setDoc(doc(db, "stock/data/products", newId), newProduct);
-    };
+    }, [user]); // Depende de 'user'
 
-    const updateProduct = async (productId, productData) => {
-        const { id, ...dataToUpdate } = productData; // Evita salvar o id dentro do documento
+    const updateProduct = useCallback(async (productId, productData) => {
+        const { id, ...dataToUpdate } = productData;
         const productRef = doc(db, "stock/data/products", productId);
         await updateDoc(productRef, dataToUpdate);
-    };
+    }, []);
 
-    const deleteProduct = async (productId) => {
-        await updateDoc(doc(db, "stock/data/products", productId), {
+    const deleteProduct = useCallback(async (productId) => {
+        await updateDoc(doc(db, "stock/data/products", productId), { 
             isDeleted: true,
             deletedAt: Timestamp.now()
         });
-    };
+    }, []);
 
-    const restoreProduct = async (productId) => {
-        await updateDoc(doc(db, "stock/data/products", productId), {
+    const restoreProduct = useCallback(async (productId) => {
+        await updateDoc(doc(db, "stock/data/products", productId), { 
             isDeleted: false,
-            deletedAt: null // Usa null para limpar o campo
+            deletedAt: null
         });
-    };
+    }, []);
 
-    const addStockMovement = async ({ productId, variationId, quantity, type }) => {
+    const addStockMovement = useCallback(async ({ productId, variationId, quantity, type }) => {
         const batch = writeBatch(db);
-
+        
         const newMovementId = generateId('mov');
         const movementRef = doc(db, "stock/data/movements", newMovementId);
         batch.set(movementRef, {
@@ -344,12 +348,12 @@ const StockProvider = ({ children }) => {
         }
 
         await batch.commit();
-    };
+    }, [user, products]); // Depende de 'user' e 'products'
 
-    const deleteStockMovement = async (movement) => {
+    const deleteStockMovement = useCallback(async (movement) => {
         const { id, productId, variationId, quantity, type } = movement;
         if (!id) return;
-
+        
         const batch = writeBatch(db);
 
         const movementRef = doc(db, "stock/data/movements", id);
@@ -369,7 +373,7 @@ const StockProvider = ({ children }) => {
         }
 
         await batch.commit();
-    };
+    }, [products]); // Depende de 'products'
 
 
     const value = useMemo(() => ({
@@ -385,7 +389,19 @@ const StockProvider = ({ children }) => {
         restoreProduct,
         addStockMovement,
         deleteStockMovement,
-    }), [loading, categories, products, stockMovements]);
+    }), [
+        loading, 
+        categories, 
+        products, 
+        stockMovements,
+        addCategory,          // Adicionado
+        addProduct,           // Adicionado
+        updateProduct,        // Adicionado
+        deleteProduct,        // Adicionado
+        restoreProduct,       // Adicionado
+        addStockMovement,     // Adicionado
+        deleteStockMovement   // Adicionado
+    ]);
 
     return <StockContext.Provider value={value}>{children}</StockContext.Provider>;
 };
