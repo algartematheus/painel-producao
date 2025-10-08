@@ -217,7 +217,7 @@ const LoginPage = () => {
 
 
 // #######################################################################
-// #       INÍCIO: GERENCIADOR DE ESTOQUE (AGORA COM FIREBASE)           #
+// #       INÍCIO: GERENCIADOR DE ESTOQUE (AGORA COM FIREBASE)         #
 // #######################################################################
 
 const StockContext = createContext();
@@ -761,9 +761,9 @@ const StockMovementsPage = ({ setConfirmation }) => {
                                              <td className={`p-3 text-center font-semibold ${m.type === 'Entrada' ? 'text-green-500' : 'text-red-500'}`}>{m.type}</td>
                                              <td className="p-3 text-center">{m.quantity}</td>
                                              <td className="p-3 text-center">
-                                                <button onClick={() => handleDeleteClick(m)} title="Apagar Lançamento">
-                                                    <Trash2 size={18} className="text-red-500 hover:text-red-400"/>
-                                                </button>
+                                                 <button onClick={() => handleDeleteClick(m)} title="Apagar Lançamento">
+                                                     <Trash2 size={18} className="text-red-500 hover:text-red-400"/>
+                                                 </button>
                                              </td>
                                          </tr>
                                      );
@@ -1148,7 +1148,7 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
 
 // #####################################################################
 // #                                                                   #
-// #             INÍCIO: COMPONENTES DE MODAIS E AUXILIARES            #
+// #               INÍCIO: COMPONENTES DE MODAIS E AUXILIARES            #
 // #                                                                   #
 // #####################################################################
 
@@ -1483,7 +1483,7 @@ const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
         </div>
     );
 };
-  
+ 
 const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
@@ -1554,54 +1554,54 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
                                    key={user.uid} 
                                    onClick={() => setSelectedUser(user)}
                                    className={`w-full text-left p-3 rounded-lg transition-colors ${selectedUser?.uid === user.uid ? 'bg-blue-100 dark:bg-blue-900/50' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
-                                >
-                                    <p className="font-semibold truncate">{user.email}</p>
-                                    <p className="text-xs text-gray-500">{user.permissions.length} permissões</p>
-                                </button>
+                               >
+                                   <p className="font-semibold truncate">{user.email}</p>
+                                   <p className="text-xs text-gray-500">{user.permissions.length} permissões</p>
+                               </button>
                            ))}
                         </div>
                     </div>
                     <div className="w-2/3 flex-grow overflow-y-auto pr-2">
                        {selectedUser ? (
                            <div>
-                                <div className="mb-6">
-                                    <h3 className="text-xl font-bold truncate">{selectedUser.email}</h3>
-                                    <p className="text-gray-500">Edite as permissões para este usuário.</p>
-                                </div>
-                                <div className="mb-6">
-                                    <label htmlFor="role-template" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Aplicar Modelo</label>
-                                    <select 
-                                        id="role-template"
-                                        onChange={(e) => applyRoleTemplate(e.target.value)}
-                                        className="mt-1 block w-full md:w-1/2 p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                    >
-                                        <option value="">Selecione um modelo para começar...</option>
-                                        {Object.values(roles).map(role => (
-                                            <option key={role.id} value={role.id}>{role.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div className="space-y-4">
+                               <div className="mb-6">
+                                   <h3 className="text-xl font-bold truncate">{selectedUser.email}</h3>
+                                   <p className="text-gray-500">Edite as permissões para este usuário.</p>
+                               </div>
+                               <div className="mb-6">
+                                   <label htmlFor="role-template" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Aplicar Modelo</label>
+                                   <select 
+                                       id="role-template"
+                                       onChange={(e) => applyRoleTemplate(e.target.value)}
+                                       className="mt-1 block w-full md:w-1/2 p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                   >
+                                       <option value="">Selecione um modelo para começar...</option>
+                                       {Object.values(roles).map(role => (
+                                           <option key={role.id} value={role.id}>{role.name}</option>
+                                       ))}
+                                   </select>
+                               </div>
+                               <div className="space-y-4">
                                      <h4 className="font-semibold">Permissões Individuais</h4>
                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {Object.entries(ALL_PERMISSIONS).map(([key, description]) => (
-                                            <label key={key} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={editablePermissions.includes(key)}
-                                                    onChange={(e) => handlePermissionChange(key, e.target.checked)}
-                                                    className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500"
-                                                />
-                                                <span className="text-sm">{description}</span>
-                                            </label>
-                                        ))}
+                                         {Object.entries(ALL_PERMISSIONS).map(([key, description]) => (
+                                             <label key={key} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer">
+                                                 <input
+                                                     type="checkbox"
+                                                     checked={editablePermissions.includes(key)}
+                                                     onChange={(e) => handlePermissionChange(key, e.target.checked)}
+                                                     className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500"
+                                                 />
+                                                 <span className="text-sm">{description}</span>
+                                             </label>
+                                         ))}
                                      </div>
-                                </div>
-                                <div className="mt-8 pt-4 border-t dark:border-gray-700 flex justify-end">
-                                    <button onClick={handleSavePermissions} className="px-6 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700">
-                                        Salvar Permissões
-                                    </button>
-                                </div>
+                               </div>
+                               <div className="mt-8 pt-4 border-t dark:border-gray-700 flex justify-end">
+                                   <button onClick={handleSavePermissions} className="px-6 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700">
+                                       Salvar Permissões
+                                   </button>
+                               </div>
                            </div>
                        ) : (
                            <div className="flex items-center justify-center h-full text-gray-500">
@@ -1614,7 +1614,7 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
         </div>
     );
 };
-  
+ 
 const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboards }) => {
     const [carouselSeconds, setCarouselSeconds] = useState(10);
     const [selectedDashboards, setSelectedDashboards] = useState(() => dashboards.map(d => d.id));
@@ -1686,7 +1686,7 @@ const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboard
                              <div className="flex-grow">
                                 <label htmlFor="carousel-time" className="text-sm">Segundos por slide:</label>
                                 <input id="carousel-time" type="number" value={carouselSeconds} onChange={e => setCarouselSeconds(Number(e.target.value))} className="w-full p-2 mt-1 rounded-md bg-gray-100 dark:bg-gray-700"/>
-                            </div>
+                             </div>
                             <button onClick={handleStart} className="self-end h-10 px-4 font-semibold rounded-md bg-green-600 text-white hover:bg-green-700 flex items-center gap-2">
                                 <Film size={18} /> Iniciar Carrossel
                             </button>
@@ -1700,7 +1700,7 @@ const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboard
 
 // #####################################################################
 // #                                                                   #
-// #             FIM: COMPONENTES DE MODAIS E AUXILIARES               #
+// #               FIM: COMPONENTES DE MODAIS E AUXILIARES             #
 // #                                                                   #
 // #####################################################################
 
@@ -1708,7 +1708,7 @@ const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboard
 
 // #####################################################################
 // #                                                                   #
-// #             INÍCIO: COMPONENTES AUXILIARES DO DASHBOARD           #
+// #           INÍCIO: COMPONENTES AUXILIARES DO DASHBOARD             #
 // #                                                                   #
 // #####################################################################
 
@@ -1942,7 +1942,7 @@ const LotReport = ({ lots, products }) => {
 
 // #####################################################################
 // #                                                                   #
-// #            INÍCIO: CRONOANÁLISE DASHBOARD (CÓDIGO PRINCIPAL)      #
+// #           INÍCIO: CRONOANÁLISE DASHBOARD (CÓDIGO PRINCIPAL)         #
 // #                                                                   #
 // #####################################################################
 
@@ -1964,6 +1964,73 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     const [lots, setLots] = useState([]);
     const [allProductionData, setAllProductionData] = useState({});
     const [trashItems, setTrashItems] = useState([]);
+    
+    const [selectedDate, setSelectedDate] = useState(new Date());
+    const [currentMonth, setCurrentMonth] = useState(new Date());
+    const [calendarView, setCalendarView] = useState('day');
+    
+    const [lotCounter, setLotCounter] = useState(1);
+    
+    const [lotFilter, setLotFilter] = useState('ongoing');
+    const [newLot, setNewLot] = useState({ productId: '', target: '', customName: '' });
+    const [editingLotId, setEditingLotId] = useState(null);
+    const [editingLotData, setEditingLotData] = useState({ target: '', customName: '' });
+    const [newProduct, setNewProduct] = useState({ name: '', standardTime: '' });
+    const [editingProductId, setEditingProductId] = useState(null);
+    const [editingProductData, setEditingProductData] = useState({ name: '', standardTime: '' });
+    
+    const [newEntry, setNewEntry] = useState({ period: '', people: '', availableTime: 60, productId: '', productions: [] });
+    
+    const [goalPreview, setGoalPreview] = useState("0");
+    const [predictedLots, setPredictedLots] = useState([]);
+    const [modalState, setModalState] = useState({ type: null, data: null });
+    const [showUrgent, setShowUrgent] = useState(false);
+    const [urgentProduction, setUrgentProduction] = useState({ productId: '', produced: '' });
+    const [isNavOpen, setIsNavOpen] = useState(false);
+    const navRef = useRef();
+    useClickOutside(navRef, () => setIsNavOpen(false));
+
+    // ===============================================
+    // == CORREÇÃO 1: Variáveis movidas para o topo ==
+    // ===============================================
+
+    const productsForSelectedDate = useMemo(() => {
+        const targetDate = new Date(selectedDate);
+        targetDate.setHours(23, 59, 59, 999); 
+
+        return products
+            .map(p => {
+                if (!p.standardTimeHistory || p.standardTimeHistory.length === 0) {
+                    return null; 
+                }
+                const validTimeEntry = p.standardTimeHistory
+                    .filter(h => new Date(h.effectiveDate) <= targetDate)
+                    .pop();
+
+                if (!validTimeEntry) {
+                    return null; 
+                }
+                return { ...p, standardTime: validTimeEntry.time };
+            })
+            .filter(Boolean);
+    }, [products, selectedDate]);
+    
+    const isEntryFormValid = useMemo(() => {
+        const hasProduction = newEntry.productions.some(p => (parseInt(p, 10) || 0) > 0);
+        const hasUrgentProduction = showUrgent && urgentProduction.productId && (parseInt(urgentProduction.produced, 10) || 0) > 0;
+        
+        return (
+            newEntry.period &&
+            (parseFloat(newEntry.people) > 0) &&
+            (parseFloat(newEntry.availableTime) > 0) &&
+            newEntry.productId &&
+            (hasProduction || hasUrgentProduction)
+        );
+    }, [newEntry, showUrgent, urgentProduction]);
+
+    // ===============================================
+    // ==         FIM DA CORREÇÃO 1                 ==
+    // ===============================================
     
     useEffect(() => {
         if (!user || !currentDashboard) return;
@@ -1998,34 +2065,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
     }, [user, currentDashboard]);
     
-    const [selectedDate, setSelectedDate] = useState(new Date());
-    const [currentMonth, setCurrentMonth] = useState(new Date());
-    const [calendarView, setCalendarView] = useState('day');
-    
     const dateKey = selectedDate.toISOString().slice(0, 10);
     const productionData = useMemo(() => allProductionData[dateKey] || [], [allProductionData, dateKey]);
     
-    const [lotCounter, setLotCounter] = useState(1);
     useEffect(() => { setLotCounter(lots.length > 0 ? Math.max(0, ...lots.map(l => l.sequentialId || 0)) + 1 : 1); }, [lots]);
-
-    const [lotFilter, setLotFilter] = useState('ongoing');
-    const [newLot, setNewLot] = useState({ productId: '', target: '', customName: '' });
-    const [editingLotId, setEditingLotId] = useState(null);
-    const [editingLotData, setEditingLotData] = useState({ target: '', customName: '' });
-    const [newProduct, setNewProduct] = useState({ name: '', standardTime: '' });
-    const [editingProductId, setEditingProductId] = useState(null);
-    const [editingProductData, setEditingProductData] = useState({ name: '', standardTime: '' });
-    
-    const [newEntry, setNewEntry] = useState({ period: '', people: '', availableTime: 60, productId: '', productions: [] });
-    
-    const [goalPreview, setGoalPreview] = useState("0");
-    const [predictedLots, setPredictedLots] = useState([]);
-    const [modalState, setModalState] = useState({ type: null, data: null });
-    const [showUrgent, setShowUrgent] = useState(false);
-    const [urgentProduction, setUrgentProduction] = useState({ productId: '', produced: '' });
-    const [isNavOpen, setIsNavOpen] = useState(false);
-    const navRef = useRef();
-    useClickOutside(navRef, () => setIsNavOpen(false));
 
     const closeModal = () => setModalState({ type: null, data: null });
     
@@ -2116,23 +2159,23 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
           console.error("Lançamento original não encontrado para editar.");
           return;
       }
-  
+ 
       const batch = writeBatch(db);
       const prodDataRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, "data");
-  
+ 
       const productionDeltas = new Map();
-  
+ 
       originalEntry.productionDetails.forEach(detail => {
           productionDeltas.set(detail.productId, (productionDeltas.get(detail.productId) || 0) - detail.produced);
       });
-  
+ 
       updatedData.productions.forEach(detail => {
           productionDeltas.set(detail.productId, (productionDeltas.get(detail.productId) || 0) + detail.produced);
       });
-  
+ 
       for (const [productId, delta] of productionDeltas.entries()) {
           if (delta === 0) continue;
-  
+ 
           const lotToUpdate = lots.find(l => l.productId === productId);
           if (lotToUpdate) {
               const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id);
@@ -2155,7 +2198,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
       });
       
       batch.set(prodDataRef, { [dateKey]: updatedDayData }, { merge: true });
-  
+ 
       try {
           await batch.commit();
           console.log("Lançamento atualizado com sucesso.");
@@ -2300,27 +2343,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     };
     
     const handleSelectTvMode = () => setModalState({ type: 'tvSelector', data: null });
-    
-    const productsForSelectedDate = useMemo(() => {
-        const targetDate = new Date(selectedDate);
-        targetDate.setHours(23, 59, 59, 999); 
-
-        return products
-            .map(p => {
-                if (!p.standardTimeHistory || p.standardTimeHistory.length === 0) {
-                    return null; 
-                }
-                const validTimeEntry = p.standardTimeHistory
-                    .filter(h => new Date(h.effectiveDate) <= targetDate)
-                    .pop();
-
-                if (!validTimeEntry) {
-                    return null; 
-                }
-                return { ...p, standardTime: validTimeEntry.time };
-            })
-            .filter(Boolean);
-    }, [products, selectedDate]);
     
     useEffect(() => {
         const validProducts = productsForSelectedDate;
@@ -2467,19 +2489,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
     const availablePeriods = useMemo(() => FIXED_PERIODS.filter(p => !productionData.some(e => e.period === p)), [productionData]);
     const filteredLots = useMemo(() => [...lots].filter(l => lotFilter === 'ongoing' ? (l.status === 'ongoing' || l.status === 'future') : l.status.startsWith('completed')), [lots, lotFilter]);
-
-    const isEntryFormValid = useMemo(() => {
-        const hasProduction = newEntry.productions.some(p => (parseInt(p, 10) || 0) > 0);
-        const hasUrgentProduction = showUrgent && urgentProduction.productId && (parseInt(urgentProduction.produced, 10) || 0) > 0;
-        
-        return (
-            newEntry.period &&
-            (parseFloat(newEntry.people) > 0) &&
-            (parseFloat(newEntry.availableTime) > 0) &&
-            newEntry.productId &&
-            (hasProduction || hasUrgentProduction)
-        );
-    }, [newEntry, showUrgent, urgentProduction]);
 
 
     const handleInputChange = (e) => { const { name, value } = e.target; setNewEntry(prev => ({ ...prev, [name]: value, ...(name === 'productId' && { productions: [] }) })); };
@@ -2729,8 +2738,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                               <tbody className="divide-y divide-x divide-gray-200 dark:divide-gray-600">
                                   {processedData.map((d) => (
                                       <tr key={d.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                                           <td className="p-3 text-left">{d.period}</td>
-                                          <td className="p-3 text-center">{`${d.people} / ${d.availableTime} min`}</td>
+                                          <td className="p-3 text-left">{d.period}</td>
+                                        <td className="p-3 text-center">{`${d.people} / ${d.availableTime} min`}</td>
                                           <td className="p-3 text-center">{d.goalDisplay}</td> 
                                           <td className="p-3 text-center">{d.producedForDisplay}</td> 
                                           <td className={`p-3 text-center font-semibold ${d.efficiency < 65 ? 'text-red-500' : 'text-green-600'}`}>{d.efficiency}%</td>
@@ -2744,16 +2753,16 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                           </td>
                                           <td className="p-3">
                                               <div className="flex gap-2 justify-center">
-                                                {permissions.EDIT_ENTRIES && 
-                                                    <button 
-                                                        onClick={() => setModalState({ type: 'editEntry', data: d })} 
-                                                        title="Editar Lançamento"
-                                                        className="text-yellow-500 hover:text-yellow-400"
-                                                    >
-                                                        <Edit size={18} />
-                                                    </button>
-                                                }
-                                                {permissions.DELETE_ENTRIES && <button onClick={() => handleDeleteEntry(d.id)} title="Excluir Lançamento"><Trash2 size={18} className="text-red-500 hover:text-red-400"/></button>}
+                                                  {permissions.EDIT_ENTRIES && 
+                                                      <button 
+                                                          onClick={() => setModalState({ type: 'editEntry', data: d })} 
+                                                          title="Editar Lançamento"
+                                                          className="text-yellow-500 hover:text-yellow-400"
+                                                      >
+                                                          <Edit size={18} />
+                                                      </button>
+                                                  }
+                                                  {permissions.DELETE_ENTRIES && <button onClick={() => handleDeleteEntry(d.id)} title="Excluir Lançamento"><Trash2 size={18} className="text-red-500 hover:text-red-400"/></button>}
                                               </div>
                                           </td>
                                       </tr>
@@ -2762,84 +2771,84 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                           </table>
                       </div>
                   </section>
-                
-                {permissions.ADD_ENTRIES && <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
-                    <h2 className="text-xl font-semibold mb-4 flex items-center"><PlusCircle className="mr-2 text-blue-500"/> Adicionar Novo Lançamento</h2>
-                    <form onSubmit={handleAddEntry} className="grid grid-cols-1 gap-4 items-end">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                            <div className="flex flex-col">
-                                <label htmlFor="entry-period">Período</label>
-                                <select id="entry-period" name="period" value={newEntry.period} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
-                                    <option value="" disabled>Selecione...</option>
-                                    {availablePeriods.map(time => (<option key={time} value={time}>{time}</option>))}
-                                </select>
-                            </div>
-                            <div className="flex flex-col"><label htmlFor="entry-people">Nº Pessoas</label><input id="entry-people" type="number" name="people" value={newEntry.people} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700" /></div>
-                            <div className="flex flex-col"><label htmlFor="entry-available-time">Tempo Disp.</label><input id="entry-available-time" type="number" name="availableTime" value={newEntry.availableTime} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                            <div className="flex flex-col">
-                                <label htmlFor="entry-product">Produto (Prioridade)</label>
-                                <select id="entry-product" name="productId" value={newEntry.productId} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
-                                    <option value="">Selecione...</option>
-                                    {[...productsForSelectedDate].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
-                                </select>
-                            </div>
-                        </div>
-                        <div className="flex flex-col space-y-4">
-                            <div className="flex flex-wrap gap-4 items-end">
-                                <div className='flex flex-wrap gap-4 items-end'>
-                                    {predictedLots.filter(p => !p.isUrgent).map((lot, index) => (
-                                        <div key={lot.id || index} className="flex flex-col min-w-[100px]">
-                                            <label className="text-sm truncate" htmlFor={`prod-input-${index}`}>Prod. ({lot.productName})</label>
-                                            <input id={`prod-input-${index}`} type="number" value={newEntry.productions[index] || ''} onChange={(e) => handleProductionChange(index, e.target.value)} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700" />
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="min-w-[150px] ml-auto">
-                                    <button type="button" onClick={() => setShowUrgent(p => !p)} className="text-sm text-blue-500 hover:underline mb-2 flex items-center gap-1">
-                                        <PlusCircle size={14} />{showUrgent ? 'Remover item fora de ordem' : 'Adicionar item fora de ordem'}
-                                    </button>
-                                    {showUrgent && (
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-blue-50 dark:bg-gray-800 rounded-lg">
-                                            <div className="flex flex-col">
-                                                <label htmlFor="urgent-lot">Lote Urgente</label>
-                                                <select id="urgent-lot" name="productId" value={urgentProduction.productId} onChange={handleUrgentChange} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
-                                                    <option value="">Selecione...</option>
-                                                    {lots.filter(l=>l.status!=='completed').map(l=>(<option key={l.id} value={l.productId}>{l.productName}{l.customName?` - ${l.customName}`:''}</option>))}
-                                                </select>
-                                            </div>
-                                            <div className="flex flex-col"><label htmlFor="urgent-produced">Produzido (Urgente)</label><input id="urgent-produced" type="number" name="produced" value={urgentProduction.produced} onChange={handleUrgentChange} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                            <div className="flex justify-end gap-4 items-center pt-4 border-t dark:border-gray-700">
-                                <div className="flex flex-col justify-center items-center bg-blue-100 dark:bg-blue-900/50 p-2 rounded-md shadow-inner h-full min-h-[60px] w-48">
-                                    <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Meta Prevista</label>
-                                    <span className="font-bold text-xl text-blue-600 dark:text-blue-400">{goalPreview || '0'}</span>
-                                </div>
-                                <button type="submit" disabled={!isEntryFormValid} className="h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Adicionar</button>
-                            </div>
-                        </div>
-                    </form>
-                </section>}
-                
-                 <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
-                     <h2 className="text-xl font-semibold mb-4 flex items-center"><Layers className="mr-2 text-blue-500"/> Controle de Lotes de Produção</h2>
-                     {permissions.MANAGE_LOTS && <div className="mb-6 border-b pb-6 dark:border-gray-700">
-                         <h3 className="text-lg font-medium mb-4">Criar Novo Lote</h3>
-                         <form onSubmit={handleAddLot} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                 
+                 {permissions.ADD_ENTRIES && <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
+                     <h2 className="text-xl font-semibold mb-4 flex items-center"><PlusCircle className="mr-2 text-blue-500"/> Adicionar Novo Lançamento</h2>
+                     <form onSubmit={handleAddEntry} className="grid grid-cols-1 gap-4 items-end">
+                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                              <div className="flex flex-col">
-                                 <label htmlFor="newLotProduct">Produto</label>
-                                 <select id="newLotProduct" name="productId" value={newLot.productId} onChange={e => setNewLot({...newLot, productId: e.target.value})} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
-                                     <option value="">Selecione...</option>
-                                     {[...products].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
+                                 <label htmlFor="entry-period">Período</label>
+                                 <select id="entry-period" name="period" value={newEntry.period} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
+                                     <option value="" disabled>Selecione...</option>
+                                     {availablePeriods.map(time => (<option key={time} value={time}>{time}</option>))}
                                  </select>
                              </div>
-                             <div className="flex flex-col"><label htmlFor="newLotTarget">Quantidade</label><input type="number" id="newLotTarget" name="target" value={newLot.target} onChange={e => setNewLot({...newLot, target: e.target.value})} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                             <div className="flex flex-col"><label htmlFor="newLotCustomName">Nome (Opcional)</label><input type="text" id="newLotCustomName" name="customName" value={newLot.customName} onChange={e => setNewLot({...newLot, customName: e.target.value})} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                             <button type="submit" className="h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600">Criar Lote</button>
-                         </form>
-                     </div>}
+                             <div className="flex flex-col"><label htmlFor="entry-people">Nº Pessoas</label><input id="entry-people" type="number" name="people" value={newEntry.people} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700" /></div>
+                             <div className="flex flex-col"><label htmlFor="entry-available-time">Tempo Disp.</label><input id="entry-available-time" type="number" name="availableTime" value={newEntry.availableTime} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
+                             <div className="flex flex-col">
+                                 <label htmlFor="entry-product">Produto (Prioridade)</label>
+                                 <select id="entry-product" name="productId" value={newEntry.productId} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
+                                     <option value="">Selecione...</option>
+                                     {[...productsForSelectedDate].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
+                                 </select>
+                             </div>
+                         </div>
+                         <div className="flex flex-col space-y-4">
+                             <div className="flex flex-wrap gap-4 items-end">
+                                 <div className='flex flex-wrap gap-4 items-end'>
+                                     {predictedLots.filter(p => !p.isUrgent).map((lot, index) => (
+                                         <div key={lot.id || index} className="flex flex-col min-w-[100px]">
+                                             <label className="text-sm truncate" htmlFor={`prod-input-${index}`}>Prod. ({lot.productName})</label>
+                                             <input id={`prod-input-${index}`} type="number" value={newEntry.productions[index] || ''} onChange={(e) => handleProductionChange(index, e.target.value)} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700" />
+                                         </div>
+                                     ))}
+                                 </div>
+                                 <div className="min-w-[150px] ml-auto">
+                                     <button type="button" onClick={() => setShowUrgent(p => !p)} className="text-sm text-blue-500 hover:underline mb-2 flex items-center gap-1">
+                                         <PlusCircle size={14} />{showUrgent ? 'Remover item fora de ordem' : 'Adicionar item fora de ordem'}
+                                     </button>
+                                     {showUrgent && (
+                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-blue-50 dark:bg-gray-800 rounded-lg">
+                                             <div className="flex flex-col">
+                                                 <label htmlFor="urgent-lot">Lote Urgente</label>
+                                                 <select id="urgent-lot" name="productId" value={urgentProduction.productId} onChange={handleUrgentChange} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
+                                                     <option value="">Selecione...</option>
+                                                     {lots.filter(l=>l.status!=='completed').map(l=>(<option key={l.id} value={l.productId}>{l.productName}{l.customName?` - ${l.customName}`:''}</option>))}
+                                                 </select>
+                                             </div>
+                                             <div className="flex flex-col"><label htmlFor="urgent-produced">Produzido (Urgente)</label><input id="urgent-produced" type="number" name="produced" value={urgentProduction.produced} onChange={handleUrgentChange} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
+                                         </div>
+                                     )}
+                                 </div>
+                             </div>
+                             <div className="flex justify-end gap-4 items-center pt-4 border-t dark:border-gray-700">
+                                 <div className="flex flex-col justify-center items-center bg-blue-100 dark:bg-blue-900/50 p-2 rounded-md shadow-inner h-full min-h-[60px] w-48">
+                                     <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Meta Prevista</label>
+                                     <span className="font-bold text-xl text-blue-600 dark:text-blue-400">{goalPreview || '0'}</span>
+                                 </div>
+                                 <button type="submit" disabled={!isEntryFormValid} className="h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Adicionar</button>
+                             </div>
+                         </div>
+                     </form>
+                 </section>}
+                 
+                  <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
+                      <h2 className="text-xl font-semibold mb-4 flex items-center"><Layers className="mr-2 text-blue-500"/> Controle de Lotes de Produção</h2>
+                      {permissions.MANAGE_LOTS && <div className="mb-6 border-b pb-6 dark:border-gray-700">
+                          <h3 className="text-lg font-medium mb-4">Criar Novo Lote</h3>
+                          <form onSubmit={handleAddLot} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                               <div className="flex flex-col">
+                                   <label htmlFor="newLotProduct">Produto</label>
+                                   <select id="newLotProduct" name="productId" value={newLot.productId} onChange={e => setNewLot({...newLot, productId: e.target.value})} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
+                                       <option value="">Selecione...</option>
+                                       {[...products].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
+                                   </select>
+                               </div>
+                               <div className="flex flex-col"><label htmlFor="newLotTarget">Quantidade</label><input type="number" id="newLotTarget" name="target" value={newLot.target} onChange={e => setNewLot({...newLot, target: e.target.value})} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
+                               <div className="flex flex-col"><label htmlFor="newLotCustomName">Nome (Opcional)</label><input type="text" id="newLotCustomName" name="customName" value={newLot.customName} onChange={e => setNewLot({...newLot, customName: e.target.value})} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
+                               <button type="submit" className="h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600">Criar Lote</button>
+                          </form>
+                      </div>}
                       <div className="flex gap-2 mb-4 border-b pb-2 dark:border-gray-700 flex-wrap">
                           <button onClick={() => setLotFilter('ongoing')} className={`px-3 py-1 text-sm rounded-full ${lotFilter==='ongoing' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}>Em Andamento</button>
                           <button onClick={() => setLotFilter('completed')} className={`px-3 py-1 text-sm rounded-full ${lotFilter==='completed' ? 'bg-green-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}>Concluídos</button>
@@ -2937,10 +2946,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                <h3 className="text-lg font-medium mb-4">Produtos Cadastrados ({products.length})</h3>
                                <div className="overflow-auto max-h-60 rounded-lg border dark:border-gray-700">
                                    <table className="w-full text-left">
-                                         <thead className="bg-gray-100 dark:bg-gray-700"><tr>
-                                           <th className="p-3">Nome/Código</th>
-                                           <th className="p-3">Tempo Padrão (na data)</th>
-                                           {permissions.MANAGE_PRODUCTS && <th className="p-3 text-center">Ações</th>}
+                                        <thead className="bg-gray-100 dark:bg-gray-700"><tr>
+                                          <th className="p-3">Nome/Código</th>
+                                          <th className="p-3">Tempo Padrão (na data)</th>
+                                          {permissions.MANAGE_PRODUCTS && <th className="p-3 text-center">Ações</th>}
                                        </tr></thead>
                                        <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
                                            {products.map(p => {
@@ -2988,23 +2997,23 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                        </div>
                    </section>
                    
-                {permissions.VIEW_TRASH && <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg mt-8">
-                    <h2 className="text-xl font-semibold mb-4 flex items-center"><Trash2 className="mr-2 text-red-500"/> Lixeira</h2>
-                    <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
-                        {trashItems.filter(item => item.dashboardId === currentDashboard.id).length > 0 
-                            ? trashItems.filter(item => item.dashboardId === currentDashboard.id).map(item=>(
-                                <TrashItemDisplay 
-                                    key={item.id} 
-                                    item={item} 
-                                    products={products} 
-                                    user={user} 
-                                    onRestore={handleRestoreItem} 
-                                    canRestore={permissions.RESTORE_TRASH} 
-                                />
-                              )) 
-                            : <p>Lixeira vazia.</p>}
-                    </div>
-                </section>}
+                 {permissions.VIEW_TRASH && <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg mt-8">
+                     <h2 className="text-xl font-semibold mb-4 flex items-center"><Trash2 className="mr-2 text-red-500"/> Lixeira</h2>
+                     <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+                         {trashItems.filter(item => item.dashboardId === currentDashboard.id).length > 0 
+                             ? trashItems.filter(item => item.dashboardId === currentDashboard.id).map(item=>(
+                                 <TrashItemDisplay 
+                                     key={item.id} 
+                                     item={item} 
+                                     products={products} 
+                                     user={user} 
+                                     onRestore={handleRestoreItem} 
+                                     canRestore={permissions.RESTORE_TRASH} 
+                                 />
+                               )) 
+                             : <p>Lixeira vazia.</p>}
+                     </div>
+                 </section>}
             </main>
         </div>
     );
@@ -3252,9 +3261,9 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                         </th></tr>
                         <tr><th className="p-2 text-left">Resumo</th>{FIXED_PERIODS.map(p => <th key={p} className="p-2 text-sm">{getPeopleTimeValue(p)}</th>)}</tr>
                         <tr><th className="p-2 text-left">Alteração</th>{FIXED_PERIODS.map(p => {
-                             const launched = dataByPeriod[p];
-                             const isPreviewSlot = previewData && previewData.period === p && !launched;
-                             return <th key={p} className={`p-2 text-base ${isPreviewSlot ? 'text-yellow-300' : ''}`}>{getAlteracaoValue(p)}</th>
+                            const launched = dataByPeriod[p];
+                            const isPreviewSlot = previewData && previewData.period === p && !launched;
+                            return <th key={p} className={`p-2 text-base ${isPreviewSlot ? 'text-yellow-300' : ''}`}>{getAlteracaoValue(p)}</th>
                         })}</tr>
                         <tr><th className="p-3 text-left">Hora</th>{FIXED_PERIODS.map(p => <th key={p} className="p-3 text-3xl">{p}</th>)}</tr>
                     </thead>
