@@ -1990,10 +1990,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     const navRef = useRef();
     useClickOutside(navRef, () => setIsNavOpen(false));
 
-    // ===============================================
-    // == CORREÇÃO 1: Variáveis movidas para o topo ==
-    // ===============================================
-
     const productsForSelectedDate = useMemo(() => {
         const targetDate = new Date(selectedDate);
         targetDate.setHours(23, 59, 59, 999); 
@@ -2027,10 +2023,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             (hasProduction || hasUrgentProduction)
         );
     }, [newEntry, showUrgent, urgentProduction]);
-
-    // ===============================================
-    // ==         FIM DA CORREÇÃO 1                 ==
-    // ===============================================
     
     useEffect(() => {
         if (!user || !currentDashboard) return;
@@ -2048,7 +2040,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
              setTrashItems(snap.docs.map(d => d.data()));
         });
 
-        // NOVO: Limpa a prévia ao sair/trocar de dashboard
         const clearPreviewOnUnmount = async () => {
             if(currentDashboard?.id) {
                 await deleteDoc(doc(db, `dashboards/${currentDashboard.id}/previews/live`));
@@ -2072,9 +2063,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
     const closeModal = () => setModalState({ type: null, data: null });
     
-    // NOVO: Efeito para salvar a prévia da meta no Firebase com "debounce"
     useEffect(() => {
-        // Só executa se os campos essenciais estiverem preenchidos
         if (newEntry.period && newEntry.people > 0 && newEntry.availableTime > 0 && newEntry.productId && currentDashboard?.id) {
             
             const handler = setTimeout(async () => {
@@ -2087,13 +2076,12 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                     productName: product?.name || '',
                     timestamp: Timestamp.now()
                 });
-            }, 1500); // Aguarda 1.5s após o usuário parar de digitar
+            }, 1500);
 
             return () => {
-                clearTimeout(handler); // Limpa o timeout se o usuário continuar digitando
+                clearTimeout(handler);
             };
         } else if (currentDashboard?.id) {
-            // Limpa a prévia se os campos forem limpos
             const previewRef = doc(db, `dashboards/${currentDashboard.id}/previews/live`);
             deleteDoc(previewRef);
         }
@@ -2141,7 +2129,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             }
         }
         
-        // NOVO: Apaga a prévia do Firebase após o lançamento ser salvo
         const previewRef = doc(db, `dashboards/${currentDashboard.id}/previews/live`);
         batch.delete(previewRef);
 
@@ -3054,7 +3041,6 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     const currentDashboard = useMemo(() => dashboards.find(d => d.id === currentDashboardId), [currentDashboardId, dashboards]);
     
     const [products, setProducts] = useState([]);
-    const [lots, setLots] = useState([]);
     const [allProductionData, setAllProductionData] = useState({});
     const [previewData, setPreviewData] = useState(null);
 
@@ -3065,10 +3051,8 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             setProducts(snap.docs.map(d => d.data()));
         });
         
-        const unsubLots = onSnapshot(query(collection(db, `dashboards/${currentDashboard.id}/lots`), orderBy("order")), snap => {
-            setLots(snap.docs.map(d => d.data()));
-        });
-
+        // CORREÇÃO: O listener de 'lots' foi removido daqui pois não era usado.
+        
         const unsubProdData = onSnapshot(doc(db, `dashboards/${currentDashboard.id}/productionData`, "data"), snap => {
             setAllProductionData(snap.exists() ? snap.data() : {});
         });
@@ -3083,7 +3067,6 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
 
         return () => {
             unsubProducts();
-            unsubLots();
             unsubProdData();
             unsubPreview();
         };
