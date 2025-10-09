@@ -3132,20 +3132,24 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     }, [productionData, productMapForToday]);
     
     const prevProductionData = usePrevious(productionData);
+
     useEffect(() => {
         if (prevProductionData && productionData.length > prevProductionData.length) {
             const newEntry = processedData[processedData.length - 1];
-            if (newEntry) {
-                 if (newEntry.efficiency < 65) {
-                    setShowFullScreenAlert(true);
-                    const fullScreenTimer = setTimeout(() => {
-                        setShowFullScreenAlert(false);
-                    }, 5000);
-                    return () => clearTimeout(fullScreenTimer);
-                }
+            if (newEntry && newEntry.efficiency < 65) {
+                setShowFullScreenAlert(true);
             }
         }
     }, [productionData, prevProductionData, processedData]);
+
+    useEffect(() => {
+        if (showFullScreenAlert) {
+            const timer = setTimeout(() => {
+                setShowFullScreenAlert(false);
+            }, 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [showFullScreenAlert]);
 
 
     const monthlySummary = useMemo(() => {
@@ -3279,7 +3283,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                                             cellContent = row.formatter(p);
                                             if (row.isColor && cellContent !== '-') {
                                                 const numericVal = dataByPeriod[p]?.[row.key];
-                                                cellClass += parseFloat(numericVal) < 65 ? 'text-red-500' : 'text-green-600';
+                                                cellClass += parseFloat(numericVal) < 65 ? ' text-red-500' : ' text-green-600';
                                             }
                                         }
 
