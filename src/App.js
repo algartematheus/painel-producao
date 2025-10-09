@@ -1947,7 +1947,6 @@ const LotReport = ({ lots, products }) => {
     );
 };
 
-
 // #####################################################################
 // #                                                                   #
 // #           INÍCIO: CRONOANÁLISE DASHBOARD (CÓDIGO PRINCIPAL)         #
