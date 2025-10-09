@@ -275,7 +275,7 @@ const StockProvider = ({ children }) => {
         }
         await setDoc(doc(db, "stock/data/categories", newId), { 
             name: categoryName, 
-            createdBy: user.uid,
+            createdBy: { uid: user.uid, email: user.email },
             createdAt: Timestamp.now(),
         });
         return newId;
@@ -287,7 +287,7 @@ const StockProvider = ({ children }) => {
             ...productData,
             isDeleted: false,
             createdAt: Timestamp.now(),
-            createdBy: user.uid,
+            createdBy: { uid: user.uid, email: user.email },
             variations: productData.variations.map(v => ({
                 ...v,
                 id: generateId('var'),
@@ -300,20 +300,26 @@ const StockProvider = ({ children }) => {
     const updateProduct = useCallback(async (productId, productData) => {
         const { id, ...dataToUpdate } = productData;
         const productRef = doc(db, "stock/data/products", productId);
-        await updateDoc(productRef, dataToUpdate);
-    }, []);
+        await updateDoc(productRef, {
+            ...dataToUpdate,
+            lastEditedBy: { uid: user.uid, email: user.email },
+            lastEditedAt: Timestamp.now(),
+        });
+    }, [user]);
 
     const deleteProduct = useCallback(async (productId) => {
         await updateDoc(doc(db, "stock/data/products", productId), { 
             isDeleted: true,
-            deletedAt: Timestamp.now()
+            deletedAt: Timestamp.now(),
+            deletedBy: { uid: user.uid, email: user.email },
         });
-    }, []);
+    }, [user]);
 
     const restoreProduct = useCallback(async (productId) => {
         await updateDoc(doc(db, "stock/data/products", productId), { 
             isDeleted: false,
-            deletedAt: null
+            deletedAt: null,
+            deletedBy: null,
         });
     }, []);
 
@@ -1029,9 +1035,9 @@ const StockProductsPage = ({ setConfirmation }) => {
                         <tr>
                             <th className="p-3 text-left">Nome</th>
                             <th className="p-3 text-left">Categoria</th>
-                            <th className="p-3 text-center">Estoque Atual (Total)</th>
-                            <th className="p-3 text-center">Estoque Mínimo</th>
-                            <th className="p-3 text-center">Tempo de Entrega (meses)</th>
+                            <th className="p-3 text-center">Estoque Atual</th>
+                            <th className="p-3 text-left">Criado por</th>
+                            <th className="p-3 text-left">Última Edição</th>
                             <th className="p-3 text-center">Ações</th>
                         </tr>
                     </thead>
@@ -1046,8 +1052,8 @@ const StockProductsPage = ({ setConfirmation }) => {
                                 </td>
                                 <td className="p-3">{getCategoryName(p.categoryId)}</td>
                                 <td className="p-3 text-center font-bold">{getTotalStock(p).toLocaleString('pt-BR')}</td>
-                                <td className="p-3 text-center">{p.minStock.toLocaleString('pt-BR')}</td>
-                                <td className="p-3 text-center">{(p.leadTimeInMonths || 0).toLocaleString('pt-BR')}</td>
+                                <td className="p-3 text-xs">{p.createdBy?.email || 'N/A'}</td>
+                                <td className="p-3 text-xs">{p.lastEditedBy?.email || 'N/A'}</td>
                                 <td className="p-3">
                                     <div className="flex gap-2 justify-center">
                                         <button onClick={() => handleOpenEditModal(p)} title="Editar"><Edit size={18} className="text-yellow-500 hover:text-yellow-400"/></button>
@@ -1081,7 +1087,7 @@ const StockTrashPage = () => {
                         <div key={p.id} className="flex justify-between items-center p-4 border-b dark:border-gray-800">
                             <div>
                                 <p className="font-bold">{p.name}</p>
-                                <p className="text-sm text-gray-500">Excluído em: {p.deletedAt ? p.deletedAt.toDate().toLocaleString('pt-BR') : 'Data desconhecida'}</p>
+                                <p className="text-sm text-gray-500">Excluído por: {p.deletedBy?.email || 'Desconhecido'} em: {p.deletedAt ? p.deletedAt.toDate().toLocaleString('pt-BR') : 'Data desconhecida'}</p>
                             </div>
                             <button onClick={() => restoreProduct(p.id)} className="p-2 bg-green-500 text-white rounded-md">Restaurar</button>
                         </div>
@@ -2103,7 +2109,17 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             }
         });
         
-        const newEntryData = { id: Date.now().toString(), period: newEntry.period, people: newEntry.people, availableTime: newEntry.availableTime, productionDetails, observation: '', goalDisplay: goalPreview, primaryProductId: newEntry.productId };
+        const newEntryData = { 
+            id: Date.now().toString(), 
+            period: newEntry.period, 
+            people: newEntry.people, 
+            availableTime: newEntry.availableTime, 
+            productionDetails, 
+            observation: '', 
+            goalDisplay: goalPreview, 
+            primaryProductId: newEntry.productId,
+            createdBy: { uid: user.uid, email: user.email },
+        };
         
         const batch = writeBatch(db);
         const prodDataRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, "data");
@@ -2116,7 +2132,11 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             if(lotToUpdate){
                 const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id);
                 const newProduced = (lotToUpdate.produced || 0) + detail.produced;
-                const updatePayload = { produced: newProduced };
+                const updatePayload = { 
+                    produced: newProduced,
+                    lastEditedBy: { uid: user.uid, email: user.email },
+                    lastEditedAt: Timestamp.now(),
+                };
                 if (lotToUpdate.status === 'future' && newProduced > 0) {
                     updatePayload.status = 'ongoing';
                     updatePayload.startDate = new Date().toISOString();
@@ -2137,7 +2157,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         setNewEntry({ period: '', people: '', availableTime: 60, productId: newEntry.productId, productions: [] });
         setUrgentProduction({productId: '', produced: ''});
         setShowUrgent(false);
-    }, [isEntryFormValid, showUrgent, urgentProduction, predictedLots, newEntry, allProductionData, dateKey, lots, currentDashboard, goalPreview]);
+    }, [isEntryFormValid, showUrgent, urgentProduction, predictedLots, newEntry, allProductionData, dateKey, lots, currentDashboard, goalPreview, user]);
     
     
     const handleSaveEntry = async (entryId, updatedData) => {
@@ -2167,7 +2187,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
           if (lotToUpdate) {
               const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id);
               batch.update(lotRef, {
-                  produced: increment(delta)
+                  produced: increment(delta),
+                  lastEditedBy: { uid: user.uid, email: user.email },
+                  lastEditedAt: Timestamp.now(),
               });
           }
       }
@@ -2179,6 +2201,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                   people: updatedData.people,
                   availableTime: updatedData.availableTime,
                   productionDetails: updatedData.productions,
+                  lastEditedBy: { uid: user.uid, email: user.email },
+                  lastEditedAt: Timestamp.now(),
               };
           }
           return e;
@@ -2491,8 +2515,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             name: newProduct.name, 
             standardTimeHistory: [{
                 time: parseFloat(newProduct.standardTime),
-                effectiveDate: new Date().toISOString()
-            }] 
+                effectiveDate: new Date().toISOString(),
+                changedBy: { uid: user.uid, email: user.email },
+            }],
+            createdBy: { uid: user.uid, email: user.email },
         };
         await setDoc(doc(db, `dashboards/${currentDashboard.id}/products`, id), newProductData);
         setNewProduct({ name: '', standardTime: '' }); 
@@ -2517,13 +2543,15 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         if (latestTime !== newTime) {
             newHistory.push({
                 time: newTime,
-                effectiveDate: new Date().toISOString()
+                effectiveDate: new Date().toISOString(),
+                changedBy: { uid: user.uid, email: user.email },
             });
         }
         
         await updateDoc(doc(db, `dashboards/${currentDashboard.id}/products`, id), {
             name: editingProductData.name,
-            standardTimeHistory: newHistory
+            standardTimeHistory: newHistory,
+            lastEditedBy: { uid: user.uid, email: user.email },
         });
         
         setEditingProductId(null); 
@@ -2531,10 +2559,16 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
     const handleSaveObservation = async (entryId, observation) => {
         const updatedDayData = productionData.map(e => e.id === entryId ? { ...e, observation } : e);
-        await updateDoc(doc(db, `dashboards/${currentDashboard.id}/productionData`, "data"), { [dateKey]: updatedDayData });
+        await updateDoc(doc(db, `dashboards/${currentDashboard.id}/productionData`, "data"), { 
+            [dateKey]: updatedDayData,
+        });
     };
     const handleSaveLotObservation = async (lotId, observation) => {
-        await updateDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, lotId), { observation });
+        await updateDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, lotId), { 
+            observation,
+            lastEditedBy: { uid: user.uid, email: user.email },
+            lastEditedAt: Timestamp.now(),
+        });
     };
     const handleAddLot = async (e) => {
         e.preventDefault();
@@ -2554,7 +2588,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             order: Date.now(),
             observation: '',
             startDate: null,
-            endDate: null
+            endDate: null,
+            createdBy: { uid: user.uid, email: user.email },
         };
         await setDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, id), newLotData);
         setNewLot({ productId: '', target: '', customName: '' });
@@ -2571,6 +2606,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         const updatePayload = {
             target: newTarget,
             customName: editingLotData.customName,
+            lastEditedBy: { uid: user.uid, email: user.email },
+            lastEditedAt: Timestamp.now(),
         };
 
         if (isCompletingNow) {
@@ -2588,7 +2625,11 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         const lot = lots.find(l => l.id === lotId);
         if(!lot) return;
         
-        const updatePayload = { status: newStatus };
+        const updatePayload = { 
+            status: newStatus,
+            lastEditedBy: { uid: user.uid, email: user.email },
+            lastEditedAt: Timestamp.now(),
+        };
         const isCompleting = newStatus.startsWith('completed');
         const wasCompleted = lot.status.startsWith('completed');
 
@@ -2718,6 +2759,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                       <th className="p-3 text-center border-r dark:border-gray-600">Meta Acum.</th>
                                       <th className="p-3 text-center border-r dark:border-gray-600">Prod. Acum.</th>
                                       <th className="p-3 text-center border-r dark:border-gray-600">Efic. Acum.</th>
+                                      <th className="p-3 text-left border-r dark:border-gray-600">Lançado por</th>
                                       <th className="p-3 text-center border-r dark:border-gray-600">Obs.</th>
                                       <th className="p-3 text-center">Ações</th>
                                   </tr>
@@ -2733,6 +2775,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                           <td className="p-3 text-center">{d.cumulativeGoal}</td>
                                           <td className="p-3 text-center">{d.cumulativeProduction}</td>
                                           <td className={`p-3 text-center font-semibold ${d.cumulativeEfficiency < 65 ? 'text-red-500' : 'text-green-600'}`}>{d.cumulativeEfficiency}%</td>
+                                          <td className="p-3 text-left text-xs truncate">{d.createdBy?.email}</td>
                                           <td className="p-3 text-center">
                                               <button onClick={() => setModalState({ type: 'observation', data: d })} title="Observação">
                                                   <MessageSquare size={18} className={d.observation ? 'text-blue-500 hover:text-blue-400' : 'text-gray-500 hover:text-blue-400'}/>
@@ -2857,7 +2900,11 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                           )}
                                           <div>
                                               <h4 className="font-bold text-lg">{lot.productName}{lot.customName?` - ${lot.customName}`:''}</h4>
-                                              <p className="text-sm text-gray-500 dark:text-gray-400">Lote #{lot.sequentialId} | Prioridade: {index+1}</p>
+                                              <div className="text-xs text-gray-500 dark:text-gray-400">
+                                                  <p>Lote #{lot.sequentialId} | Prioridade: {index+1}</p>
+                                                  <p>Criado por: {lot.createdBy?.email || 'N/A'}</p>
+                                                  {lot.lastEditedBy && <p>Editado por: {lot.lastEditedBy.email}</p>}
+                                              </div>
                                               {(lot.startDate || lot.endDate) && (
                                                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                                       {lot.startDate && `Início: ${new Date(lot.startDate).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`}
@@ -2936,13 +2983,15 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                         <thead className="bg-gray-100 dark:bg-gray-700"><tr>
                                           <th className="p-3">Nome/Código</th>
                                           <th className="p-3">Tempo Padrão (na data)</th>
+                                          <th className="p-3">Criado Por</th>
+                                          <th className="p-3">Última Edição</th>
                                           {permissions.MANAGE_PRODUCTS && <th className="p-3 text-center">Ações</th>}
                                        </tr></thead>
                                        <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
                                            {products.map(p => {
                                                const history = p.standardTimeHistory || [];
                                                const currentTime = history.length > 0 ? history[history.length - 1].time : 'N/A';
-
+                                               
                                                const targetDateEnd = new Date(selectedDate);
                                                targetDateEnd.setHours(23, 59, 59, 999);
                                                const historicalEntry = history.filter(h => new Date(h.effectiveDate) <= targetDateEnd).pop();
@@ -2956,6 +3005,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                                        <>
                                                            <td className="p-2"><input type="text" value={editingProductData.name} onChange={e => setEditingProductData({ ...editingProductData, name: e.target.value })} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
                                                            <td className="p-2"><input type="number" step="0.01" value={editingProductData.standardTime} onChange={e => setEditingProductData({ ...editingProductData, standardTime: e.target.value })} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
+                                                           <td colSpan="2"></td>
                                                            {permissions.MANAGE_PRODUCTS && <td className="p-3">
                                                                <div className="flex gap-2 justify-center">
                                                                    <button onClick={() => handleSaveProduct(p.id)} title="Salvar"><Save size={18} className="text-green-500" /></button>
@@ -2970,6 +3020,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                                                {historicalTime} min
                                                                {didExistOnDate && currentTime !== historicalTime && <span className="text-xs text-gray-500 ml-2">(Atual: {currentTime} min)</span>}
                                                            </td>
+                                                           <td className="p-3 text-xs truncate">{p.createdBy?.email}</td>
+                                                           <td className="p-3 text-xs truncate">{p.lastEditedBy?.email}</td>
                                                            {permissions.MANAGE_PRODUCTS && <td className="p-3">
                                                                <div className="flex gap-2 justify-center">
                                                                    <button onClick={() => handleStartEditProduct(p)} title="Editar"><Edit size={18} className="text-yellow-500 hover:text-yellow-400" /></button>
