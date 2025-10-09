@@ -456,7 +456,7 @@ const StockSidebar = ({ activePage, setActivePage }) => {
     );
 };
 
-const StockDashboardPage = () => {
+const StockDashboardPage = ({ setConfirmation }) => {
     const { products, categories, loading } = useStock();
     const [selectedCategoryId, setSelectedCategoryId] = useState('');
     const [sortOrder, setSortOrder] = useState('asc');
@@ -753,6 +753,7 @@ const StockMovementsPage = ({ setConfirmation }) => {
                                      <th className="p-3 text-left">Produto (Variação)</th>
                                      <th className="p-3 text-center">Tipo</th>
                                      <th className="p-3 text-center">Quantidade</th>
+                                     <th className="p-3 text-left">Usuário</th>
                                      <th className="p-3 text-center">Ações</th>
                                  </tr>
                              </thead>
@@ -766,6 +767,7 @@ const StockMovementsPage = ({ setConfirmation }) => {
                                              <td className="p-3">{product?.name || 'Excluído'} {variation && `(${variation.name})`}</td>
                                              <td className={`p-3 text-center font-semibold ${m.type === 'Entrada' ? 'text-green-500' : 'text-red-500'}`}>{m.type}</td>
                                              <td className="p-3 text-center">{m.quantity}</td>
+                                             <td className="p-3 text-left text-xs truncate">{m.userEmail || 'N/A'}</td>
                                              <td className="p-3 text-center">
                                                  <button onClick={() => handleDeleteClick(m)} title="Apagar Lançamento">
                                                      <Trash2 size={18} className="text-red-500 hover:text-red-400"/>
@@ -775,7 +777,7 @@ const StockMovementsPage = ({ setConfirmation }) => {
                                      );
                                  }) : (
                                      <tr>
-                                         <td colSpan="5" className="text-center p-8 text-gray-500">Nenhuma movimentação para esta data.</td>
+                                         <td colSpan="6" className="text-center p-8 text-gray-500">Nenhuma movimentação para esta data.</td>
                                      </tr>
                                  )}
                              </tbody>
