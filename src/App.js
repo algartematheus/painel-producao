@@ -2943,7 +2943,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                                const history = p.standardTimeHistory || [];
                                                const currentTime = history.length > 0 ? history[history.length - 1].time : 'N/A';
 
-                                               const historicalEntry = history.filter(h => new Date(h.effectiveDate) <= selectedDate).pop();
+                                               const targetDateEnd = new Date(selectedDate);
+                                               targetDateEnd.setHours(23, 59, 59, 999);
+                                               const historicalEntry = history.filter(h => new Date(h.effectiveDate) <= targetDateEnd).pop();
+                                               
                                                const didExistOnDate = !!historicalEntry;
                                                const historicalTime = historicalEntry ? historicalEntry.time : 'N/A';
 
@@ -3132,7 +3135,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     }, [productionData, productMapForToday]);
     
     const prevProductionData = usePrevious(productionData);
-
+    
     useEffect(() => {
         if (prevProductionData && productionData.length > prevProductionData.length) {
             const newEntry = processedData[processedData.length - 1];
