@@ -3006,6 +3006,19 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     );
 };
 
+
+const FullScreenAlert = ({ isOpen }) => {
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex flex-col justify-center items-center z-[100] text-white animate-pulse">
+            <span className="text-9xl" role="img" aria-label="Alerta">⚠️</span>
+            <h1 className="text-6xl font-extrabold mt-4 text-red-500">EFICIÊNCIA ABAIXO DO ESPERADO!</h1>
+        </div>
+    );
+};
+
+
 const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     const [theme] = useState(() => localStorage.getItem('theme') || 'dark');
     const [transitioning, setTransitioning] = useState(false);
@@ -3016,7 +3029,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
 
     const [currentDashboardId, setCurrentDashboardId] = useState(initialDashboardId);
     
-    const [alertInfo, setAlertInfo] = useState({ period: null, type: null });
+    const [showFullScreenAlert, setShowFullScreenAlert] = useState(false);
 
     const changeDashboard = useCallback((newId) => {
         setTransitioning(true);
@@ -3050,8 +3063,6 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         const unsubProducts = onSnapshot(query(collection(db, `dashboards/${currentDashboard.id}/products`)), snap => {
             setProducts(snap.docs.map(d => d.data()));
         });
-        
-        // CORREÇÃO: O listener de 'lots' foi removido daqui pois não era usado.
         
         const unsubProdData = onSnapshot(doc(db, `dashboards/${currentDashboard.id}/productionData`, "data"), snap => {
             setAllProductionData(snap.exists() ? snap.data() : {});
@@ -3123,22 +3134,15 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     const prevProductionData = usePrevious(productionData);
     useEffect(() => {
         if (prevProductionData && productionData.length > prevProductionData.length) {
-            const newEntry = processedData.find(d => !prevProductionData.some(pd => pd.id === d.id));
-            if (newEntry && newEntry.produced < newEntry.goal) {
-                setAlertInfo({ period: newEntry.period, type: 'emoji' });
-                
-                const blinkTimer = setTimeout(() => {
-                    setAlertInfo({ period: newEntry.period, type: 'blink' });
-                }, 5000);
-
-                const clearTimer = setTimeout(() => {
-                    setAlertInfo({ period: null, type: null });
-                }, 10000);
-
-                return () => {
-                    clearTimeout(blinkTimer);
-                    clearTimeout(clearTimer);
-                };
+            const newEntry = processedData[processedData.length - 1];
+            if (newEntry) {
+                 if (newEntry.efficiency < 65) {
+                    setShowFullScreenAlert(true);
+                    const fullScreenTimer = setTimeout(() => {
+                        setShowFullScreenAlert(false);
+                    }, 5000);
+                    return () => clearTimeout(fullScreenTimer);
+                }
             }
         }
     }, [productionData, prevProductionData, processedData]);
@@ -3273,16 +3277,18 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                                             }
                                         } else {
                                             cellContent = row.formatter(p);
-                                            if (row.key === 'efficiency' && alertInfo.period === p && alertInfo.type === 'blink') {
-                                                cellClass += ' blinking-red';
-                                            }
                                             if (row.isColor && cellContent !== '-') {
                                                 const numericVal = dataByPeriod[p]?.[row.key];
-                                                cellClass += numericVal < 65 ? 'text-red-500' : 'text-green-600';
+                                                cellClass += parseFloat(numericVal) < 65 ? 'text-red-500' : 'text-green-600';
                                             }
                                         }
+
+                                        const efficiency = dataByPeriod[p]?.efficiency;
+                                        
                                         return <td key={p} className={cellClass}>
-                                            {row.key === 'producedForDisplay' && alertInfo.period === p && alertInfo.type === 'emoji' && <span role="img" aria-label="Alerta">⚠️ </span>}
+                                            {row.key === 'producedForDisplay' && launched && efficiency != null && efficiency < 70 && (
+                                              <span role="img" aria-label="Alerta" className="text-yellow-400 text-3xl">⚠️ </span>
+                                            )}
                                             {cellContent}
                                         </td>;
                                     })
@@ -3301,6 +3307,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
 
     return (
         <div className="min-h-screen p-4 md:p-8 bg-gray-100 dark:bg-gray-900 flex flex-col items-center justify-center font-sans space-y-8">
+            <FullScreenAlert isOpen={showFullScreenAlert} />
             <div className={`w-full transition-opacity duration-300 ${transitioning ? 'opacity-0' : 'opacity-100'}`}>
                 {renderTvTable()}
             </div>
