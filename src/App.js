@@ -2399,21 +2399,24 @@ const calculatePredictions = useCallback(() => {
             const startIndex = activeLots.findIndex(l => l.productId === newEntry.productId);
 
             if (startIndex !== -1) {
-                // Itera a partir do lote prioritário selecionado
+                // Itera sobre todos os lotes a partir da prioridade, sem limite de quantidade
                 for (let i = startIndex; i < activeLots.length && timeForNormal > 0; i++) {
                     const lot = activeLots[i];
                     const productForLot = currentProducts.find(p => p.id === lot.productId);
 
                     if (productForLot && productForLot.standardTime > 0) {
+                        
+                        // *** AQUI ESTÁ A MUDANÇA CRUCIAL ***
+                        // Se o tempo restante não for suficiente para fazer nem 1 peça do lote atual, paramos o cálculo.
+                        if (timeForNormal < productForLot.standardTime) {
+                            break; // Sai do loop e não calcula mais nenhum lote.
+                        }
+
                         const remainingPiecesInLot = Math.max(0, (lot.target || 0) - (lot.produced || 0));
                         
-                        // Não pode produzir mais do que o lote precisa
                         if (remainingPiecesInLot === 0) continue;
 
-                        // Calcula quantas peças são possíveis de fazer com o tempo restante
                         const producibleWithTime = Math.floor(timeForNormal / productForLot.standardTime);
-
-                        // O número de peças a produzir é o menor valor entre o que falta no lote e o que o tempo permite
                         const producible = Math.min(remainingPiecesInLot, producibleWithTime);
 
                         if (producible > 0) {
@@ -2423,8 +2426,6 @@ const calculatePredictions = useCallback(() => {
                     }
                 }
             } else if (newEntry.productId) {
-                // Caso especial: produto selecionado não tem um lote ativo na fila
-                // (produção "avulsa")
                 const selectedProduct = currentProducts.find(p => p.id === newEntry.productId);
                 if(selectedProduct && selectedProduct.standardTime > 0) {
                     const producible = Math.floor(timeForNormal / selectedProduct.standardTime);
@@ -2438,7 +2439,7 @@ const calculatePredictions = useCallback(() => {
         const allPredictions = urgentPrediction ? [urgentPrediction, ...normalPredictions] : normalPredictions;
         return { allPredictions, currentGoalPreview: allPredictions.map(p => p.producible || 0).join(' / ') || '0' };
     }, [newEntry.people, newEntry.availableTime, newEntry.productId, productsForSelectedDate, lots, urgentProduction, showUrgent]);
-
+  
     useEffect(() => {
         const { allPredictions, currentGoalPreview } = calculatePredictions();
         setPredictedLots(allPredictions);
