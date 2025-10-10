@@ -2373,7 +2373,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         }
     }, [newEntry.productId, productsForSelectedDate]);
 
-    const calculatePredictions = useCallback(() => {
+const calculatePredictions = useCallback(() => {
         const people = parseFloat(newEntry.people) || 0;
         const availableTime = parseFloat(newEntry.availableTime) || 0;
         let timeConsumedByUrgent = 0;
@@ -2405,15 +2405,17 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                     for (let i = startIndex; i < activeLots.length && timeForNormal > 0; i++) {
                         const lot = activeLots[i];
                         const productForLot = currentProducts.find(p => p.id === lot.productId);
-                        if (productForLot) {
+                        
+                        // LÓGICA CORRIGIDA:
+                        // Agora, o tempo padrão do lote específico ('productForLot') é usado.
+                        if (productForLot && productForLot.standardTime > 0) {
                             const remainingPiecesInLot = Math.max(0, (lot.target || 0) - (lot.produced || 0));
                             
-                            // AQUI ESTÁ A CORREÇÃO: Usando o tempo do produto selecionado (prioritário) para todos os cálculos.
-                            const producible = Math.min(remainingPiecesInLot, Math.floor(timeForNormal / selectedProduct.standardTime));
+                            const producible = Math.min(remainingPiecesInLot, Math.floor(timeForNormal / productForLot.standardTime));
                             
                             if (producible > 0) { 
                                 normalPredictions.push({ ...lot, producible, productName: productForLot.name }); 
-                                timeForNormal -= producible * selectedProduct.standardTime;
+                                timeForNormal -= producible * productForLot.standardTime;
                             }
                         }
                     }
