@@ -2019,8 +2019,12 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     }, [products, selectedDate]);
     
     const isEntryFormValid = useMemo(() => {
-    const hasProduction = newEntry.productions.length > 0 && newEntry.productions.every(p => p && parseInt(p, 10) > 0);
-    
+    const allFieldsFilled = newEntry.productions.every(p => p !== '' && p !== null);
+
+    const atLeastOneIsPositive = newEntry.productions.some(p => parseInt(p, 10) > 0);
+
+    const hasProduction = allFieldsFilled && atLeastOneIsPositive;
+
     const hasUrgentProduction = showUrgent && urgentProduction.productId && (parseInt(urgentProduction.produced, 10) || 0) > 0;
     
     return (
