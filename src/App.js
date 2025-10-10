@@ -2404,16 +2404,22 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                     let timeForNormal = remainingTime;
                     for (let i = startIndex; i < activeLots.length && timeForNormal > 0; i++) {
                         const lot = activeLots[i];
+                        // Ainda precisamos dos dados do produto do lote para pegar o nome
                         const productForLot = currentProducts.find(p => p.id === lot.productId);
-                        if (productForLot && productForLot.standardTime > 0) {
+                        if (productForLot) { // Não precisamos mais checar o standardTime aqui
                             const remainingPiecesInLot = Math.max(0, (lot.target || 0) - (lot.produced || 0));
-                            const producible = Math.min(remainingPiecesInLot, Math.floor(timeForNormal / productForLot.standardTime));
-                            if (producible > 0) { normalPredictions.push({ ...lot, producible, productName: productForLot.name }); timeForNormal -= producible * productForLot.standardTime; }
+                            
+                            // CORREÇÃO APLICADA:
+                            // Usamos o tempo padrão do PRODUTO SELECIONADO para calcular tudo.
+                            const producible = Math.min(remainingPiecesInLot, Math.floor(timeForNormal / selectedProduct.standardTime));
+                            
+                            if (producible > 0) { 
+                                normalPredictions.push({ ...lot, producible, productName: productForLot.name }); 
+                                // E subtraímos o tempo consumido usando a mesma base de cálculo.
+                                timeForNormal -= producible * selectedProduct.standardTime;
+                            }
                         }
                     }
-                }
-            }
-        }
         const allPredictions = urgentPrediction ? [urgentPrediction, ...normalPredictions] : normalPredictions;
         return { allPredictions, currentGoalPreview: allPredictions.map(p => p.producible || 0).join(' / ') || '0' };
     }, [newEntry.people, newEntry.availableTime, newEntry.productId, productsForSelectedDate, lots, urgentProduction, showUrgent]);
