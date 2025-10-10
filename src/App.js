@@ -2039,16 +2039,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     useEffect(() => {
         if (!user || !currentDashboard) return;
 
-const unsubProducts = onSnapshot(
-    query(
-        collection(db, `dashboards/${currentDashboard.id}/products`),
-        orderBy("name")
-    ),
-    (snap) => {
-        setProducts(snap.docs.map(d => d.data()));
-    }
-);
-
+        const unsubProducts = onSnapshot(query(collection(db, `dashboards/${currentDashboard.id}/products`)), snap => {
+            setProducts(snap.docs.map(d => d.data()));
         });
         const unsubLots = onSnapshot(query(collection(db, `dashboards/${currentDashboard.id}/lots`), orderBy("order")), snap => {
             setLots(snap.docs.map(d => d.data()));
@@ -3047,51 +3039,51 @@ const calculatePredictions = useCallback(() => {
                                           {permissions.MANAGE_PRODUCTS && <th className="p-3 text-center">Ações</th>}
                                        </tr></thead>
                                        <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
-                                           {products.map(p => {
-                                               const history = p.standardTimeHistory || [];
-                                               const currentTime = history.length > 0 ? history[history.length - 1].time : 'N/A';
-                                               
-                                               const targetDateEnd = new Date(selectedDate);
-                                               targetDateEnd.setHours(23, 59, 59, 999);
-                                               const historicalEntry = history.filter(h => new Date(h.effectiveDate) <= targetDateEnd).pop();
-                                               
-                                               const didExistOnDate = !!historicalEntry;
-                                               const historicalTime = historicalEntry ? historicalEntry.time : 'N/A';
+    {[...products].sort((a, b) => a.name.localeCompare(b.name)).map(p => {
+        const history = p.standardTimeHistory || [];
+        const currentTime = history.length > 0 ? history[history.length - 1].time : 'N/A';
+        
+        const targetDateEnd = new Date(selectedDate);
+        targetDateEnd.setHours(23, 59, 59, 999);
+        const historicalEntry = history.filter(h => new Date(h.effectiveDate) <= targetDateEnd).pop();
+        
+        const didExistOnDate = !!historicalEntry;
+        const historicalTime = historicalEntry ? historicalEntry.time : 'N/A';
 
-                                               return (
-                                               <tr key={p.id} className={!didExistOnDate ? 'bg-red-50 dark:bg-red-900/20' : ''}>
-                                                   {editingProductId === p.id ? (
-                                                       <>
-                                                           <td className="p-2"><input type="text" value={editingProductData.name} onChange={e => setEditingProductData({ ...editingProductData, name: e.target.value })} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
-                                                           <td className="p-2"><input type="number" step="0.01" value={editingProductData.standardTime} onChange={e => setEditingProductData({ ...editingProductData, standardTime: e.target.value })} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
-                                                           <td colSpan="2"></td>
-                                                           {permissions.MANAGE_PRODUCTS && <td className="p-3">
-                                                               <div className="flex gap-2 justify-center">
-                                                                   <button onClick={() => handleSaveProduct(p.id)} title="Salvar"><Save size={18} className="text-green-500" /></button>
-                                                                   <button onClick={() => setEditingProductId(null)} title="Cancelar"><XCircle size={18} className="text-gray-500" /></button>
-                                                               </div>
-                                                           </td>}
-                                                       </>
-                                                   ) : (
-                                                       <>
-                                                           <td className={`p-3 font-semibold ${!didExistOnDate ? 'text-red-500' : ''}`}>{p.name}{!didExistOnDate && ' (Não existia)'}</td>
-                                                           <td className="p-3">
-                                                               {historicalTime} min
-                                                               {didExistOnDate && currentTime !== historicalTime && <span className="text-xs text-gray-500 ml-2">(Atual: {currentTime} min)</span>}
-                                                           </td>
-                                                           <td className="p-3 text-xs truncate">{p.createdBy?.email}</td>
-                                                           <td className="p-3 text-xs truncate">{p.lastEditedBy?.email}</td>
-                                                           {permissions.MANAGE_PRODUCTS && <td className="p-3">
-                                                               <div className="flex gap-2 justify-center">
-                                                                   <button onClick={() => handleStartEditProduct(p)} title="Editar"><Edit size={18} className="text-yellow-500 hover:text-yellow-400" /></button>
-                                                                   <button onClick={() => handleDeleteProduct(p.id)} title="Excluir"><Trash2 size={18} className="text-red-500 hover:text-red-400" /></button>
-                                                               </div>
-                                                           </td>}
-                                                       </>
-                                                   )}
-                                               </tr>
-                                           )})}
-                                       </tbody>
+        return (
+        <tr key={p.id} className={!didExistOnDate ? 'bg-red-50 dark:bg-red-900/20' : ''}>
+            {editingProductId === p.id ? (
+                <>
+                    <td className="p-2"><input type="text" value={editingProductData.name} onChange={e => setEditingProductData({ ...editingProductData, name: e.target.value })} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
+                    <td className="p-2"><input type="number" step="0.01" value={editingProductData.standardTime} onChange={e => setEditingProductData({ ...editingProductData, standardTime: e.target.value })} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
+                    <td colSpan="2"></td>
+                    {permissions.MANAGE_PRODUCTS && <td className="p-3">
+                        <div className="flex gap-2 justify-center">
+                            <button onClick={() => handleSaveProduct(p.id)} title="Salvar"><Save size={18} className="text-green-500" /></button>
+                            <button onClick={() => setEditingProductId(null)} title="Cancelar"><XCircle size={18} className="text-gray-500" /></button>
+                        </div>
+                    </td>}
+                </>
+            ) : (
+                <>
+                    <td className={`p-3 font-semibold ${!didExistOnDate ? 'text-red-500' : ''}`}>{p.name}{!didExistOnDate && ' (Não existia)'}</td>
+                    <td className="p-3">
+                        {historicalTime} min
+                        {didExistOnDate && currentTime !== historicalTime && <span className="text-xs text-gray-500 ml-2">(Atual: {currentTime} min)</span>}
+                    </td>
+                    <td className="p-3 text-xs truncate">{p.createdBy?.email}</td>
+                    <td className="p-3 text-xs truncate">{p.lastEditedBy?.email}</td>
+                    {permissions.MANAGE_PRODUCTS && <td className="p-3">
+                        <div className="flex gap-2 justify-center">
+                            <button onClick={() => handleStartEditProduct(p)} title="Editar"><Edit size={18} className="text-yellow-500 hover:text-yellow-400" /></button>
+                            <button onClick={() => handleDeleteProduct(p.id)} title="Excluir"><Trash2 size={18} className="text-red-500 hover:text-red-400" /></button>
+                        </div>
+                    </td>}
+                </>
+            )}
+        </tr>
+    )})}
+</tbody>
                                    </table>
                                </div>
                            </div>
