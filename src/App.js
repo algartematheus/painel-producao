@@ -2019,17 +2019,18 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     }, [products, selectedDate]);
     
     const isEntryFormValid = useMemo(() => {
-        const hasProduction = newEntry.productions.some(p => (parseInt(p, 10) || 0) > 0);
-        const hasUrgentProduction = showUrgent && urgentProduction.productId && (parseInt(urgentProduction.produced, 10) || 0) > 0;
-        
-        return (
-            newEntry.period &&
-            (parseFloat(newEntry.people) > 0) &&
-            (parseFloat(newEntry.availableTime) > 0) &&
-            newEntry.productId &&
-            (hasProduction || hasUrgentProduction)
-        );
-    }, [newEntry, showUrgent, urgentProduction]);
+    const hasProduction = newEntry.productions.length > 0 && newEntry.productions.every(p => p && parseInt(p, 10) > 0);
+    
+    const hasUrgentProduction = showUrgent && urgentProduction.productId && (parseInt(urgentProduction.produced, 10) || 0) > 0;
+    
+    return (
+        newEntry.period &&
+        (parseFloat(newEntry.people) > 0) &&
+        (parseFloat(newEntry.availableTime) > 0) &&
+        newEntry.productId &&
+        (hasProduction || hasUrgentProduction)
+    );
+}, [newEntry, showUrgent, urgentProduction]);
     
     useEffect(() => {
         if (!user || !currentDashboard) return;
