@@ -1992,7 +1992,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     const createDefaultTraveteEmployee = useCallback((employeeId) => ({
         employeeId,
         machineType: employeeId === 1 ? 'Travete 2 Agulhas' : 'Travete 1 Agulha',
-        lotId: '',
         produced: '',
         standardTime: '',
         standardTimeManual: false,
@@ -2012,6 +2011,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     const [traveteEntry, setTraveteEntry] = useState({
         period: '',
         availableTime: 60,
+        lotId: '',
         employeeEntries: [createDefaultTraveteEmployee(1), createDefaultTraveteEmployee(2)],
     });
     const traveteMachines = useMemo(() => ['Travete 2 Agulhas', 'Travete 1 Agulha', 'Travete Convencional'], []);
@@ -2055,62 +2055,64 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 productionDetails: [],
                 totalMeta: 0,
                 totalProduced: 0,
+                sharedLot: null,
+                sharedProduct: null,
             };
         }
 
         const availableTime = parseFloat(traveteEntry.availableTime) || 0;
         const period = traveteEntry.period;
+        const sharedLot = traveteEntry.lotId ? lots.find(l => l.id === traveteEntry.lotId) || null : null;
+        const sharedProductId = sharedLot?.productId || '';
+        const sharedProduct = sharedProductId
+            ? (productsForSelectedDate.find(p => p.id === sharedProductId) || null)
+            : null;
+
         const employeeSummaries = traveteEntry.employeeEntries.map((emp) => {
-            const lot = lots.find(l => l.id === emp.lotId);
-            const productId = lot?.productId;
-            const product = productsForSelectedDate.find(p => p.id === productId) || null;
             const produced = parseInt(emp.produced, 10) || 0;
             const manualStandardTime = parseFloat(emp.standardTime);
+            const fallbackStandardTime = sharedProduct?.standardTime || 0;
             const standardTimeValue = (!Number.isNaN(manualStandardTime) && manualStandardTime > 0)
                 ? manualStandardTime
-                : (product?.standardTime || 0);
+                : fallbackStandardTime;
             const meta = (standardTimeValue > 0 && availableTime > 0) ? Math.round(availableTime / standardTimeValue) : 0;
             const efficiency = (standardTimeValue > 0 && availableTime > 0 && produced > 0)
                 ? parseFloat((((produced * standardTimeValue) / availableTime) * 100).toFixed(2))
                 : 0;
-            const productionDetails = (lot && produced > 0)
-                ? [{ productId, lotId: lot.id, produced }]
+            const productionDetails = (sharedLot && produced > 0)
+                ? [{ productId: sharedProductId, lotId: sharedLot.id, produced }]
                 : [];
 
             return {
                 ...emp,
-                lot,
-                product,
-                productId,
+                lot: sharedLot,
+                product: sharedProduct,
+                productId: sharedProductId,
                 produced,
                 meta,
                 efficiency,
                 productionDetails,
                 standardTimeValue,
-                valid: Boolean(period && availableTime > 0 && emp.machineType && lot && produced > 0 && standardTimeValue > 0),
+                valid: Boolean(period && availableTime > 0 && sharedLot && produced > 0 && standardTimeValue > 0),
             };
         });
 
         const metas = employeeSummaries.map(emp => emp.meta || 0);
         const goalDisplay = metas.length > 0 ? metas.join(' // ') : '0 // 0';
-        const isValid = Boolean(period && availableTime > 0 && employeeSummaries.length > 0 && employeeSummaries.every(emp => emp.valid));
-        const productionAggregator = new Map();
-        employeeSummaries.forEach(emp => {
-            emp.productionDetails.forEach(detail => {
-                const key = detail.lotId || detail.productId;
-                if (!productionAggregator.has(key)) {
-                    productionAggregator.set(key, { ...detail });
-                } else {
-                    const current = productionAggregator.get(key);
-                    current.produced += detail.produced;
-                }
-            });
-        });
-        const productionDetails = Array.from(productionAggregator.values());
+        const isValid = Boolean(
+            period &&
+            availableTime > 0 &&
+            sharedLot &&
+            employeeSummaries.length > 0 &&
+            employeeSummaries.every(emp => emp.valid)
+        );
         const totalMeta = metas.reduce((sum, value) => sum + (value || 0), 0);
         const totalProduced = employeeSummaries.reduce((sum, emp) => sum + (emp.produced || 0), 0);
+        const productionDetails = (sharedLot && totalProduced > 0)
+            ? [{ productId: sharedProductId, lotId: sharedLot.id, produced: totalProduced }]
+            : [];
 
-        return { employeeSummaries, goalDisplay, isValid, productionDetails, totalMeta, totalProduced };
+        return { employeeSummaries, goalDisplay, isValid, productionDetails, totalMeta, totalProduced, sharedLot, sharedProduct };
     }, [isTraveteDashboard, traveteEntry, lots, productsForSelectedDate]);
 
     const isEntryFormValid = useMemo(() => {
@@ -2178,6 +2180,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             setTraveteEntry({
                 period: '',
                 availableTime: 60,
+                lotId: '',
                 employeeEntries: [createDefaultTraveteEmployee(1), createDefaultTraveteEmployee(2)],
             });
         }
@@ -2229,11 +2232,13 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             const batch = writeBatch(db);
             const prodDataRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, "data");
 
+            const sharedLot = traveteComputedEntry.sharedLot;
+            const sharedProductId = sharedLot?.productId || '';
             const employeeEntries = traveteComputedEntry.employeeSummaries.map(emp => ({
                 employeeId: emp.employeeId,
                 machineType: emp.machineType,
-                lotId: emp.lot?.id || '',
-                productId: emp.productId || '',
+                lotId: sharedLot?.id || '',
+                productId: sharedProductId,
                 produced: emp.produced || 0,
                 standardTime: emp.standardTimeValue || 0,
             }));
@@ -2285,6 +2290,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             setTraveteEntry({
                 period: '',
                 availableTime: 60,
+                lotId: '',
                 employeeEntries: [createDefaultTraveteEmployee(1), createDefaultTraveteEmployee(2)],
             });
             return;
@@ -2911,6 +2917,11 @@ const calculatePredictions = useCallback(() => {
             .sort((a, b) => (a.order || 0) - (b.order || 0));
     }, [isTraveteDashboard, lots]);
 
+    const traveteSelectedLot = useMemo(() => {
+        if (!isTraveteDashboard || !traveteEntry.lotId) return null;
+        return lots.find(l => l.id === traveteEntry.lotId) || null;
+    }, [isTraveteDashboard, lots, traveteEntry.lotId]);
+
     const availablePeriods = useMemo(() => FIXED_PERIODS.filter(p => !productionData.some(e => e.period === p)), [productionData]);
     const filteredLots = useMemo(() => [...lots].filter(l => lotFilter === 'ongoing' ? (l.status === 'ongoing' || l.status === 'future') : l.status.startsWith('completed')), [lots, lotFilter]);
 
@@ -2973,6 +2984,22 @@ const calculatePredictions = useCallback(() => {
         });
     };
     const handleTraveteFieldChange = (field, value) => {
+        if (field === 'lotId') {
+            const lot = lots.find(l => l.id === value) || null;
+            const product = lot ? productsForSelectedDate.find(p => p.id === lot.productId) || null : null;
+            const derivedTime = product?.standardTime ? product.standardTime.toString() : '';
+            setTraveteEntry(prev => ({
+                ...prev,
+                lotId: value,
+                employeeEntries: prev.employeeEntries.map(emp => (
+                    emp.standardTimeManual
+                        ? emp
+                        : { ...emp, standardTime: derivedTime }
+                )),
+            }));
+            return;
+        }
+
         setTraveteEntry(prev => ({ ...prev, [field]: value }));
     };
     const handleTraveteEmployeeChange = (index, field, value) => {
@@ -2985,20 +3012,8 @@ const calculatePredictions = useCallback(() => {
                 switch (field) {
                     case 'machineType': {
                         updated.machineType = value;
-                        updated.lotId = '';
                         if (!emp.standardTimeManual) {
                             updated.standardTime = '';
-                            updated.standardTimeManual = false;
-                        }
-                        break;
-                    }
-                    case 'lotId': {
-                        updated.lotId = value;
-                        if (!emp.standardTimeManual || !emp.standardTime) {
-                            const lot = lots.find(l => l.id === value);
-                            const product = productsForSelectedDate.find(p => p.id === lot?.productId);
-                            const derivedTime = product?.standardTime ? product.standardTime.toString() : '';
-                            updated.standardTime = derivedTime;
                             updated.standardTimeManual = false;
                         }
                         break;
@@ -3021,21 +3036,23 @@ const calculatePredictions = useCallback(() => {
         }));
     };
     const handleTraveteStandardTimeBlur = (index) => {
-        setTraveteEntry(prev => ({
-            ...prev,
-            employeeEntries: prev.employeeEntries.map((emp, empIndex) => {
-                if (empIndex !== index) return emp;
-                if (emp.standardTime) return emp;
-                const lot = lots.find(l => l.id === emp.lotId);
-                const product = productsForSelectedDate.find(p => p.id === lot?.productId);
-                const derivedTime = product?.standardTime ? product.standardTime.toString() : '';
-                return {
-                    ...emp,
-                    standardTime: derivedTime,
-                    standardTimeManual: false,
-                };
-            }),
-        }));
+        setTraveteEntry(prev => {
+            const lot = prev.lotId ? lots.find(l => l.id === prev.lotId) || null : null;
+            const product = lot ? productsForSelectedDate.find(p => p.id === lot.productId) || null : null;
+            const derivedTime = product?.standardTime ? product.standardTime.toString() : '';
+            return {
+                ...prev,
+                employeeEntries: prev.employeeEntries.map((emp, empIndex) => {
+                    if (empIndex !== index) return emp;
+                    if (emp.standardTime) return emp;
+                    return {
+                        ...emp,
+                        standardTime: derivedTime,
+                        standardTimeManual: false,
+                    };
+                }),
+            };
+        });
     };
     
     const handleAddProduct = async (e) => {
@@ -3506,12 +3523,12 @@ const calculatePredictions = useCallback(() => {
                          <h2 className="text-xl font-semibold mb-4 flex items-center"><PlusCircle className="mr-2 text-blue-500"/> Adicionar Novo Lançamento</h2>
                          {isTraveteDashboard ? (
                              <form onSubmit={handleAddEntry} className="space-y-6">
-                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                     <div className="flex flex-col">
-                                         <label htmlFor="travete-period">Período</label>
-                                         <select
-                                             id="travete-period"
-                                             value={traveteEntry.period}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="flex flex-col">
+                                        <label htmlFor="travete-period">Período</label>
+                                        <select
+                                            id="travete-period"
+                                            value={traveteEntry.period}
                                              onChange={(e) => handleTraveteFieldChange('period', e.target.value)}
                                              required
                                              className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
@@ -3520,35 +3537,54 @@ const calculatePredictions = useCallback(() => {
                                              {availablePeriods.map(time => (<option key={time} value={time}>{time}</option>))}
                                          </select>
                                      </div>
-                                     <div className="flex flex-col">
-                                         <label htmlFor="travete-time">Tempo Disponível (min)</label>
-                                         <input
-                                             id="travete-time"
-                                             type="number"
+                                    <div className="flex flex-col">
+                                        <label htmlFor="travete-time">Tempo Disponível (min)</label>
+                                        <input
+                                            id="travete-time"
+                                            type="number"
                                              min="1"
                                              value={traveteEntry.availableTime}
                                              onChange={(e) => handleTraveteFieldChange('availableTime', e.target.value)}
                                              required
-                                             className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                         />
-                                     </div>
-                                 </div>
-                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                    {traveteEntry.employeeEntries.map((employee, index) => {
+                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                        />
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <label htmlFor="travete-lot">Lote de Produção</label>
+                                        <select
+                                            id="travete-lot"
+                                            value={traveteEntry.lotId}
+                                            onChange={(e) => handleTraveteFieldChange('lotId', e.target.value)}
+                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                            required
+                                        >
+                                            <option value="">Selecione...</option>
+                                            {traveteLotOptions.map(lot => (
+                                                <option key={lot.id} value={lot.id}>
+                                                    {lot.productName}{lot.customName ? ` - ${lot.customName}` : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                   {traveteEntry.employeeEntries.map((employee, index) => {
                                         const metaInfo = traveteComputedEntry.employeeSummaries[index] || {};
-                                        const lotOptions = traveteLotOptions;
-                                        const selectedLot = lots.find(l => l.id === employee.lotId);
+                                        const selectedLot = traveteSelectedLot;
                                         const formatTime = (value) => {
                                             if (!value || Number.isNaN(Number(value))) return '--';
                                             return `${Number(value).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} min`;
                                         };
+                                        const lotLabel = selectedLot
+                                            ? `${selectedLot.productName}${selectedLot.customName ? ` - ${selectedLot.customName}` : ''}`
+                                            : '--';
                                         return (
                                              <div key={employee.employeeId} className="p-4 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/50 space-y-4">
                                                  <div className="flex items-center justify-between">
                                                      <h3 className="text-lg font-semibold">Funcionário {employee.employeeId}</h3>
                                                      <span className="text-xs uppercase tracking-wide text-gray-500">{employee.machineType}</span>
                                                  </div>
-                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                     <div className="flex flex-col">
                                                         <label>Máquina</label>
                                                         <select
@@ -3557,22 +3593,6 @@ const calculatePredictions = useCallback(() => {
                                                             className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
                                                         >
                                                             {traveteMachines.map(machine => (<option key={machine} value={machine}>{machine}</option>))}
-                                                        </select>
-                                                    </div>
-                                                    <div className="flex flex-col">
-                                                        <label>Lote de Produção</label>
-                                                        <select
-                                                            value={employee.lotId}
-                                                            onChange={(e) => handleTraveteEmployeeChange(index, 'lotId', e.target.value)}
-                                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                                            required
-                                                        >
-                                                            <option value="">Selecione...</option>
-                                                            {lotOptions.map(lot => (
-                                                                <option key={lot.id} value={lot.id}>
-                                                                    {lot.productName}{lot.customName ? ` - ${lot.customName}` : ''}
-                                                                </option>
-                                                            ))}
                                                         </select>
                                                     </div>
                                                     <div className="flex flex-col">
@@ -3605,7 +3625,7 @@ const calculatePredictions = useCallback(() => {
                                                         <span className="font-semibold">Resumo</span>
                                                         <span>Meta Individual: {metaInfo.meta || 0}</span>
                                                         <span>Tempo Padrão Utilizado: {formatTime(metaInfo.standardTimeValue || employee.standardTime)}</span>
-                                                        <span>Produto: {selectedLot?.productName ? selectedLot.productName : '--'}</span>
+                                                        <span>Lote Selecionado: {lotLabel}</span>
                                                     </div>
                                                 </div>
                                                 <div className="text-xs text-gray-500">
