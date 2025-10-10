@@ -1984,6 +1984,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     const [editingLotId, setEditingLotId] = useState(null);
     const [editingLotData, setEditingLotData] = useState({ target: '', customName: '' });
     const [newProduct, setNewProduct] = useState({ name: '', standardTime: '' });
+    const [traveteProductForm, setTraveteProductForm] = useState({ baseName: '', baseTime: '' });
     const [editingProductId, setEditingProductId] = useState(null);
     const [editingProductData, setEditingProductData] = useState({ name: '', standardTime: '' });
     
