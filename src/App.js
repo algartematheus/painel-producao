@@ -2039,8 +2039,16 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     useEffect(() => {
         if (!user || !currentDashboard) return;
 
-        const unsubProducts = onSnapshot(query(collection(db, `dashboards/${currentDashboard.id}/products`)), snap => {
-            setProducts(snap.docs.map(d => d.data()));
+const unsubProducts = onSnapshot(
+    query(
+        collection(db, `dashboards/${currentDashboard.id}/products`),
+        orderBy("name")
+    ),
+    (snap) => {
+        setProducts(snap.docs.map(d => d.data()));
+    }
+);
+
         });
         const unsubLots = onSnapshot(query(collection(db, `dashboards/${currentDashboard.id}/lots`), orderBy("order")), snap => {
             setLots(snap.docs.map(d => d.data()));
