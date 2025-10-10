@@ -2374,71 +2374,94 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     }, [newEntry.productId, productsForSelectedDate]);
 
 const calculatePredictions = useCallback(() => {
-        const people = parseFloat(newEntry.people) || 0;
-        const availableTime = parseFloat(newEntry.availableTime) || 0;
-        let timeConsumedByUrgent = 0;
-        let urgentPrediction = null;
+    const people = parseFloat(newEntry.people) || 0;
+    const availableTime = parseFloat(newEntry.availableTime) || 0;
+    let timeConsumedByUrgent = 0;
+    let urgentPrediction = null;
 
-        const currentProducts = productsForSelectedDate;
+    const currentProducts = productsForSelectedDate;
 
-        if (showUrgent && urgentProduction.productId && urgentProduction.produced > 0) {
-            const urgentProduct = currentProducts.find(p => p.id === urgentProduction.productId);
-            if (urgentProduct && urgentProduct.standardTime > 0) {
-                timeConsumedByUrgent = urgentProduct.standardTime * urgentProduction.produced;
-                const urgentLot = lots.find(l => l.productId === urgentProduct.id);
-                urgentPrediction = { ...(urgentLot || {}), productId: urgentProduct.id, productName: urgentProduct.name, producible: parseInt(urgentProduction.produced, 10), isUrgent: true };
-            }
+    // calcula tempo consumido pela produção urgente (se houver)
+    if (showUrgent && urgentProduction.productId && urgentProduction.produced > 0) {
+        const urgentProduct = currentProducts.find(p => p.id === urgentProduction.productId);
+        if (urgentProduct && urgentProduct.standardTime > 0) {
+            timeConsumedByUrgent = urgentProduct.standardTime * urgentProduction.produced;
+            const urgentLot = lots.find(l => l.productId === urgentProduct.id);
+            urgentPrediction = { ...(urgentLot || {}), productId: urgentProduct.id, productName: urgentProduct.name, producible: parseInt(urgentProduction.produced, 10), isUrgent: true };
+        }
+    }
+
+    const totalAvailableMinutes = availableTime * people;
+    let timeForNormal = totalAvailableMinutes - timeConsumedByUrgent;
+    const normalPredictions = [];
+
+    if (timeForNormal > 0) {
+        const activeLots = lots
+            .filter(l => l.status === 'ongoing' || l.status === 'future')
+            .sort((a, b) => a.order - b.order);
+
+        // 1) Encontrar o primeiro lote incompleto (prioridade real)
+        let startIndex = activeLots.findIndex(l => ((l.target || 0) - (l.produced || 0)) > 0);
+
+        // 2) Se não houver lote incompleto, usar fallback para newEntry.productId (como antes)
+        if (startIndex === -1 && newEntry.productId) {
+            startIndex = activeLots.findIndex(l => l.productId === newEntry.productId);
         }
 
-        const totalAvailableMinutes = availableTime * people;
-        let timeForNormal = totalAvailableMinutes - timeConsumedByUrgent;
-        let normalPredictions = [];
+        // 3) Se encontramos um índice válido, iteramos a partir dele
+        if (startIndex !== -1) {
+            // opcional: limite de quantos produtos queremos prever (até 10 conforme pediu)
+            const MAX_PREDICTIONS = 10;
+            for (let i = startIndex; i < activeLots.length && timeForNormal > 0 && normalPredictions.length < MAX_PREDICTIONS; i++) {
+                const lot = activeLots[i];
+                const productForLot = currentProducts.find(p => p.id === lot.productId);
 
-        if (timeForNormal > 0) {
-            const activeLots = lots.filter(l => l.status === 'ongoing' || l.status === 'future').sort((a, b) => a.order - b.order);
-            const startIndex = activeLots.findIndex(l => l.productId === newEntry.productId);
+                if (!productForLot || productForLot.standardTime <= 0) continue;
 
-            if (startIndex !== -1) {
-                // Itera sobre todos os lotes a partir da prioridade, sem limite de quantidade
-                for (let i = startIndex; i < activeLots.length && timeForNormal > 0; i++) {
-                    const lot = activeLots[i];
-                    const productForLot = currentProducts.find(p => p.id === lot.productId);
+                const remainingPiecesInLot = Math.max(0, (lot.target || 0) - (lot.produced || 0));
+                if (remainingPiecesInLot === 0) continue;
 
-                    if (productForLot && productForLot.standardTime > 0) {
-                        
-                        // *** AQUI ESTÁ A MUDANÇA CRUCIAL ***
-                        // Se o tempo restante não for suficiente para fazer nem 1 peça do lote atual, paramos o cálculo.
-                        if (timeForNormal < productForLot.standardTime) {
-                            break; // Sai do loop e não calcula mais nenhum lote.
-                        }
-
-                        const remainingPiecesInLot = Math.max(0, (lot.target || 0) - (lot.produced || 0));
-                        
-                        if (remainingPiecesInLot === 0) continue;
-
-                        const producibleWithTime = Math.floor(timeForNormal / productForLot.standardTime);
-                        const producible = Math.min(remainingPiecesInLot, producibleWithTime);
-
-                        if (producible > 0) {
-                            normalPredictions.push({ ...lot, producible, productName: productForLot.name });
-                            timeForNormal -= producible * productForLot.standardTime;
-                        }
-                    }
+                // Se não há tempo sequer para 1 peça (check rápido), para o cálculo.
+                if (timeForNormal < productForLot.standardTime) {
+                    break;
                 }
-            } else if (newEntry.productId) {
-                const selectedProduct = currentProducts.find(p => p.id === newEntry.productId);
-                if(selectedProduct && selectedProduct.standardTime > 0) {
-                    const producible = Math.floor(timeForNormal / selectedProduct.standardTime);
-                    if (producible > 0) {
-                        normalPredictions.push({ id: `nolot-${selectedProduct.id}`, productId: selectedProduct.id, productName: selectedProduct.name, producible });
-                    }
+
+                // CÁLCULO PRINCIPAL: usar arredondamento para o inteiro mais próximo (Math.round)
+                const producibleFloat = timeForNormal / productForLot.standardTime;
+                const roundedProducible = Math.round(producibleFloat); // 79.71 -> 80
+                // garantir ao menos 1 (mas já garantimos timeForNormal >= standardTime)
+                const producible = Math.min(remainingPiecesInLot, Math.max(0, roundedProducible));
+
+                if (producible <= 0) {
+                    // nada a produzir (proteção), sai do loop
+                    break;
+                }
+
+                normalPredictions.push({ ...lot, producible, productName: productForLot.name });
+
+                // subtrai o tempo "consumido" por essa previsão
+                timeForNormal -= producible * productForLot.standardTime;
+
+                // evita loops estranhos: se o tempo ficar <= 0, encerra
+                if (timeForNormal <= 0) break;
+            }
+        } else if (newEntry.productId) {
+            // fallback: usuário escolheu produto que não está em activeLots — calcula o que dá para produzir
+            const selectedProduct = currentProducts.find(p => p.id === newEntry.productId);
+            if (selectedProduct && selectedProduct.standardTime > 0) {
+                const producibleFloat = timeForNormal / selectedProduct.standardTime;
+                const producible = Math.round(producibleFloat);
+                if (producible > 0) {
+                    normalPredictions.push({ id: `nolot-${selectedProduct.id}`, productId: selectedProduct.id, productName: selectedProduct.name, producible });
                 }
             }
         }
+    }
 
-        const allPredictions = urgentPrediction ? [urgentPrediction, ...normalPredictions] : normalPredictions;
-        return { allPredictions, currentGoalPreview: allPredictions.map(p => p.producible || 0).join(' / ') || '0' };
-    }, [newEntry.people, newEntry.availableTime, newEntry.productId, productsForSelectedDate, lots, urgentProduction, showUrgent]);
+    const allPredictions = urgentPrediction ? [urgentPrediction, ...normalPredictions] : normalPredictions;
+    return { allPredictions, currentGoalPreview: allPredictions.map(p => p.producible || 0).join(' / ') || '0' };
+}, [newEntry.people, newEntry.availableTime, newEntry.productId, productsForSelectedDate, lots, urgentProduction, showUrgent]);
+
   
     useEffect(() => {
         const { allPredictions, currentGoalPreview } = calculatePredictions();
