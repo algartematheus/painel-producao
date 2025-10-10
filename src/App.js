@@ -2058,13 +2058,14 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 : 0;
             const matchesMachine = !product?.machineType || product.machineType === emp.machineType;
             const productionDetails = (lot && produced > 0)
-                ? [{ productId, produced }]
+                ? [{ productId, lotId: lot.id, produced }]
                 : [];
 
             return {
                 ...emp,
                 lot,
                 product,
+                productId,
                 produced,
                 meta,
                 efficiency,
@@ -2077,7 +2078,19 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         const metas = employeeSummaries.map(emp => emp.meta || 0);
         const goalDisplay = metas.length > 0 ? metas.join(' // ') : '0 // 0';
         const isValid = Boolean(period && availableTime > 0 && employeeSummaries.length > 0 && employeeSummaries.every(emp => emp.valid));
-        const productionDetails = employeeSummaries.flatMap(emp => emp.productionDetails);
+        const productionAggregator = new Map();
+        employeeSummaries.forEach(emp => {
+            emp.productionDetails.forEach(detail => {
+                const key = detail.lotId || detail.productId;
+                if (!productionAggregator.has(key)) {
+                    productionAggregator.set(key, { ...detail });
+                } else {
+                    const current = productionAggregator.get(key);
+                    current.produced += detail.produced;
+                }
+            });
+        });
+        const productionDetails = Array.from(productionAggregator.values());
         const totalMeta = metas.reduce((sum, value) => sum + (value || 0), 0);
         const totalProduced = employeeSummaries.reduce((sum, emp) => sum + (emp.produced || 0), 0);
 
@@ -2204,7 +2217,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 employeeId: emp.employeeId,
                 machineType: emp.machineType,
                 lotId: emp.lot?.id || '',
-                productionDetails: emp.productionDetails,
+                productId: emp.productId || '',
+                produced: emp.produced || 0,
             }));
 
             const newEntryData = {
@@ -2223,7 +2237,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             batch.set(prodDataRef, { [dateKey]: updatedDayData }, { merge: true });
 
             for (const detail of traveteComputedEntry.productionDetails) {
-                const lotToUpdate = lots.find(l => l.productId === detail.productId);
+                const lotToUpdate = detail.lotId
+                    ? lots.find(l => l.id === detail.lotId)
+                    : lots.find(l => l.productId === detail.productId);
                 if (lotToUpdate) {
                     const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id);
                     const newProduced = (lotToUpdate.produced || 0) + detail.produced;
@@ -2674,24 +2690,25 @@ const calculatePredictions = useCallback(() => {
             .sort((a, b) => (a.period || "").localeCompare(b.period || ""))
             .map((entry, entryIndex) => {
                 const employees = (entry.employeeEntries || []).map((emp, empIndex) => {
-                    const produced = (emp.productionDetails || []).reduce((sum, detail) => sum + (detail.produced || 0), 0);
-                    const productId = (emp.productionDetails || [])[0]?.productId;
+                    const producedFromDetails = (emp.productionDetails || []).reduce((sum, detail) => sum + (detail.produced || 0), 0);
+                    const producedValue = emp.produced !== undefined ? parseInt(emp.produced, 10) || 0 : producedFromDetails;
+                    const productId = emp.productId || (emp.productionDetails || [])[0]?.productId;
                     const product = productMapForSelectedDate.get(productId);
                     const standardTime = product?.standardTime || 0;
                     const availableTime = entry.availableTime || 0;
                     const meta = (standardTime > 0 && availableTime > 0) ? Math.round(availableTime / standardTime) : 0;
-                    const efficiency = (standardTime > 0 && availableTime > 0 && produced > 0)
-                        ? parseFloat((((produced * standardTime) / availableTime) * 100).toFixed(2))
+                    const efficiency = (standardTime > 0 && availableTime > 0 && producedValue > 0)
+                        ? parseFloat((((producedValue * standardTime) / availableTime) * 100).toFixed(2))
                         : 0;
 
                     cumulativeMeta[empIndex] = (cumulativeMeta[empIndex] || 0) + meta;
-                    cumulativeProduction[empIndex] = (cumulativeProduction[empIndex] || 0) + produced;
+                    cumulativeProduction[empIndex] = (cumulativeProduction[empIndex] || 0) + producedValue;
                     cumulativeEfficiencySum[empIndex] = (cumulativeEfficiencySum[empIndex] || 0) + efficiency;
                     const cumulativeEfficiency = parseFloat(((cumulativeEfficiencySum[empIndex] || 0) / (entryIndex + 1)).toFixed(2));
 
                     return {
                         ...emp,
-                        produced,
+                        produced: producedValue,
                         meta,
                         efficiency,
                         cumulativeMeta: cumulativeMeta[empIndex] || 0,
@@ -2762,8 +2779,9 @@ const calculatePredictions = useCallback(() => {
 
                     dayData.forEach(entry => {
                         (entry.employeeEntries || []).forEach((emp, index) => {
-                            const produced = (emp.productionDetails || []).reduce((sum, detail) => sum + (detail.produced || 0), 0);
-                            const productId = (emp.productionDetails || [])[0]?.productId;
+                            const producedFromDetails = (emp.productionDetails || []).reduce((sum, detail) => sum + (detail.produced || 0), 0);
+                            const produced = emp.produced !== undefined ? parseInt(emp.produced, 10) || 0 : producedFromDetails;
+                            const productId = emp.productId || (emp.productionDetails || [])[0]?.productId;
                             const product = productsForDateMap.get(productId);
                             const standardTime = product?.standardTime || 0;
                             const availableTime = entry.availableTime || 0;
@@ -3665,6 +3683,7 @@ const calculatePredictions = useCallback(() => {
                                                               <th className="pb-1">Tempo Atual</th>
                                                               <th className="pb-1">Criado Por</th>
                                                               <th className="pb-1">Última Edição</th>
+                                                              {permissions.MANAGE_PRODUCTS && <th className="pb-1 text-center">Ações</th>}
                                                           </tr>
                                                       </thead>
                                                       <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -3673,13 +3692,56 @@ const calculatePredictions = useCallback(() => {
                                                               const latest = history[history.length - 1] || {};
                                                               const createdBy = variation.createdBy?.email || '--';
                                                               const editedBy = variation.lastEditedBy?.email || createdBy;
+                                                              const isEditing = editingProductId === variation.id;
                                                               return (
                                                                   <tr key={variation.id} className="text-sm">
                                                                       <td className="py-2">{variation.machineType || '-'}</td>
-                                                                      <td className="py-2">{variation.name}</td>
-                                                                      <td className="py-2">{latest.time ? `${latest.time} min` : 'N/A'}</td>
-                                                                      <td className="py-2 text-xs truncate">{createdBy}</td>
-                                                                      <td className="py-2 text-xs truncate">{editedBy}</td>
+                                                                      {isEditing ? (
+                                                                          <>
+                                                                              <td className="py-2">
+                                                                                  <input
+                                                                                      type="text"
+                                                                                      value={editingProductData.name}
+                                                                                      onChange={(e) => setEditingProductData(prev => ({ ...prev, name: e.target.value }))}
+                                                                                      className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600"
+                                                                                  />
+                                                                              </td>
+                                                                              <td className="py-2">
+                                                                                  <input
+                                                                                      type="number"
+                                                                                      step="0.01"
+                                                                                      value={editingProductData.standardTime}
+                                                                                      onChange={(e) => setEditingProductData(prev => ({ ...prev, standardTime: e.target.value }))}
+                                                                                      className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600"
+                                                                                  />
+                                                                              </td>
+                                                                              <td className="py-2" colSpan={2}></td>
+                                                                          </>
+                                                                      ) : (
+                                                                          <>
+                                                                              <td className="py-2">{variation.name}</td>
+                                                                              <td className="py-2">{latest.time ? `${latest.time} min` : 'N/A'}</td>
+                                                                              <td className="py-2 text-xs truncate">{createdBy}</td>
+                                                                              <td className="py-2 text-xs truncate">{editedBy}</td>
+                                                                          </>
+                                                                      )}
+                                                                      {permissions.MANAGE_PRODUCTS && (
+                                                                          <td className="py-2">
+                                                                              <div className="flex gap-2 justify-center">
+                                                                                  {isEditing ? (
+                                                                                      <>
+                                                                                          <button onClick={() => handleSaveProduct(variation.id)} title="Salvar"><Save size={18} className="text-green-500" /></button>
+                                                                                          <button onClick={() => setEditingProductId(null)} title="Cancelar"><XCircle size={18} className="text-gray-500" /></button>
+                                                                                      </>
+                                                                                  ) : (
+                                                                                      <>
+                                                                                          <button onClick={() => handleStartEditProduct(variation)} title="Editar"><Edit size={18} className="text-yellow-500 hover:text-yellow-400" /></button>
+                                                                                          <button onClick={() => handleDeleteProduct(variation.id)} title="Excluir"><Trash2 size={18} className="text-red-500 hover:text-red-400" /></button>
+                                                                                      </>
+                                                                                  )}
+                                                                              </div>
+                                                                          </td>
+                                                                      )}
                                                                   </tr>
                                                               );
                                                           })}
