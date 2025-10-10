@@ -1994,7 +1994,21 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         machineType: employeeId === 1 ? 'Travete 2 Agulhas' : 'Travete 1 Agulha',
         lotId: '',
         produced: '',
+        standardTime: '',
+        standardTimeManual: false,
     }), []);
+    const getTraveteDefaultProductForm = useCallback(() => ({
+        baseName: '',
+        baseTime: '',
+        createTwoNeedle: true,
+        createOneNeedle: true,
+        createConventional: true,
+        oneNeedleTime: '',
+        conventionalTime: '',
+        oneNeedleManual: false,
+        conventionalManual: false,
+    }), []);
+    const [traveteProductForm, setTraveteProductForm] = useState(() => getTraveteDefaultProductForm());
     const [traveteEntry, setTraveteEntry] = useState({
         period: '',
         availableTime: 60,
@@ -2051,12 +2065,14 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             const productId = lot?.productId;
             const product = productsForSelectedDate.find(p => p.id === productId) || null;
             const produced = parseInt(emp.produced, 10) || 0;
-            const standardTime = product?.standardTime || 0;
-            const meta = (standardTime > 0 && availableTime > 0) ? Math.round(availableTime / standardTime) : 0;
-            const efficiency = (standardTime > 0 && availableTime > 0 && produced > 0)
-                ? parseFloat((((produced * standardTime) / availableTime) * 100).toFixed(2))
+            const manualStandardTime = parseFloat(emp.standardTime);
+            const standardTimeValue = (!Number.isNaN(manualStandardTime) && manualStandardTime > 0)
+                ? manualStandardTime
+                : (product?.standardTime || 0);
+            const meta = (standardTimeValue > 0 && availableTime > 0) ? Math.round(availableTime / standardTimeValue) : 0;
+            const efficiency = (standardTimeValue > 0 && availableTime > 0 && produced > 0)
+                ? parseFloat((((produced * standardTimeValue) / availableTime) * 100).toFixed(2))
                 : 0;
-            const matchesMachine = !product?.machineType || product.machineType === emp.machineType;
             const productionDetails = (lot && produced > 0)
                 ? [{ productId, lotId: lot.id, produced }]
                 : [];
@@ -2069,9 +2085,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 produced,
                 meta,
                 efficiency,
-                matchesMachine,
                 productionDetails,
-                valid: Boolean(period && availableTime > 0 && emp.machineType && lot && produced > 0 && matchesMachine),
+                standardTimeValue,
+                valid: Boolean(period && availableTime > 0 && emp.machineType && lot && produced > 0 && standardTimeValue > 0),
             };
         });
 
@@ -2158,14 +2174,14 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
     useEffect(() => {
         if (!isTraveteDashboard) {
-            setTraveteProductForm({ baseName: '', baseTime: '' });
+            setTraveteProductForm(getTraveteDefaultProductForm());
             setTraveteEntry({
                 period: '',
                 availableTime: 60,
                 employeeEntries: [createDefaultTraveteEmployee(1), createDefaultTraveteEmployee(2)],
             });
         }
-    }, [isTraveteDashboard, createDefaultTraveteEmployee]);
+    }, [isTraveteDashboard, createDefaultTraveteEmployee, getTraveteDefaultProductForm]);
 
     const closeModal = () => setModalState({ type: null, data: null });
     
@@ -2219,6 +2235,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 lotId: emp.lot?.id || '',
                 productId: emp.productId || '',
                 produced: emp.produced || 0,
+                standardTime: emp.standardTimeValue || 0,
             }));
 
             const newEntryData = {
@@ -2685,6 +2702,7 @@ const calculatePredictions = useCallback(() => {
         let cumulativeMeta = [];
         let cumulativeProduction = [];
         let cumulativeEfficiencySum = [];
+        let cumulativeEntryCounts = [];
 
         return [...productionData]
             .sort((a, b) => (a.period || "").localeCompare(b.period || ""))
@@ -2694,7 +2712,10 @@ const calculatePredictions = useCallback(() => {
                     const producedValue = emp.produced !== undefined ? parseInt(emp.produced, 10) || 0 : producedFromDetails;
                     const productId = emp.productId || (emp.productionDetails || [])[0]?.productId;
                     const product = productMapForSelectedDate.get(productId);
-                    const standardTime = product?.standardTime || 0;
+                    const parsedStandardTime = parseFloat(emp.standardTime);
+                    const standardTime = (!Number.isNaN(parsedStandardTime) && parsedStandardTime > 0)
+                        ? parsedStandardTime
+                        : (product?.standardTime || 0);
                     const availableTime = entry.availableTime || 0;
                     const meta = (standardTime > 0 && availableTime > 0) ? Math.round(availableTime / standardTime) : 0;
                     const efficiency = (standardTime > 0 && availableTime > 0 && producedValue > 0)
@@ -2704,13 +2725,16 @@ const calculatePredictions = useCallback(() => {
                     cumulativeMeta[empIndex] = (cumulativeMeta[empIndex] || 0) + meta;
                     cumulativeProduction[empIndex] = (cumulativeProduction[empIndex] || 0) + producedValue;
                     cumulativeEfficiencySum[empIndex] = (cumulativeEfficiencySum[empIndex] || 0) + efficiency;
-                    const cumulativeEfficiency = parseFloat(((cumulativeEfficiencySum[empIndex] || 0) / (entryIndex + 1)).toFixed(2));
+                    cumulativeEntryCounts[empIndex] = (cumulativeEntryCounts[empIndex] || 0) + 1;
+                    const entriesCount = cumulativeEntryCounts[empIndex] || 1;
+                    const cumulativeEfficiency = parseFloat(((cumulativeEfficiencySum[empIndex] || 0) / entriesCount).toFixed(2));
 
                     return {
                         ...emp,
                         produced: producedValue,
                         meta,
                         efficiency,
+                        standardTime,
                         cumulativeMeta: cumulativeMeta[empIndex] || 0,
                         cumulativeProduced: cumulativeProduction[empIndex] || 0,
                         cumulativeEfficiency,
@@ -2879,21 +2903,13 @@ const calculatePredictions = useCallback(() => {
         })).sort((a, b) => a.baseName.localeCompare(b.baseName));
     }, [isTraveteDashboard, products]);
 
-    const traveteLotsByMachine = useMemo(() => {
-        if (!isTraveteDashboard) return new Map();
-        const map = new Map();
-        lots.filter(lot => lot.status !== 'completed').forEach(lot => {
-            const product = products.find(p => p.id === lot.productId);
-            const machineType = lot.machineType || product?.machineType || '';
-            if (!map.has(machineType)) {
-                map.set(machineType, []);
-            }
-            map.get(machineType).push(lot);
-        });
-
-        map.forEach(list => list.sort((a, b) => (a.order || 0) - (b.order || 0)));
-        return map;
-    }, [isTraveteDashboard, lots, products]);
+    const traveteLotOptions = useMemo(() => {
+        if (!isTraveteDashboard) return [];
+        return lots
+            .filter(lot => lot.status !== 'completed')
+            .slice()
+            .sort((a, b) => (a.order || 0) - (b.order || 0));
+    }, [isTraveteDashboard, lots]);
 
     const availablePeriods = useMemo(() => FIXED_PERIODS.filter(p => !productionData.some(e => e.period === p)), [productionData]);
     const filteredLots = useMemo(() => [...lots].filter(l => lotFilter === 'ongoing' ? (l.status === 'ongoing' || l.status === 'future') : l.status.startsWith('completed')), [lots, lotFilter]);
@@ -2902,6 +2918,60 @@ const calculatePredictions = useCallback(() => {
     const handleInputChange = (e) => { const { name, value } = e.target; setNewEntry(prev => ({ ...prev, [name]: value, ...(name === 'productId' && { productions: [] }) })); };
     const handleUrgentChange = (e) => setUrgentProduction(prev => ({...prev, [e.target.name]: e.target.value}));
     const handleProductionChange = (index, value) => { const newProductions = [...newEntry.productions]; newProductions[index] = value; setNewEntry(prev => ({ ...prev, productions: newProductions })); };
+    const handleTraveteBaseTimeChange = (value) => {
+        setTraveteProductForm(prev => {
+            const numericValue = parseFloat(value);
+            const isValid = !Number.isNaN(numericValue) && numericValue > 0;
+            const nextState = { ...prev, baseTime: value };
+            if (!prev.oneNeedleManual) {
+                nextState.oneNeedleTime = isValid ? (numericValue * 2).toFixed(2) : '';
+            }
+            if (!prev.conventionalManual) {
+                nextState.conventionalTime = isValid ? (numericValue * 3).toFixed(2) : '';
+            }
+            return nextState;
+        });
+    };
+    const handleTraveteVariationToggle = (field, checked) => {
+        setTraveteProductForm(prev => {
+            const nextState = { ...prev, [field]: checked };
+            if (checked) {
+                if (field === 'createOneNeedle' && !prev.oneNeedleManual && !prev.oneNeedleTime) {
+                    const numericValue = parseFloat(prev.baseTime);
+                    nextState.oneNeedleTime = (!Number.isNaN(numericValue) && numericValue > 0) ? (numericValue * 2).toFixed(2) : '';
+                }
+                if (field === 'createConventional' && !prev.conventionalManual && !prev.conventionalTime) {
+                    const numericValue = parseFloat(prev.baseTime);
+                    nextState.conventionalTime = (!Number.isNaN(numericValue) && numericValue > 0) ? (numericValue * 3).toFixed(2) : '';
+                }
+            }
+            return nextState;
+        });
+    };
+    const handleTraveteVariationTimeChange = (field, value) => {
+        const manualField = field === 'oneNeedleTime' ? 'oneNeedleManual' : 'conventionalManual';
+        setTraveteProductForm(prev => ({
+            ...prev,
+            [field]: value,
+            [manualField]: value !== '',
+        }));
+    };
+    const handleTraveteVariationTimeBlur = (field) => {
+        const manualField = field === 'oneNeedleTime' ? 'oneNeedleManual' : 'conventionalManual';
+        const multiplier = field === 'oneNeedleTime' ? 2 : 3;
+        setTraveteProductForm(prev => {
+            if (prev[field]) {
+                return prev;
+            }
+            const numericValue = parseFloat(prev.baseTime);
+            const isValid = !Number.isNaN(numericValue) && numericValue > 0;
+            return {
+                ...prev,
+                [manualField]: false,
+                [field]: isValid ? (numericValue * multiplier).toFixed(2) : '',
+            };
+        });
+    };
     const handleTraveteFieldChange = (field, value) => {
         setTraveteEntry(prev => ({ ...prev, [field]: value }));
     };
@@ -2910,11 +2980,60 @@ const calculatePredictions = useCallback(() => {
             ...prev,
             employeeEntries: prev.employeeEntries.map((emp, empIndex) => {
                 if (empIndex !== index) return emp;
-                const updated = { ...emp, [field]: value };
-                if (field === 'machineType') {
-                    updated.lotId = '';
+                const updated = { ...emp };
+
+                switch (field) {
+                    case 'machineType': {
+                        updated.machineType = value;
+                        updated.lotId = '';
+                        if (!emp.standardTimeManual) {
+                            updated.standardTime = '';
+                            updated.standardTimeManual = false;
+                        }
+                        break;
+                    }
+                    case 'lotId': {
+                        updated.lotId = value;
+                        if (!emp.standardTimeManual || !emp.standardTime) {
+                            const lot = lots.find(l => l.id === value);
+                            const product = productsForSelectedDate.find(p => p.id === lot?.productId);
+                            const derivedTime = product?.standardTime ? product.standardTime.toString() : '';
+                            updated.standardTime = derivedTime;
+                            updated.standardTimeManual = false;
+                        }
+                        break;
+                    }
+                    case 'produced': {
+                        updated.produced = value;
+                        break;
+                    }
+                    case 'standardTime': {
+                        updated.standardTime = value;
+                        updated.standardTimeManual = value !== '';
+                        break;
+                    }
+                    default: {
+                        updated[field] = value;
+                    }
                 }
                 return updated;
+            }),
+        }));
+    };
+    const handleTraveteStandardTimeBlur = (index) => {
+        setTraveteEntry(prev => ({
+            ...prev,
+            employeeEntries: prev.employeeEntries.map((emp, empIndex) => {
+                if (empIndex !== index) return emp;
+                if (emp.standardTime) return emp;
+                const lot = lots.find(l => l.id === emp.lotId);
+                const product = productsForSelectedDate.find(p => p.id === lot?.productId);
+                const derivedTime = product?.standardTime ? product.standardTime.toString() : '';
+                return {
+                    ...emp,
+                    standardTime: derivedTime,
+                    standardTimeManual: false,
+                };
             }),
         }));
     };
@@ -2924,31 +3043,58 @@ const calculatePredictions = useCallback(() => {
         if (!currentDashboard) return;
 
         if (isTraveteDashboard) {
-            if (!traveteProductForm.baseName || !traveteProductForm.baseTime) return;
-            const baseId = generateId('traveteBase');
-            const baseTime = parseFloat(traveteProductForm.baseTime);
-            if (!baseTime || Number.isNaN(baseTime)) return;
+            const trimmedName = traveteProductForm.baseName.trim();
+            if (!trimmedName) return;
 
-            const variations = [
-                { suffix: '2 Agulhas', multiplier: 1, machineType: 'Travete 2 Agulhas' },
-                { suffix: '1 Agulha', multiplier: 2, machineType: 'Travete 1 Agulha' },
-                { suffix: 'Convencional', multiplier: 3, machineType: 'Travete Convencional' },
+            const variationConfigs = [
+                { key: 'createTwoNeedle', suffix: '2 Agulhas', machineType: 'Travete 2 Agulhas', timeField: 'baseTime', defaultMultiplier: 1 },
+                { key: 'createOneNeedle', suffix: '1 Agulha', machineType: 'Travete 1 Agulha', timeField: 'oneNeedleTime', defaultMultiplier: 2 },
+                { key: 'createConventional', suffix: 'Convencional', machineType: 'Travete Convencional', timeField: 'conventionalTime', defaultMultiplier: 3 },
             ];
 
+            const baseTimeNumeric = parseFloat(traveteProductForm.baseTime);
+            let hasInvalid = false;
+            const variationsToCreate = variationConfigs.reduce((acc, config) => {
+                if (!traveteProductForm[config.key]) {
+                    return acc;
+                }
+                const rawTime = traveteProductForm[config.timeField];
+                const parsedTime = parseFloat(rawTime);
+                if (Number.isNaN(parsedTime) || parsedTime <= 0) {
+                    hasInvalid = true;
+                    return acc;
+                }
+                acc.push({
+                    suffix: config.suffix,
+                    machineType: config.machineType,
+                    timeValue: parseFloat(parsedTime.toFixed(2)),
+                    defaultMultiplier: config.defaultMultiplier,
+                });
+                return acc;
+            }, []);
+
+            if (hasInvalid || variationsToCreate.length === 0) return;
+
+            const baseId = generateId('traveteBase');
+            const creationIso = new Date().toISOString();
             const batch = writeBatch(db);
-            variations.forEach(({ suffix, multiplier, machineType }) => {
-                const id = `${baseId}_${suffix.replace(/\s+/g, '').toLowerCase()}`;
-                const timeValue = parseFloat((baseTime * multiplier).toFixed(2));
+
+            variationsToCreate.forEach((variation) => {
+                const id = `${baseId}_${variation.suffix.replace(/\s+/g, '').toLowerCase()}`;
+                const referenceBase = (!Number.isNaN(baseTimeNumeric) && baseTimeNumeric > 0) ? baseTimeNumeric : null;
+                const multiplier = referenceBase
+                    ? parseFloat((variation.timeValue / referenceBase).toFixed(4))
+                    : variation.defaultMultiplier;
                 const productData = {
                     id,
-                    name: `${traveteProductForm.baseName} - ${suffix}`,
+                    name: `${trimmedName} - ${variation.suffix}`,
                     baseProductId: baseId,
-                    baseProductName: traveteProductForm.baseName,
-                    machineType,
+                    baseProductName: trimmedName,
+                    machineType: variation.machineType,
                     variationMultiplier: multiplier,
                     standardTimeHistory: [{
-                        time: timeValue,
-                        effectiveDate: new Date().toISOString(),
+                        time: variation.timeValue,
+                        effectiveDate: creationIso,
                         changedBy: { uid: user.uid, email: user.email },
                     }],
                     createdBy: { uid: user.uid, email: user.email },
@@ -2957,7 +3103,7 @@ const calculatePredictions = useCallback(() => {
             });
 
             await batch.commit();
-            setTraveteProductForm({ baseName: '', baseTime: '' });
+            setTraveteProductForm(getTraveteDefaultProductForm());
             return;
         }
 
@@ -3388,65 +3534,84 @@ const calculatePredictions = useCallback(() => {
                                      </div>
                                  </div>
                                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                     {traveteEntry.employeeEntries.map((employee, index) => {
-                                         const metaInfo = traveteComputedEntry.employeeSummaries[index] || {};
-                                         const lotOptions = (traveteLotsByMachine.get(employee.machineType) || traveteLotsByMachine.get('') || []);
-                                         return (
+                                    {traveteEntry.employeeEntries.map((employee, index) => {
+                                        const metaInfo = traveteComputedEntry.employeeSummaries[index] || {};
+                                        const lotOptions = traveteLotOptions;
+                                        const selectedLot = lots.find(l => l.id === employee.lotId);
+                                        const formatTime = (value) => {
+                                            if (!value || Number.isNaN(Number(value))) return '--';
+                                            return `${Number(value).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} min`;
+                                        };
+                                        return (
                                              <div key={employee.employeeId} className="p-4 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/50 space-y-4">
                                                  <div className="flex items-center justify-between">
                                                      <h3 className="text-lg font-semibold">Funcionário {employee.employeeId}</h3>
                                                      <span className="text-xs uppercase tracking-wide text-gray-500">{employee.machineType}</span>
                                                  </div>
-                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                     <div className="flex flex-col">
-                                                         <label>Máquina</label>
-                                                         <select
-                                                             value={employee.machineType}
-                                                             onChange={(e) => handleTraveteEmployeeChange(index, 'machineType', e.target.value)}
-                                                             className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                                         >
-                                                             {traveteMachines.map(machine => (<option key={machine} value={machine}>{machine}</option>))}
-                                                         </select>
-                                                     </div>
-                                                     <div className="flex flex-col">
-                                                         <label>Lote de Produção</label>
-                                                         <select
-                                                             value={employee.lotId}
-                                                             onChange={(e) => handleTraveteEmployeeChange(index, 'lotId', e.target.value)}
-                                                             className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                                             required
-                                                         >
-                                                             <option value="">Selecione...</option>
-                                                             {lotOptions.map(lot => (
-                                                                 <option key={lot.id} value={lot.id}>
-                                                                     {lot.productName}{lot.customName ? ` - ${lot.customName}` : ''}
-                                                                 </option>
-                                                             ))}
-                                                         </select>
-                                                     </div>
-                                                 </div>
-                                                 <div className="flex flex-col">
-                                                     <label>Quantidade Produzida</label>
-                                                     <input
-                                                         type="number"
-                                                         min="0"
-                                                         value={employee.produced}
-                                                         onChange={(e) => handleTraveteEmployeeChange(index, 'produced', e.target.value)}
-                                                         className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                                         required
-                                                     />
-                                                 </div>
-                                                 <div className="flex flex-wrap justify-between text-sm text-gray-600 dark:text-gray-300">
-                                                     <span>Meta Individual: {metaInfo.meta || 0}</span>
-                                                     <span>Tempo Padrão: {metaInfo.product?.standardTime ? `${metaInfo.product.standardTime} min` : '--'}</span>
-                                                 </div>
-                                                 <div className="text-xs text-gray-500">
-                                                     Eficiência Prevista: {metaInfo.efficiency ? `${Number(metaInfo.efficiency).toFixed(2)}%` : '0%'}
-                                                 </div>
-                                                 {employee.lotId && !metaInfo.matchesMachine && (
-                                                     <p className="text-xs text-red-500">O lote selecionado não corresponde à máquina escolhida.</p>
-                                                 )}
-                                             </div>
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                    <div className="flex flex-col">
+                                                        <label>Máquina</label>
+                                                        <select
+                                                            value={employee.machineType}
+                                                            onChange={(e) => handleTraveteEmployeeChange(index, 'machineType', e.target.value)}
+                                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                        >
+                                                            {traveteMachines.map(machine => (<option key={machine} value={machine}>{machine}</option>))}
+                                                        </select>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <label>Lote de Produção</label>
+                                                        <select
+                                                            value={employee.lotId}
+                                                            onChange={(e) => handleTraveteEmployeeChange(index, 'lotId', e.target.value)}
+                                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                            required
+                                                        >
+                                                            <option value="">Selecione...</option>
+                                                            {lotOptions.map(lot => (
+                                                                <option key={lot.id} value={lot.id}>
+                                                                    {lot.productName}{lot.customName ? ` - ${lot.customName}` : ''}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <label>Tempo por Peça (min)</label>
+                                                        <input
+                                                            type="number"
+                                                            step="0.01"
+                                                            min="0"
+                                                            value={employee.standardTime ?? ''}
+                                                            onChange={(e) => handleTraveteEmployeeChange(index, 'standardTime', e.target.value)}
+                                                            onBlur={() => handleTraveteStandardTimeBlur(index)}
+                                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                            required
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div className="flex flex-col">
+                                                        <label>Quantidade Produzida</label>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            value={employee.produced}
+                                                            onChange={(e) => handleTraveteEmployeeChange(index, 'produced', e.target.value)}
+                                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                            required
+                                                        />
+                                                    </div>
+                                                    <div className="flex flex-col text-sm text-gray-600 dark:text-gray-300 bg-white/60 dark:bg-gray-900/40 p-3 rounded-lg">
+                                                        <span className="font-semibold">Resumo</span>
+                                                        <span>Meta Individual: {metaInfo.meta || 0}</span>
+                                                        <span>Tempo Padrão Utilizado: {formatTime(metaInfo.standardTimeValue || employee.standardTime)}</span>
+                                                        <span>Produto: {selectedLot?.productName ? selectedLot.productName : '--'}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="text-xs text-gray-500">
+                                                    Eficiência Prevista: {metaInfo.efficiency ? `${Number(metaInfo.efficiency).toFixed(2)}%` : '0%'}
+                                                </div>
+                                            </div>
                                          );
                                      })}
                                  </div>
@@ -3635,7 +3800,7 @@ const calculatePredictions = useCallback(() => {
                               {permissions.MANAGE_PRODUCTS && (
                                   <div className="space-y-4">
                                       <h3 className="text-lg font-medium">Cadastrar Produto Base</h3>
-                                      <form onSubmit={handleAddProduct} className="space-y-3">
+                                      <form onSubmit={handleAddProduct} className="space-y-4">
                                           <div>
                                               <label htmlFor="travete-base-name">Nome do Produto Base</label>
                                               <input
@@ -3647,22 +3812,78 @@ const calculatePredictions = useCallback(() => {
                                                   className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
                                               />
                                           </div>
-                                          <div>
-                                              <label htmlFor="travete-base-time">Tempo Padrão (2 Agulhas) - min</label>
-                                              <input
-                                                  id="travete-base-time"
-                                                  type="number"
-                                                  step="0.01"
-                                                  min="0"
-                                                  value={traveteProductForm.baseTime}
-                                                  onChange={(e) => setTraveteProductForm(prev => ({ ...prev, baseTime: e.target.value }))}
-                                                  required
-                                                  className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                              />
+                                          <div className="space-y-3">
+                                              <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Variações e Tempos</span>
+                                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                  <div className="space-y-2">
+                                                      <label className="flex items-center gap-2 text-sm font-medium">
+                                                          <input
+                                                              type="checkbox"
+                                                              checked={traveteProductForm.createTwoNeedle}
+                                                              onChange={(e) => handleTraveteVariationToggle('createTwoNeedle', e.target.checked)}
+                                                          />
+                                                          Travete 2 Agulhas
+                                                      </label>
+                                                      <input
+                                                          type="number"
+                                                          step="0.01"
+                                                          min="0"
+                                                          value={traveteProductForm.baseTime}
+                                                          onChange={(e) => handleTraveteBaseTimeChange(e.target.value)}
+                                                          className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                          placeholder="Tempo (min)"
+                                                          required={traveteProductForm.createTwoNeedle}
+                                                      />
+                                                  </div>
+                                                  <div className="space-y-2">
+                                                      <label className="flex items-center gap-2 text-sm font-medium">
+                                                          <input
+                                                              type="checkbox"
+                                                              checked={traveteProductForm.createOneNeedle}
+                                                              onChange={(e) => handleTraveteVariationToggle('createOneNeedle', e.target.checked)}
+                                                          />
+                                                          Travete 1 Agulha
+                                                      </label>
+                                                      <input
+                                                          type="number"
+                                                          step="0.01"
+                                                          min="0"
+                                                          value={traveteProductForm.oneNeedleTime}
+                                                          onChange={(e) => handleTraveteVariationTimeChange('oneNeedleTime', e.target.value)}
+                                                          onBlur={() => handleTraveteVariationTimeBlur('oneNeedleTime')}
+                                                          className={`w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 ${!traveteProductForm.createOneNeedle ? 'opacity-60' : ''}`}
+                                                          placeholder="Tempo (min)"
+                                                          required={traveteProductForm.createOneNeedle}
+                                                          disabled={!traveteProductForm.createOneNeedle}
+                                                      />
+                                                  </div>
+                                                  <div className="space-y-2">
+                                                      <label className="flex items-center gap-2 text-sm font-medium">
+                                                          <input
+                                                              type="checkbox"
+                                                              checked={traveteProductForm.createConventional}
+                                                              onChange={(e) => handleTraveteVariationToggle('createConventional', e.target.checked)}
+                                                          />
+                                                          Travete Convencional
+                                                      </label>
+                                                      <input
+                                                          type="number"
+                                                          step="0.01"
+                                                          min="0"
+                                                          value={traveteProductForm.conventionalTime}
+                                                          onChange={(e) => handleTraveteVariationTimeChange('conventionalTime', e.target.value)}
+                                                          onBlur={() => handleTraveteVariationTimeBlur('conventionalTime')}
+                                                          className={`w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 ${!traveteProductForm.createConventional ? 'opacity-60' : ''}`}
+                                                          placeholder="Tempo (min)"
+                                                          required={traveteProductForm.createConventional}
+                                                          disabled={!traveteProductForm.createConventional}
+                                                      />
+                                                  </div>
+                                              </div>
                                           </div>
                                           <button type="submit" className="w-full h-10 bg-green-600 text-white rounded-md hover:bg-green-700">Salvar</button>
                                       </form>
-                                      <p className="text-xs text-gray-500 dark:text-gray-400">O sistema criará automaticamente as variações para 1 Agulha e Convencional.</p>
+                                      <p className="text-xs text-gray-500 dark:text-gray-400">Escolha quais variações criar e ajuste os tempos caso precise personalizar algum cenário específico.</p>
                                   </div>
                               )}
                               <div className={!permissions.MANAGE_PRODUCTS ? 'lg:col-span-2' : ''}>
