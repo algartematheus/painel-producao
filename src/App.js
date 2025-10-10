@@ -2383,45 +2383,58 @@ const calculatePredictions = useCallback(() => {
 
         if (showUrgent && urgentProduction.productId && urgentProduction.produced > 0) {
             const urgentProduct = currentProducts.find(p => p.id === urgentProduction.productId);
-            if (urgentProduct) {
+            if (urgentProduct && urgentProduct.standardTime > 0) {
                 timeConsumedByUrgent = urgentProduct.standardTime * urgentProduction.produced;
                 const urgentLot = lots.find(l => l.productId === urgentProduct.id);
                 urgentPrediction = { ...(urgentLot || {}), productId: urgentProduct.id, productName: urgentProduct.name, producible: parseInt(urgentProduction.produced, 10), isUrgent: true };
             }
         }
+
         const totalAvailableMinutes = availableTime * people;
-        const remainingTime = totalAvailableMinutes - timeConsumedByUrgent;
+        let timeForNormal = totalAvailableMinutes - timeConsumedByUrgent;
         let normalPredictions = [];
-        if (remainingTime > 0) {
-            const selectedProduct = currentProducts.find(p => p.id === newEntry.productId);
-            if (selectedProduct && selectedProduct.standardTime > 0) {
-                const activeLots = lots.filter(l => l.status === 'ongoing' || l.status === 'future').sort((a, b) => a.order - b.order);
-                const startIndex = activeLots.findIndex(l => l.productId === newEntry.productId);
-                if (startIndex === -1) {
-                    const possiblePieces = Math.floor(remainingTime / selectedProduct.standardTime);
-                    normalPredictions.push({ id: `nolot-${selectedProduct.id}`, productId: selectedProduct.id, productName: selectedProduct.name, producible: possiblePieces });
-                } else {
-                    let timeForNormal = remainingTime;
-                    for (let i = startIndex; i < activeLots.length && timeForNormal > 0; i++) {
-                        const lot = activeLots[i];
-                        const productForLot = currentProducts.find(p => p.id === lot.productId);
+
+        if (timeForNormal > 0) {
+            const activeLots = lots.filter(l => l.status === 'ongoing' || l.status === 'future').sort((a, b) => a.order - b.order);
+            const startIndex = activeLots.findIndex(l => l.productId === newEntry.productId);
+
+            if (startIndex !== -1) {
+                // Itera a partir do lote prioritário selecionado
+                for (let i = startIndex; i < activeLots.length && timeForNormal > 0; i++) {
+                    const lot = activeLots[i];
+                    const productForLot = currentProducts.find(p => p.id === lot.productId);
+
+                    if (productForLot && productForLot.standardTime > 0) {
+                        const remainingPiecesInLot = Math.max(0, (lot.target || 0) - (lot.produced || 0));
                         
-                        // LÓGICA CORRIGIDA:
-                        // Agora, o tempo padrão do lote específico ('productForLot') é usado.
-                        if (productForLot && productForLot.standardTime > 0) {
-                            const remainingPiecesInLot = Math.max(0, (lot.target || 0) - (lot.produced || 0));
-                            
-                            const producible = Math.min(remainingPiecesInLot, Math.floor(timeForNormal / productForLot.standardTime));
-                            
-                            if (producible > 0) { 
-                                normalPredictions.push({ ...lot, producible, productName: productForLot.name }); 
-                                timeForNormal -= producible * productForLot.standardTime;
-                            }
+                        // Não pode produzir mais do que o lote precisa
+                        if (remainingPiecesInLot === 0) continue;
+
+                        // Calcula quantas peças são possíveis de fazer com o tempo restante
+                        const producibleWithTime = Math.floor(timeForNormal / productForLot.standardTime);
+
+                        // O número de peças a produzir é o menor valor entre o que falta no lote e o que o tempo permite
+                        const producible = Math.min(remainingPiecesInLot, producibleWithTime);
+
+                        if (producible > 0) {
+                            normalPredictions.push({ ...lot, producible, productName: productForLot.name });
+                            timeForNormal -= producible * productForLot.standardTime;
                         }
+                    }
+                }
+            } else if (newEntry.productId) {
+                // Caso especial: produto selecionado não tem um lote ativo na fila
+                // (produção "avulsa")
+                const selectedProduct = currentProducts.find(p => p.id === newEntry.productId);
+                if(selectedProduct && selectedProduct.standardTime > 0) {
+                    const producible = Math.floor(timeForNormal / selectedProduct.standardTime);
+                    if (producible > 0) {
+                        normalPredictions.push({ id: `nolot-${selectedProduct.id}`, productId: selectedProduct.id, productName: selectedProduct.name, producible });
                     }
                 }
             }
         }
+
         const allPredictions = urgentPrediction ? [urgentPrediction, ...normalPredictions] : normalPredictions;
         return { allPredictions, currentGoalPreview: allPredictions.map(p => p.producible || 0).join(' / ') || '0' };
     }, [newEntry.people, newEntry.availableTime, newEntry.productId, productsForSelectedDate, lots, urgentProduction, showUrgent]);
