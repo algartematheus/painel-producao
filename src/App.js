@@ -19,6 +19,9 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
 } from 'firebase/auth';
 
 // =====================================================================
@@ -108,6 +111,18 @@ const usePrevious = (value) => {
     return ref.current;
 }
 
+const createTraveteDefaultProductForm = () => ({
+    baseName: '',
+    baseTime: '',
+    createTwoNeedle: true,
+    createOneNeedle: true,
+    createConventional: true,
+    oneNeedleTime: '',
+    conventionalTime: '',
+    oneNeedleManual: false,
+    conventionalManual: false,
+});
+
 
 // #####################################################################
 // #                                                                   #
@@ -129,7 +144,12 @@ export const AuthProvider = ({ children }) => {
         return unsubscribe;
     }, []);
 
-    const login = (email, password) => signInWithEmailAndPassword(auth, email, password);
+    const login = async (email, password, persistenceType) => {
+        if (persistenceType) {
+            await setPersistence(auth, persistenceType);
+        }
+        return signInWithEmailAndPassword(auth, email, password);
+    };
     const logout = () => signOut(auth);
 
     const value = useMemo(() => ({
@@ -153,12 +173,27 @@ const LoginPage = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [rememberMe, setRememberMe] = useState(() => {
+        const stored = localStorage.getItem('rememberLoginPersistence');
+        if (stored === null) {
+            return true;
+        }
+        return stored === 'true';
+    });
+
+    useEffect(() => {
+        localStorage.setItem('rememberLoginPersistence', rememberMe ? 'true' : 'false');
+    }, [rememberMe]);
 
     const handleLogin = async (e) => {
         e.preventDefault();
         setError('');
         try {
-            await login(email, password);
+            await login(
+                email,
+                password,
+                rememberMe ? browserLocalPersistence : browserSessionPersistence
+            );
         } catch (err) {
             setError('Falha no login. Verifique seu e-mail e senha.');
             console.error(err);
@@ -203,6 +238,18 @@ const LoginPage = () => {
                     </div>
 
                     {error && <p className="mt-2 text-sm text-center text-red-600">{error}</p>}
+
+                    <div className="flex items-center justify-between">
+                        <label className="flex items-center text-sm text-gray-600 dark:text-gray-300">
+                            <input
+                                type="checkbox"
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                checked={rememberMe}
+                                onChange={(e) => setRememberMe(e.target.checked)}
+                            />
+                            <span className="ml-2">Manter-me conectado</span>
+                        </label>
+                    </div>
 
                     <div>
                         <button type="submit" className="group relative flex justify-center w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
@@ -1996,18 +2043,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         standardTime: '',
         standardTimeManual: false,
     }), []);
-    const getTraveteDefaultProductForm = useCallback(() => ({
-        baseName: '',
-        baseTime: '',
-        createTwoNeedle: true,
-        createOneNeedle: true,
-        createConventional: true,
-        oneNeedleTime: '',
-        conventionalTime: '',
-        oneNeedleManual: false,
-        conventionalManual: false,
-    }), []);
-    const [traveteProductForm, setTraveteProductForm] = useState(() => getTraveteDefaultProductForm());
+    const [traveteProductForm, setTraveteProductForm] = useState(createTraveteDefaultProductForm);
     const [traveteEntry, setTraveteEntry] = useState({
         period: '',
         availableTime: 60,
@@ -2176,7 +2212,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
     useEffect(() => {
         if (!isTraveteDashboard) {
-            setTraveteProductForm(getTraveteDefaultProductForm());
+            setTraveteProductForm(createTraveteDefaultProductForm());
             setTraveteEntry({
                 period: '',
                 availableTime: 60,
@@ -2184,7 +2220,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 employeeEntries: [createDefaultTraveteEmployee(1), createDefaultTraveteEmployee(2)],
             });
         }
-    }, [isTraveteDashboard, createDefaultTraveteEmployee, getTraveteDefaultProductForm]);
+    }, [isTraveteDashboard, createDefaultTraveteEmployee]);
 
     const closeModal = () => setModalState({ type: null, data: null });
     
@@ -3120,7 +3156,7 @@ const calculatePredictions = useCallback(() => {
             });
 
             await batch.commit();
-            setTraveteProductForm(getTraveteDefaultProductForm());
+            setTraveteProductForm(createTraveteDefaultProductForm());
             return;
         }
 
