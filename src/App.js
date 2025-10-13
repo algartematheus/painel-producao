@@ -38,6 +38,7 @@ const initialDashboards = [
 ];
 
 const FIXED_PERIODS = ["08:00", "09:00", "10:00", "11:00", "11:45", "14:00", "15:00", "16:00", "17:00"];
+const TRAVETE_MACHINES = ['Travete 2 Agulhas', 'Travete 1 Agulha', 'Travete Convencional'];
 
 const ALL_PERMISSIONS = {
     MANAGE_DASHBOARDS: 'Gerenciar Quadros (Criar/Renomear/Excluir/Reordenar)',
@@ -1354,107 +1355,371 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
 // #                                                                   #
 // #####################################################################
 
-const EditEntryModal = ({ isOpen, onClose, entry, onSave, products }) => {
+const EditEntryModal = ({
+    isOpen,
+    onClose,
+    entry,
+    onSave,
+    products,
+    lots = [],
+    traveteMachines = TRAVETE_MACHINES,
+    traveteVariationLookup = new Map(),
+}) => {
     const [entryData, setEntryData] = useState(null);
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
 
     useEffect(() => {
         if (isOpen && entry) {
-            setEntryData({
-                people: entry.people,
-                availableTime: entry.availableTime,
-                productions: entry.productionDetails.reduce((acc, detail) => {
-                    acc[detail.productId] = detail.produced.toString();
-                    return acc;
-                }, {}),
-            });
+            if (Array.isArray(entry.employeeEntries) && entry.employeeEntries.length > 0) {
+                setEntryData({
+                    type: 'travete',
+                    availableTime: entry.availableTime || 0,
+                    observation: entry.observation || '',
+                    employeeEntries: entry.employeeEntries.map((emp, idx) => {
+                        const baseProducts = Array.isArray(emp.products) && emp.products.length > 0
+                            ? emp.products
+                            : (emp.productionDetails || []);
+                        const normalizedProducts = baseProducts.map(detail => ({
+                            lotId: detail.lotId || '',
+                            productId: detail.productId || '',
+                            produced: detail.produced !== undefined ? String(detail.produced) : '',
+                        }));
+                        if (normalizedProducts.length === 0) {
+                            normalizedProducts.push(createDefaultTraveteProductItem());
+                        }
+                        const standardTimeValue = emp.standardTime !== undefined && emp.standardTime !== null
+                            ? String(emp.standardTime)
+                            : '';
+                        return {
+                            employeeId: emp.employeeId || idx + 1,
+                            machineType: emp.machineType || traveteMachines[idx] || traveteMachines[0],
+                            standardTime: standardTimeValue,
+                            standardTimeManual: standardTimeValue !== '',
+                            products: normalizedProducts,
+                        };
+                    }),
+                });
+            } else {
+                setEntryData({
+                    type: 'default',
+                    people: entry.people,
+                    availableTime: entry.availableTime,
+                    productions: entry.productionDetails.reduce((acc, detail) => {
+                        acc[detail.productId] = detail.produced.toString();
+                        return acc;
+                    }, {}),
+                });
+            }
+        } else if (!isOpen) {
+            setEntryData(null);
         }
-    }, [isOpen, entry]);
+    }, [isOpen, entry, traveteMachines]);
+
+    const traveteLotOptions = useMemo(
+        () => lots.filter(lot => lot.status !== 'completed'),
+        [lots]
+    );
 
     if (!isOpen || !entryData) return null;
+
+    const isTraveteEntry = entryData.type === 'travete';
 
     const handleProductionChange = (productId, value) => {
         setEntryData(prev => ({
             ...prev,
             productions: {
                 ...prev.productions,
-                [productId]: value
-            }
+                [productId]: value,
+            },
         }));
     };
 
+    const deriveTraveteStandardTime = (lotId, machineType) => {
+        const lot = lots.find(l => l.id === lotId) || null;
+        if (!lot || !machineType) return '';
+        const variation = findTraveteVariationForLot(lot, machineType, products, traveteVariationLookup);
+        const numeric = variation?.standardTime ? parseFloat(variation.standardTime) : NaN;
+        if (!Number.isFinite(numeric) || numeric <= 0) return '';
+        return formatTraveteStandardTimeValue(numeric);
+    };
+
+    const handleTraveteEmployeeChange = (index, field, value) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== index) return emp;
+                const updated = { ...emp };
+                switch (field) {
+                    case 'machineType': {
+                        updated.machineType = value;
+                        if (!updated.standardTimeManual) {
+                            const firstLotId = updated.products.find(item => item.lotId)?.lotId;
+                            if (firstLotId) {
+                                const derived = deriveTraveteStandardTime(firstLotId, value);
+                                updated.standardTime = derived;
+                            }
+                        }
+                        break;
+                    }
+                    case 'standardTime': {
+                        updated.standardTime = value;
+                        updated.standardTimeManual = value !== '';
+                        break;
+                    }
+                    default: {
+                        updated[field] = value;
+                    }
+                }
+                return updated;
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteProductChange = (employeeIndex, productIndex, field, value) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                const updatedProducts = emp.products.map((product, prodIdx) => {
+                    if (prodIdx !== productIndex) return product;
+                    return { ...product, [field]: value };
+                });
+                const updatedEmployee = { ...emp, products: updatedProducts };
+                if (field === 'lotId' && !emp.standardTimeManual) {
+                    const derived = deriveTraveteStandardTime(value, emp.machineType);
+                    if (derived) {
+                        updatedEmployee.standardTime = derived;
+                    }
+                }
+                return updatedEmployee;
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteAddProduct = (employeeIndex) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                return { ...emp, products: [...emp.products, createDefaultTraveteProductItem()] };
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteRemoveProduct = (employeeIndex, productIndex) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                const remaining = emp.products.filter((_, idx) => idx !== productIndex);
+                return { ...emp, products: remaining.length > 0 ? remaining : [createDefaultTraveteProductItem()] };
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
     const handleSave = () => {
+        if (isTraveteEntry) {
+            const normalizedEmployees = entryData.employeeEntries.map(emp => ({
+                employeeId: emp.employeeId,
+                machineType: emp.machineType,
+                standardTime: emp.standardTime,
+                products: emp.products.map(product => ({
+                    ...product,
+                    produced: parseInt(product.produced, 10) || 0,
+                })),
+            }));
+
+            onSave(entry.id, {
+                type: 'travete',
+                availableTime: parseFloat(entryData.availableTime) || 0,
+                employeeEntries: normalizedEmployees,
+                observation: entryData.observation || '',
+            });
+            onClose();
+            return;
+        }
+
         const updatedProductions = Object.entries(entryData.productions).map(([productId, produced]) => ({
             productId,
-            produced: parseInt(produced, 10) || 0
+            produced: parseInt(produced, 10) || 0,
         }));
 
         onSave(entry.id, {
             ...entryData,
-            productions: updatedProductions
+            productions: updatedProductions,
         });
         onClose();
     };
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-40 modal-backdrop">
-            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg modal-content">
+            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-3xl modal-content max-h-[90vh] overflow-y-auto">
                 <h2 className="text-xl font-bold mb-4">Editar Lançamento: {entry.period}</h2>
-                <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label htmlFor="edit-people" className="block text-sm font-medium">Nº Pessoas</label>
-                            <input
-                                id="edit-people"
-                                type="number"
-                                value={entryData.people}
-                                onChange={(e) => setEntryData({ ...entryData, people: e.target.value })}
-                                className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                            />
+                {isTraveteEntry ? (
+                    <div className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="flex flex-col">
+                                <label htmlFor="travete-edit-time" className="text-sm font-medium">Tempo Disp. (min)</label>
+                                <input
+                                    id="travete-edit-time"
+                                    type="number"
+                                    value={entryData.availableTime}
+                                    onChange={(e) => setEntryData(prev => ({ ...prev, availableTime: e.target.value }))}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                            <div className="md:col-span-2 flex flex-col">
+                                <label htmlFor="travete-edit-observation" className="text-sm font-medium">Observação</label>
+                                <textarea
+                                    id="travete-edit-observation"
+                                    value={entryData.observation}
+                                    onChange={(e) => setEntryData(prev => ({ ...prev, observation: e.target.value }))}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                    rows={2}
+                                />
+                            </div>
                         </div>
-                        <div>
-                            <label htmlFor="edit-time" className="block text-sm font-medium">Tempo Disp. (min)</label>
-                            <input
-                                id="edit-time"
-                                type="number"
-                                value={entryData.availableTime}
-                                onChange={(e) => setEntryData({ ...entryData, availableTime: e.target.value })}
-                                className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                            />
-                        </div>
-                    </div>
-                    <div>
-                        <h3 className="text-lg font-medium mb-2">Produção</h3>
-                        <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
-                            {entry.productionDetails.map(detail => {
-                                const product = products.find(p => p.id === detail.productId);
-                                return (
-                                    <div key={detail.productId} className="grid grid-cols-3 items-center gap-2">
-                                        <label htmlFor={`edit-prod-${detail.productId}`} className="col-span-2 truncate">
-                                            {product ? product.name : 'Produto Desconhecido'}
-                                        </label>
-                                        <input
-                                            id={`edit-prod-${detail.productId}`}
-                                            type="number"
-                                            value={entryData.productions[detail.productId] || ''}
-                                            onChange={(e) => handleProductionChange(detail.productId, e.target.value)}
-                                            className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                        />
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            {entryData.employeeEntries.map((employee, index) => (
+                                <div key={employee.employeeId || index} className="p-4 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/60 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-lg font-semibold">Funcionário {employee.employeeId}</h3>
                                     </div>
-                                );
-                            })}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div className="flex flex-col">
+                                            <label className="text-sm font-medium">Máquina</label>
+                                            <select
+                                                value={employee.machineType}
+                                                onChange={(e) => handleTraveteEmployeeChange(index, 'machineType', e.target.value)}
+                                                className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                            >
+                                                {traveteMachines.map(machine => (
+                                                    <option key={machine} value={machine}>{machine}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <label className="text-sm font-medium">Tempo por Peça (min)</label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                value={employee.standardTime}
+                                                onChange={(e) => handleTraveteEmployeeChange(index, 'standardTime', e.target.value)}
+                                                className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-3">
+                                        {employee.products.map((productItem, productIdx) => (
+                                            <div key={`${employee.employeeId}-${productIdx}`} className="p-3 rounded-lg bg-white dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                    <label className="text-sm font-semibold">Produto / Lote</label>
+                                                    {employee.products.length > 1 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleTraveteRemoveProduct(index, productIdx)}
+                                                            className="text-red-500 hover:text-red-400"
+                                                        >
+                                                            <Trash size={16} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <select
+                                                    value={productItem.lotId}
+                                                    onChange={(e) => handleTraveteProductChange(index, productIdx, 'lotId', e.target.value)}
+                                                    className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                >
+                                                    <option value="">Selecione...</option>
+                                                    {traveteLotOptions.map(lotOption => (
+                                                        <option key={lotOption.id} value={lotOption.id}>
+                                                            {formatTraveteLotDisplayName(lotOption, products)}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <div className="flex flex-col">
+                                                    <label className="text-sm">Quantidade Produzida</label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        value={productItem.produced}
+                                                        onChange={(e) => handleTraveteProductChange(index, productIdx, 'produced', e.target.value)}
+                                                        className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
+                                        <button
+                                            type="button"
+                                            onClick={() => handleTraveteAddProduct(index)}
+                                            className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-500"
+                                        >
+                                            <PlusCircle size={16} /> Adicionar item fora de ordem
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
-                </div>
-                <div className="flex justify-end gap-4 mt-6 pt-4 border-t dark:border-gray-700">
-                    <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-600">Cancelar</button>
-                    <button type="button" onClick={handleSave} className="px-4 py-2 rounded-md bg-blue-600 text-white">Salvar Alterações</button>
+                ) : (
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label htmlFor="edit-people" className="block text-sm font-medium">Nº Pessoas</label>
+                                <input
+                                    id="edit-people"
+                                    type="number"
+                                    value={entryData.people}
+                                    onChange={(e) => setEntryData({ ...entryData, people: e.target.value })}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="edit-time" className="block text-sm font-medium">Tempo Disp. (min)</label>
+                                <input
+                                    id="edit-time"
+                                    type="number"
+                                    value={entryData.availableTime}
+                                    onChange={(e) => setEntryData({ ...entryData, availableTime: e.target.value })}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <h3 className="text-sm font-semibold mb-2">Produções</h3>
+                            <div className="space-y-2 max-h-64 overflow-y-auto">
+                                {entry.productionDetails.map(detail => {
+                                    const product = products.find(p => p.id === detail.productId);
+                                    return (
+                                        <div key={detail.productId} className="flex items-center justify-between">
+                                            <span className="text-sm font-medium">{product?.name || detail.productId}</span>
+                                            <input
+                                                type="number"
+                                                value={entryData.productions[detail.productId]}
+                                                onChange={(e) => handleProductionChange(detail.productId, e.target.value)}
+                                                className="w-24 p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                            />
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                )}
+                <div className="mt-6 flex justify-end gap-3">
+                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-md">Cancelar</button>
+                    <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Salvar</button>
                 </div>
             </div>
         </div>
     );
 };
+
+
 
 const DashboardActionModal = ({ isOpen, onClose, onConfirm, mode, initialName }) => {
     const [name, setName] = useState('');
@@ -2191,7 +2456,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         availableTime: 60,
         employeeEntries: [createDefaultTraveteEmployee(1), createDefaultTraveteEmployee(2)],
     });
-    const traveteMachines = useMemo(() => ['Travete 2 Agulhas', 'Travete 1 Agulha', 'Travete Convencional'], []);
+    const traveteMachines = TRAVETE_MACHINES;
 
     const [goalPreview, setGoalPreview] = useState("0");
     const [predictedLots, setPredictedLots] = useState([]);
@@ -2236,28 +2501,30 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         return lookup;
     }, [productsForSelectedDate]);
     
-    const traveteComputedEntry = useMemo(() => {
-        if (!isTraveteDashboard) {
-            return {
-                employeeSummaries: [],
-                goalDisplay: '- // -',
-                lotDisplay: '- // -',
-                isValid: false,
-                productionDetails: [],
-                totalMeta: 0,
-                totalProduced: 0,
-                goalBlocks: [],
-                lotBlocks: [],
-            };
+    const summarizeTraveteEntry = useCallback((entryDraft) => {
+        const defaultResult = {
+            employeeSummaries: [],
+            goalDisplay: '- // -',
+            lotDisplay: '- // -',
+            isValid: false,
+            productionDetails: [],
+            totalMeta: 0,
+            totalProduced: 0,
+            goalBlocks: [],
+            lotBlocks: [],
+        };
+
+        if (!entryDraft) {
+            return defaultResult;
         }
 
-        const availableTime = parseFloat(traveteEntry.availableTime) || 0;
-        const period = traveteEntry.period;
+        const availableTime = parseFloat(entryDraft.availableTime) || 0;
+        const period = entryDraft.period;
         const activeLots = [...lots]
             .filter(lot => lot && (lot.status === 'ongoing' || lot.status === 'future'))
             .sort((a, b) => (a.order || 0) - (b.order || 0));
 
-        const employeeSummaries = traveteEntry.employeeEntries.map((emp) => {
+        const employeeSummaries = (entryDraft.employeeEntries || []).map((emp) => {
             const manualStandardTime = parseFloat(emp.standardTime);
             let derivedStandardTime = 0;
 
@@ -2326,7 +2593,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             );
 
             const primaryLot = productSummaries.find(item => item.lot)?.lot || null;
-            const manualNextLot = productSummaries.slice(1).find(item => item.lot)?.lot || null;
+            const manualNextLotItem = productSummaries.slice(1).find(item => item.lot) || null;
+            const manualNextLot = manualNextLotItem?.lot || null;
 
             const currentLot = primaryLot || activeLots[0] || null;
             let nextLotCandidate = manualNextLot || null;
@@ -2347,42 +2615,47 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             const currentLotTarget = currentLot?.target || 0;
             const currentLotProduced = currentLot?.produced || 0;
             const remainingInCurrentLot = currentLot ? Math.max(0, currentLotTarget - currentLotProduced) : 0;
-            const hasManualNextLot = Boolean(manualNextLot);
-            const nextLotTargetValue = nextLotCandidate ? Math.max(0, nextLotCandidate.target || 0) : 0;
-            const canCoverCurrentLot = hasManualNextLot
-                || remainingInCurrentLot <= 0
-                || (meta > 0 && remainingInCurrentLot > 0 && meta >= remainingInCurrentLot);
+            const nextLotRemaining = nextLotCandidate
+                ? Math.max(0, (nextLotCandidate.target || 0) - (nextLotCandidate.produced || 0))
+                : 0;
+
+            const plannedForCurrentLot = currentLot ? Math.min(meta, remainingInCurrentLot || 0) : 0;
+            const leftoverMetaForNext = Math.max(0, meta - plannedForCurrentLot);
+            const manualNextProduced = manualNextLotItem ? manualNextLotItem.produced || 0 : 0;
+            const nextMetaPieces = manualNextLotItem && manualNextProduced > 0
+                ? manualNextProduced
+                : Math.min(leftoverMetaForNext, nextLotRemaining > 0 ? nextLotRemaining : leftoverMetaForNext);
+
             const shouldShowNextLot = Boolean(nextLotCandidate)
-                && (hasManualNextLot || canCoverCurrentLot)
-                && nextLotTargetValue > 0;
-            const nextLotName = shouldShowNextLot ? rawNextLotName : '';
-
-            const remainingLabel = currentLot
-                ? remainingInCurrentLot.toLocaleString('pt-BR')
-                : (shouldShowNextLot && nextLotTargetValue > 0
-                    ? '0'
-                    : '-');
-            const nextMetaLabel = shouldShowNextLot && nextLotTargetValue > 0
-                ? nextLotTargetValue.toLocaleString('pt-BR')
-                : '';
-
-            const metaDisplay = currentLot
-                ? (nextMetaLabel ? `${remainingLabel}/${nextMetaLabel}` : remainingLabel)
-                : (nextMetaLabel ? `${remainingLabel}/${nextMetaLabel}` : remainingLabel);
+                && (manualNextLotItem || leftoverMetaForNext > 0)
+                && (nextMetaPieces > 0);
 
             const machineSuffix = emp.machineType?.replace('Travete ', '') || '';
             const currentLotLabel = currentLotName
                 ? `${currentLotName}${machineSuffix ? ` - ${machineSuffix}` : ''}`
                 : '';
+            const nextLotName = shouldShowNextLot ? rawNextLotName : '';
             const lotDisplay = currentLotLabel
                 ? (shouldShowNextLot && nextLotName ? `${currentLotLabel} / ${nextLotName}` : currentLotLabel)
                 : (shouldShowNextLot && nextLotName ? nextLotName : '-');
+
+            const currentMetaValue = currentLot ? remainingInCurrentLot : (meta > 0 ? meta : 0);
+            const currentMetaLabel = currentMetaValue > 0
+                ? currentMetaValue.toLocaleString('pt-BR')
+                : (currentLot ? '0' : (meta > 0 ? meta.toLocaleString('pt-BR') : '0'));
+            const nextMetaLabel = shouldShowNextLot
+                ? (nextMetaPieces > 0 ? nextMetaPieces.toLocaleString('pt-BR') : '0')
+                : '';
+            const metaDisplay = nextMetaLabel ? `${currentMetaLabel}/${nextMetaLabel}` : currentMetaLabel;
+
+            const producedDisplay = productSummaries.length > 0
+                ? productSummaries.map(item => (item.produced || 0).toLocaleString('pt-BR')).join(' / ')
+                : produced.toLocaleString('pt-BR');
 
             return {
                 ...emp,
                 produced,
                 meta,
-                nextMeta: shouldShowNextLot ? nextLotTargetValue : null,
                 efficiency,
                 standardTimeValue,
                 productionDetails,
@@ -2391,44 +2664,47 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 valid,
                 metaDisplay,
                 lotDisplay,
+                producedDisplay,
                 currentLotName,
                 nextLotName,
                 shouldShowNextLot,
                 metaSegments: {
-                    current: remainingInCurrentLot,
-                    next: shouldShowNextLot ? nextLotTargetValue : null,
+                    current: currentMetaValue,
+                    next: shouldShowNextLot ? nextMetaPieces : null,
                     showNext: shouldShowNextLot,
                 },
                 lotSegments: {
                     current: currentLotName,
-                    next: nextLotName,
+                    next: shouldShowNextLot ? nextLotName : '',
                     machineType: emp.machineType || '',
                 },
             };
         });
 
-        const blockCount = Math.max(traveteEntry.employeeEntries.length || 0, 2);
-        const metaBlocks = Array.from({ length: blockCount }, (_, index) => {
-            const summary = employeeSummaries[index];
-            return summary ? (summary.metaDisplay || '-') : '-';
-        });
-        const lotBlocks = Array.from({ length: blockCount }, (_, index) => {
-            const summary = employeeSummaries[index];
-            return summary ? (summary.lotDisplay || '-') : '-';
-        });
+        if (employeeSummaries.length === 0) {
+            return defaultResult;
+        }
 
-        const goalDisplay = metaBlocks.join(' // ');
-        const lotDisplay = lotBlocks.join(' // ');
+        const goalBlocks = employeeSummaries.map(emp => emp.metaSegments);
+        const lotBlocks = employeeSummaries.map(emp => emp.lotSegments);
+
+        const goalDisplay = employeeSummaries
+            .map(emp => emp.metaDisplay || '-')
+            .join(' // ');
+
+        const lotDisplay = employeeSummaries
+            .map(emp => emp.lotDisplay || '-')
+            .join(' // ');
+
+        const productionDetails = employeeSummaries.flatMap(emp => emp.productionDetails);
+        const totalMeta = employeeSummaries.reduce((sum, emp) => sum + (emp.meta || 0), 0);
+        const totalProduced = employeeSummaries.reduce((sum, emp) => sum + (emp.produced || 0), 0);
 
         const isValid = Boolean(
             period &&
             availableTime > 0 &&
-            employeeSummaries.length > 0 &&
             employeeSummaries.every(emp => emp.valid)
         );
-        const totalMeta = employeeSummaries.reduce((sum, emp) => sum + (emp.meta || 0), 0);
-        const totalProduced = employeeSummaries.reduce((sum, emp) => sum + (emp.produced || 0), 0);
-        const productionDetails = employeeSummaries.flatMap(emp => emp.productionDetails);
 
         return {
             employeeSummaries,
@@ -2438,10 +2714,28 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             productionDetails,
             totalMeta,
             totalProduced,
-            goalBlocks: employeeSummaries.map(emp => emp.metaSegments),
-            lotBlocks: employeeSummaries.map(emp => emp.lotSegments),
+            goalBlocks,
+            lotBlocks,
         };
-    }, [isTraveteDashboard, traveteEntry, lots, productsForSelectedDate, traveteVariationLookup, products]);
+    }, [lots, productsForSelectedDate, traveteVariationLookup, products]);
+
+    const traveteComputedEntry = useMemo(() => {
+        if (!isTraveteDashboard) {
+            return {
+                employeeSummaries: [],
+                goalDisplay: '- // -',
+                lotDisplay: '- // -',
+                isValid: false,
+                productionDetails: [],
+                totalMeta: 0,
+                totalProduced: 0,
+                goalBlocks: [],
+                lotBlocks: [],
+            };
+        }
+
+        return summarizeTraveteEntry(traveteEntry);
+    }, [isTraveteDashboard, summarizeTraveteEntry, traveteEntry]);
 
     const travetePreviewPending = useMemo(() => {
         if (!isTraveteDashboard) return false;
@@ -2732,7 +3026,108 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     }, [currentDashboard, isTraveteDashboard, traveteComputedEntry, traveteEntry, allProductionData, dateKey, lots, user, isEntryFormValid, showUrgent, urgentProduction, predictedLots, newEntry, goalPreview, productsForSelectedDate]);
     
     
+    const handleSaveTraveteEntry = async (entryId, updatedData) => {
+        const originalEntry = productionData.find(e => e.id === entryId);
+        if (!originalEntry) {
+            console.error('Lançamento do Travete não encontrado para editar.');
+            return;
+        }
+
+        const entryDraft = {
+            period: originalEntry.period,
+            availableTime: updatedData.availableTime,
+            employeeEntries: (updatedData.employeeEntries || []).map((emp, index) => ({
+                employeeId: emp.employeeId || index + 1,
+                machineType: emp.machineType,
+                standardTime: emp.standardTime,
+                products: (emp.products || []).map(product => ({
+                    lotId: product.lotId || '',
+                    produced: product.produced || 0,
+                })),
+            })),
+        };
+
+        const computed = summarizeTraveteEntry(entryDraft);
+        if (!computed.isValid || computed.employeeSummaries.length === 0) {
+            console.error('Dados do Travete inválidos para salvar edição.');
+            return;
+        }
+
+        const batch = writeBatch(db);
+        const prodDataRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, 'data');
+
+        const productionDeltas = new Map();
+        const accumulateDetail = (detail, sign) => {
+            const lotTarget = detail.lotId
+                ? lots.find(l => l.id === detail.lotId)
+                : detail.productBaseId
+                    ? lots.find(l => resolveTraveteLotBaseId(l, productsForSelectedDate) === detail.productBaseId)
+                    : lots.find(l => l.productId === detail.productId);
+            if (!lotTarget) return;
+            productionDeltas.set(lotTarget.id, (productionDeltas.get(lotTarget.id) || 0) + sign * detail.produced);
+        };
+
+        (originalEntry.productionDetails || []).forEach(detail => accumulateDetail(detail, -1));
+        computed.productionDetails.forEach(detail => accumulateDetail(detail, 1));
+
+        for (const [lotId, delta] of productionDeltas.entries()) {
+            if (delta === 0) continue;
+            const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotId);
+            batch.update(lotRef, {
+                produced: increment(delta),
+                lastEditedBy: { uid: user.uid, email: user.email },
+                lastEditedAt: Timestamp.now(),
+            });
+        }
+
+        const updatedDayData = productionData.map(entry => {
+            if (entry.id !== entryId) return entry;
+
+            const employeeEntries = computed.employeeSummaries.map(emp => ({
+                employeeId: emp.employeeId,
+                machineType: emp.machineType,
+                produced: emp.produced || 0,
+                standardTime: emp.standardTimeValue || 0,
+                products: (emp.productsForSave || []).map(product => ({
+                    lotId: product.lotId,
+                    productId: product.productId,
+                    produced: product.produced,
+                    standardTime: product.standardTime,
+                    ...(product.productBaseId ? { productBaseId: product.productBaseId } : {}),
+                })),
+            }));
+
+            return {
+                ...entry,
+                people: employeeEntries.length,
+                availableTime: entryDraft.availableTime,
+                goalDisplay: computed.goalDisplay,
+                lotDisplay: computed.lotDisplay,
+                traveteGoalBlocks: computed.goalBlocks || [],
+                traveteLotBlocks: computed.lotBlocks || [],
+                employeeEntries,
+                productionDetails: computed.productionDetails,
+                observation: updatedData.observation || entry.observation || '',
+                lastEditedBy: { uid: user.uid, email: user.email },
+                lastEditedAt: Timestamp.now(),
+            };
+        });
+
+        batch.set(prodDataRef, { [dateKey]: updatedDayData }, { merge: true });
+
+        try {
+            await batch.commit();
+        } catch (error) {
+            console.error('Erro ao salvar edição do Travete:', error);
+        }
+    };
+
     const handleSaveEntry = async (entryId, updatedData) => {
+      if (isTraveteDashboard || updatedData?.type === 'travete') {
+          await handleSaveTraveteEntry(entryId, updatedData);
+          return;
+      }
+
       const originalEntry = productionData.find(e => e.id === entryId);
       if (!originalEntry) {
           console.error("Lançamento original não encontrado para editar.");
@@ -3729,12 +4124,15 @@ const calculatePredictions = useCallback(() => {
     return (
         <div className="responsive-root min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans">
             <GlobalStyles/>
-            <EditEntryModal 
-                isOpen={modalState.type === 'editEntry'} 
-                onClose={closeModal} 
-                entry={modalState.data} 
+            <EditEntryModal
+                isOpen={modalState.type === 'editEntry'}
+                onClose={closeModal}
+                entry={modalState.data}
                 onSave={handleSaveEntry}
                 products={products}
+                lots={lots}
+                traveteMachines={TRAVETE_MACHINES}
+                traveteVariationLookup={traveteVariationLookup}
             />
             
             <DashboardActionModal isOpen={modalState.type === 'dashboardAction'} onClose={closeModal} onConfirm={modalState.data?.onConfirm} mode={modalState.data?.mode} initialName={modalState.data?.initialName}/>
@@ -3883,15 +4281,15 @@ const calculatePredictions = useCallback(() => {
                                                  {machinesLabel && <div className="text-xs text-gray-500">Máquinas: {machinesLabel}</div>}
                                                  {entry.lotDisplay && <div className="text-xs text-gray-500">Lotes: {entry.lotDisplay}</div>}
                                                 </td>
-                                                 <td className="p-3 text-center border-r dark:border-gray-600">{formatNumber(employeeOne.meta)}</td>
-                                                 <td className="p-3 text-center border-r dark:border-gray-600">{formatNumber(employeeOne.produced)}</td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600">{employeeOne.metaDisplay || formatNumber(employeeOne.meta)}</td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600">{employeeOne.producedDisplay || formatNumber(employeeOne.produced)}</td>
                                                  <td className={`p-3 text-center border-r dark:border-gray-600 ${Number(employeeOne.efficiency || 0) < 65 ? 'text-red-500' : 'text-green-600'}`}>{formatEfficiency(employeeOne.efficiency)}</td>
                                                  <td className="p-3 text-center border-r dark:border-gray-600">{formatNumber(employeeOne.cumulativeMeta)}</td>
                                                  <td className="p-3 text-center border-r dark:border-gray-600">{formatNumber(employeeOne.cumulativeProduced)}</td>
                                                  <td className="p-3 text-center border-r dark:border-gray-600">{formatEfficiency(employeeOne.cumulativeEfficiency)}</td>
                                                  <td className="p-3 text-center border-r dark:border-gray-600 font-bold">{'//'}</td>
-                                                 <td className="p-3 text-center border-r dark:border-gray-600">{formatNumber(employeeTwo.meta)}</td>
-                                                 <td className="p-3 text-center border-r dark:border-gray-600">{formatNumber(employeeTwo.produced)}</td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600">{employeeTwo.metaDisplay || formatNumber(employeeTwo.meta)}</td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600">{employeeTwo.producedDisplay || formatNumber(employeeTwo.produced)}</td>
                                                  <td className={`p-3 text-center border-r dark:border-gray-600 ${Number(employeeTwo.efficiency || 0) < 65 ? 'text-red-500' : 'text-green-600'}`}>{formatEfficiency(employeeTwo.efficiency)}</td>
                                                  <td className="p-3 text-center border-r dark:border-gray-600">{formatNumber(employeeTwo.cumulativeMeta)}</td>
                                                  <td className="p-3 text-center border-r dark:border-gray-600">{formatNumber(employeeTwo.cumulativeProduced)}</td>
@@ -3904,6 +4302,15 @@ const calculatePredictions = useCallback(() => {
                                                  </td>
                                                  <td className="p-3">
                                                      <div className="flex gap-2 justify-center">
+                                                         {permissions.EDIT_ENTRIES && (
+                                                             <button
+                                                                 onClick={() => setModalState({ type: 'editEntry', data: entry })}
+                                                                 title="Editar Lançamento"
+                                                                 className="text-yellow-500 hover:text-yellow-400"
+                                                             >
+                                                                 <Edit size={18} />
+                                                             </button>
+                                                         )}
                                                          {permissions.DELETE_ENTRIES && <button onClick={() => handleDeleteEntry(entry.id)} title="Excluir Lançamento"><Trash2 size={18} className="text-red-500 hover:text-red-400"/></button>}
                                                      </div>
                                                  </td>
@@ -3934,7 +4341,7 @@ const calculatePredictions = useCallback(() => {
                                          <tr key={d.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                                              <td className="p-3 font-semibold border-r dark:border-gray-600">{d.period}</td>
                                              <td className="p-3 text-center border-r dark:border-gray-600">{d.people} / {d.availableTime} min</td>
-                                             <td className="p-3 text-center border-r dark:border-gray-600">{d.goal}</td>
+                                             <td className="p-3 text-center border-r dark:border-gray-600">{d.goalForDisplay || d.goal}</td>
                                              <td className="p-3 text-center border-r dark:border-gray-600">{d.producedForDisplay || d.produced}</td>
                                              <td className={`p-3 text-center font-semibold border-r dark:border-gray-600 ${d.efficiency < 65 ? 'text-red-500' : 'text-green-600'}`}>{d.efficiency}%</td>
                                              <td className="p-3 text-center border-r dark:border-gray-600">{d.cumulativeGoal}</td>
@@ -4667,10 +5074,38 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     }, [currentDashboard]);
 
     
-    const today = useMemo(() => new Date(), []);
-    
-    const productsForToday = useMemo(() => {
-        const targetDate = new Date(today);
+    const [selectedDate, setSelectedDate] = useState(() => {
+        const initial = new Date();
+        initial.setHours(0, 0, 0, 0);
+        return initial;
+    });
+
+    const handlePrevDay = useCallback(() => {
+        setSelectedDate(prev => {
+            const next = new Date(prev);
+            next.setDate(prev.getDate() - 1);
+            return next;
+        });
+    }, []);
+
+    const handleNextDay = useCallback(() => {
+        setSelectedDate(prev => {
+            const next = new Date(prev);
+            next.setDate(prev.getDate() + 1);
+            return next;
+        });
+    }, []);
+
+    const selectedDateLabel = useMemo(() => selectedDate.toLocaleDateString('pt-BR'), [selectedDate]);
+
+    const isTodaySelected = useMemo(() => {
+        const todayReference = new Date();
+        todayReference.setHours(0, 0, 0, 0);
+        return selectedDate.toDateString() === todayReference.toDateString();
+    }, [selectedDate]);
+
+    const productsForSelectedDate = useMemo(() => {
+        const targetDate = new Date(selectedDate);
         targetDate.setHours(23, 59, 59, 999);
 
         return products
@@ -4681,13 +5116,12 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                 return { ...p, standardTime: validTimeEntry.time };
             })
             .filter(Boolean);
-    }, [products, today]);
+    }, [products, selectedDate]);
 
-
-    const dateKey = today.toISOString().slice(0, 10);
+    const dateKey = selectedDate.toISOString().slice(0, 10);
     const productionData = useMemo(() => allProductionData[dateKey] || [], [allProductionData, dateKey]);
-    
-    const productMapForToday = useMemo(() => new Map(productsForToday.map(p => [p.id, p])), [productsForToday]);
+
+    const productMapForSelectedDate = useMemo(() => new Map(productsForSelectedDate.map(p => [p.id, p])), [productsForSelectedDate]);
 
     const processedData = useMemo(() => {
         if (isTraveteDashboard || !productionData || productionData.length === 0) return [];
@@ -4696,7 +5130,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             let totalTimeValue = 0, totalProducedInPeriod = 0;
             const producedForDisplay = (item.productionDetails || []).map(d => `${d.produced || 0}`).join(' / ');
             (item.productionDetails || []).forEach(detail => {
-                const product = productMapForToday.get(detail.productId);
+                const product = productMapForSelectedDate.get(detail.productId);
                 if (product?.standardTime) {
                     totalTimeValue += (detail.produced || 0) * product.standardTime;
                     totalProducedInPeriod += (detail.produced || 0);
@@ -4711,7 +5145,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             const cumulativeEfficiency = parseFloat((cumulativeEfficiencySum / (index + 1)).toFixed(2));
             return { ...item, produced:totalProducedInPeriod, goal:numericGoal, goalForDisplay: item.goalDisplay, producedForDisplay, efficiency, cumulativeProduction, cumulativeGoal, cumulativeEfficiency };
         });
-    }, [isTraveteDashboard, productionData, productMapForToday]);
+    }, [isTraveteDashboard, productionData, productMapForSelectedDate]);
 
     const traveteProcessedData = useMemo(() => {
         if (!isTraveteDashboard || !productionData || productionData.length === 0) return [];
@@ -4737,7 +5171,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                     const producedValue = producedFromProducts || (emp.produced !== undefined ? parseInt(emp.produced, 10) || 0 : 0);
                     const firstProduct = productsArray.find(detail => detail.productId) || (emp.productionDetails || [])[0] || null;
                     const productId = firstProduct?.productId || emp.productId || '';
-                    const product = productMapForToday.get(productId);
+                    const product = productMapForSelectedDate.get(productId);
                     const parsedStandardTime = parseFloat(emp.standardTime);
                     const fallbackStandardTimeRaw = firstProduct?.standardTime !== undefined
                         ? parseFloat(firstProduct.standardTime)
@@ -4762,7 +5196,114 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                     const cumulativeEfficiency = parseFloat(((cumulativeEfficiencySum[empIndex] || 0) / entriesCount).toFixed(2));
                     const productNames = productsArray
                         .map(detail => {
-                            const detailProduct = productMapForToday.get(detail.productId);
+                            const detailProduct = productMapForSelectedDate.get(detail.productId);
+                            return detailProduct?.name || null;
+                        })
+                        .filter(Boolean)
+                        .join(' / ');
+
+                    const goalBlock = storedGoalBlocks?.[empIndex] || null;
+                    const lotBlock = storedLotBlocks?.[empIndex] || null;
+                    const goalBlockCurrent = goalBlock ? Number(goalBlock.current || 0) : meta;
+                    const goalBlockNext = goalBlock ? Number(goalBlock.next || 0) : 0;
+                    const goalBlockShowNext = goalBlock ? Boolean(goalBlock.showNext) && (goalBlock.next !== undefined && goalBlock.next !== null) : false;
+                    const goalDisplayForEmployee = goalBlock
+                        ? (() => {
+                            const currentLabel = goalBlockCurrent > 0 ? goalBlockCurrent.toLocaleString('pt-BR') : '0';
+                            const nextLabel = goalBlockShowNext
+                                ? (goalBlockNext > 0 ? goalBlockNext.toLocaleString('pt-BR') : currentLabel)
+                                : '';
+                            if (goalBlockShowNext && nextLabel) return `${currentLabel} / ${nextLabel}`;
+                            if (goalBlockCurrent > 0) return currentLabel;
+                            return '-';
+                        })()
+                        : (meta > 0 ? meta.toLocaleString('pt-BR') : '-');
+
+                    const lotDisplayForEmployee = lotBlock
+                        ? (() => {
+                            const suffix = (lotBlock.machineType || '').replace(/^Travete\s*/i, '').trim();
+                            const currentLabel = lotBlock.current
+                                ? `${lotBlock.current}${suffix ? ` - ${suffix}` : ''}`
+                                : '';
+                            const nextLabel = lotBlock.next || '';
+                            if (currentLabel) {
+                                return nextLabel ? `${currentLabel} / ${nextLabel}` : currentLabel;
+                            }
+                            return nextLabel || '-';
+                        })()
+                        : ((productNames || product?.name) ? (productNames || product?.name) : '-');
+
+                    return {
+                        ...emp,
+                        produced: producedValue,
+                        standardTime,
+                        meta,
+                        efficiency,
+                        cumulativeMeta: cumulativeMeta[empIndex] || 0,
+                        cumulativeProduced: cumulativeProduction[empIndex] || 0,
+                        cumulativeEfficiency,
+                        productName: productNames || product?.name || '',
+                        metaDisplay: goalDisplayForEmployee,
+                        lotDisplay: lotDisplayForEmployee,
+                    };
+                });
+
+                return {
+                    ...entry,
+                    employees,
+                };
+            });
+    }, [isTraveteDashboard, productionData, productMapForSelectedDate]);
+ useMemo(() => {
+        if (!isTraveteDashboard || !productionData || productionData.length === 0) return [];
+
+        let cumulativeMeta = [];
+        let cumulativeProduction = [];
+        let cumulativeEfficiencySum = [];
+        let cumulativeEntryCounts = [];
+
+        return [...productionData]
+            .sort((a, b) => (a.period || "").localeCompare(b.period || ""))
+            .map((entry) => {
+                const availableTime = parseFloat(entry.availableTime) || 0;
+
+                const storedGoalBlocks = Array.isArray(entry.traveteGoalBlocks) ? entry.traveteGoalBlocks : null;
+                const storedLotBlocks = Array.isArray(entry.traveteLotBlocks) ? entry.traveteLotBlocks : null;
+
+                const employees = (entry.employeeEntries || []).map((emp, empIndex) => {
+                    const productsArray = Array.isArray(emp.products) && emp.products.length > 0
+                        ? emp.products
+                        : (emp.productionDetails || []);
+                    const producedFromProducts = productsArray.reduce((sum, detail) => sum + (parseInt(detail.produced, 10) || 0), 0);
+                    const producedValue = producedFromProducts || (emp.produced !== undefined ? parseInt(emp.produced, 10) || 0 : 0);
+                    const firstProduct = productsArray.find(detail => detail.productId) || (emp.productionDetails || [])[0] || null;
+                    const productId = firstProduct?.productId || emp.productId || '';
+                    const product = productMapForSelectedDate.get(productId);
+                    const parsedStandardTime = parseFloat(emp.standardTime);
+                    const fallbackStandardTimeRaw = firstProduct?.standardTime !== undefined
+                        ? parseFloat(firstProduct.standardTime)
+                        : (product?.standardTime || 0);
+                    const fallbackStandardTime = (!Number.isNaN(fallbackStandardTimeRaw) && fallbackStandardTimeRaw > 0)
+                        ? fallbackStandardTimeRaw
+                        : 0;
+                    const standardTime = (!Number.isNaN(parsedStandardTime) && parsedStandardTime > 0)
+                        ? parsedStandardTime
+                        : fallbackStandardTime;
+                    const meta = (standardTime > 0 && availableTime > 0) ? Math.round(availableTime / standardTime) : 0;
+                    const efficiency = (standardTime > 0 && availableTime > 0 && producedValue > 0)
+                        ? parseFloat((((producedValue * standardTime) / availableTime) * 100).toFixed(2))
+                        : 0;
+
+                    cumulativeMeta[empIndex] = (cumulativeMeta[empIndex] || 0) + meta;
+                    cumulativeProduction[empIndex] = (cumulativeProduction[empIndex] || 0) + producedValue;
+                    cumulativeEfficiencySum[empIndex] = (cumulativeEfficiencySum[empIndex] || 0) + efficiency;
+                    cumulativeEntryCounts[empIndex] = (cumulativeEntryCounts[empIndex] || 0) + 1;
+
+                    const entriesCount = cumulativeEntryCounts[empIndex] || 1;
+                    const cumulativeEfficiency = parseFloat(((cumulativeEfficiencySum[empIndex] || 0) / entriesCount).toFixed(2));
+                    const productNames = productsArray
+                        .map(detail => {
+                            const detailProduct = productMapForSelectedDate.get(detail.productId);
                             return detailProduct?.name || null;
                         })
                         .filter(Boolean)
@@ -4873,7 +5414,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                     goalForDisplay: goalDisplay,
                 };
             });
-    }, [isTraveteDashboard, productionData, productMapForToday]);
+    }, [isTraveteDashboard, productionData, productMapForSelectedDate]);
 
     const traveteDataByPeriod = useMemo(() => {
         if (!isTraveteDashboard) return {};
@@ -4915,8 +5456,9 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
 
 
     const monthlySummary = useMemo(() => {
-        const year = today.getFullYear();
-        const month = today.getMonth();
+        const referenceDate = new Date(selectedDate);
+        const year = referenceDate.getFullYear();
+        const month = referenceDate.getMonth();
 
         if (isTraveteDashboard) {
             let totalMonthlyProduction = 0;
@@ -5021,7 +5563,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         });
         const averageMonthlyEfficiency = productiveDaysCount > 0 ? parseFloat((totalDailyAverageEfficiencies / productiveDaysCount).toFixed(2)) : 0;
         return { totalProduction: totalMonthlyProduction, totalGoal: totalMonthlyGoal, averageEfficiency: averageMonthlyEfficiency };
-    }, [isTraveteDashboard, allProductionData, today, products]);
+    }, [isTraveteDashboard, allProductionData, selectedDate, products]);
 
     const handleNextDash = () => {
         const i = dashboards.findIndex(d=>d.id===currentDashboardId);
@@ -5043,7 +5585,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                     const availableTime = entry.availableTime || 0;
                     return `${peopleCount} / ${availableTime} min`;
                 }
-                if (previewData && previewData.period === period) {
+                if (isTodaySelected && previewData && previewData.period === period) {
                     const peopleCount = previewData.people || (previewData.employeeEntries?.length || 0);
                     const availableTime = previewData.availableTime || 0;
                     return `${peopleCount} / ${availableTime} min`;
@@ -5066,7 +5608,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                         }
                     }
                 }
-                if (previewData && previewData.period === period) {
+                if (isTodaySelected && previewData && previewData.period === period) {
                     if (previewData.lotDisplayName) {
                         return previewData.lotDisplayName;
                     }
@@ -5107,7 +5649,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                             return '-';
                     }
                 }
-                if (rowKey === 'goalDisplay' && previewData && previewData.period === period) {
+                if (rowKey === 'goalDisplay' && isTodaySelected && previewData && previewData.period === period) {
                     return previewData.goalDisplay || '-';
                 }
                 return '-';
@@ -5142,7 +5684,13 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                                             </>
                                         )}
                                     </div>
-                                    {currentDashboard.name.toUpperCase()} - {today.toLocaleDateString('pt-BR')}
+                                    {!isCarousel && (
+                                        <div className="absolute top-2 right-2 flex items-center gap-2">
+                                            <button onClick={handlePrevDay} className="px-3 py-1 bg-blue-700 text-white rounded-full text-sm">⬅ Dia anterior</button>
+                                            <button onClick={handleNextDay} className="px-3 py-1 bg-blue-700 text-white rounded-full text-sm">Dia seguinte ➡</button>
+                                        </div>
+                                    )}
+                                    {currentDashboard.name.toUpperCase()} - {selectedDateLabel}
                                 </th>
                             </tr>
                             <tr>
@@ -5187,7 +5735,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                                     ) : (
                                         FIXED_PERIODS.map(period => {
                                             const entry = traveteDataByPeriod[period];
-                                            const isPreviewSlot = !entry && previewData && previewData.period === period;
+                                            const isPreviewSlot = !entry && isTodaySelected && previewData && previewData.period === period;
                                             let cellClass = 'p-3 font-extrabold';
                                             let cellContent = getTraveteCellContent(period, row.key);
 
@@ -5230,16 +5778,16 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         const getAlteracaoValue = (p) => {
             const launched = dataByPeriod[p];
             if (launched && launched.productionDetails?.length > 0) {
-                return launched.productionDetails.map(d => productMapForToday.get(d.productId)?.name).filter(Boolean).join(' / ');
+                return launched.productionDetails.map(d => productMapForSelectedDate.get(d.productId)?.name).filter(Boolean).join(' / ');
             }
-            if (previewData && previewData.period === p) {
+            if (isTodaySelected && previewData && previewData.period === p) {
                 return previewData.productName;
             }
             return '-';
         };
 
         const TV_ROWS = [
-            { key: 'meta', label: 'Meta'},
+            { key: 'meta', label: 'Meta', formatter: (p) => dataByPeriod[p]?.goalForDisplay || dataByPeriod[p]?.goal || '-' },
             { key: 'producedForDisplay', label: 'Produção', formatter: getProductionValue },
             { key: 'efficiency', label: 'Eficiência', isColor: true, formatter: (p) => dataByPeriod[p] ? `${dataByPeriod[p].efficiency}%` : '-' },
             { key: 'cumulativeGoal', label: 'Meta Acum.', formatter: (p) => dataByPeriod[p]?.cumulativeGoal.toLocaleString('pt-BR') || '-' },
@@ -5264,12 +5812,18 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                                     </>
                                 )}
                             </div>
-                            {currentDashboard.name.toUpperCase()} - {today.toLocaleDateString('pt-BR')}
+                            {!isCarousel && (
+                                <div className="absolute top-2 right-2 flex items-center gap-2">
+                                    <button onClick={handlePrevDay} className="px-3 py-1 bg-blue-700 text-white rounded-full text-sm">⬅ Dia anterior</button>
+                                    <button onClick={handleNextDay} className="px-3 py-1 bg-blue-700 text-white rounded-full text-sm">Dia seguinte ➡</button>
+                                </div>
+                            )}
+                            {currentDashboard.name.toUpperCase()} - {selectedDateLabel}
                         </th></tr>
                         <tr><th className="p-2 text-left">Resumo</th>{FIXED_PERIODS.map(p => <th key={p} className="p-2 text-sm">{getPeopleTimeValue(p)}</th>)}</tr>
                         <tr><th className="p-2 text-left">Alteração</th>{FIXED_PERIODS.map(p => {
                             const launched = dataByPeriod[p];
-                            const isPreviewSlot = previewData && previewData.period === p && !launched;
+                            const isPreviewSlot = isTodaySelected && previewData && previewData.period === p && !launched;
                             return <th key={p} className={`p-2 text-base ${isPreviewSlot ? 'text-yellow-300' : ''}`}>{getAlteracaoValue(p)}</th>
                         })}</tr>
                         <tr><th className="p-3 text-left">Hora</th>{FIXED_PERIODS.map(p => <th key={p} className="p-3 text-3xl">{p}</th>)}</tr>
