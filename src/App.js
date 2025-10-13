@@ -131,6 +131,36 @@ const createDefaultTraveteEmployee = (employeeId) => ({
     standardTimeManual: false,
 });
 
+const formatTraveteStandardTimeValue = (value) => {
+    if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) return '';
+    return parseFloat(value.toFixed(2)).toString();
+};
+
+const resolveTraveteLotBaseId = (lot, products) => {
+    if (!lot) return null;
+    if (lot.productBaseId) return lot.productBaseId;
+    if (lot.baseProductId) return lot.baseProductId;
+    if (lot.productId) {
+        const directProduct = products.find(p => p.id === lot.productId);
+        if (directProduct?.baseProductId) return directProduct.baseProductId;
+        return lot.productId;
+    }
+    return null;
+};
+
+const findTraveteVariationForLot = (lot, machineType, products, variationLookup) => {
+    if (!lot || !machineType) return null;
+    const baseId = resolveTraveteLotBaseId(lot, products);
+    if (!baseId) return null;
+
+    const variationFromLookup = variationLookup?.get(baseId)?.get(machineType);
+    if (variationFromLookup) {
+        return variationFromLookup;
+    }
+
+    return products.find(p => p.machineType === machineType && (p.baseProductId === baseId || p.id === baseId)) || null;
+};
+
 
 // #####################################################################
 // #                                                                   #
@@ -2054,7 +2084,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         employeeEntries: [createDefaultTraveteEmployee(1), createDefaultTraveteEmployee(2)],
     });
     const traveteMachines = useMemo(() => ['Travete 2 Agulhas', 'Travete 1 Agulha', 'Travete Convencional'], []);
-    
+
     const [goalPreview, setGoalPreview] = useState("0");
     const [predictedLots, setPredictedLots] = useState([]);
     const [modalState, setModalState] = useState({ type: null, data: null });
@@ -2066,7 +2096,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
     const productsForSelectedDate = useMemo(() => {
         const targetDate = new Date(selectedDate);
-        targetDate.setHours(23, 59, 59, 999); 
+        targetDate.setHours(23, 59, 59, 999);
 
         return products
             .map(p => {
@@ -2084,6 +2114,19 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             })
             .filter(Boolean);
     }, [products, selectedDate]);
+
+    const traveteVariationLookup = useMemo(() => {
+        const lookup = new Map();
+        productsForSelectedDate.forEach(product => {
+            if (!product?.machineType) return;
+            const baseId = product.baseProductId || product.id;
+            if (!lookup.has(baseId)) {
+                lookup.set(baseId, new Map());
+            }
+            lookup.get(baseId).set(product.machineType, product);
+        });
+        return lookup;
+    }, [productsForSelectedDate]);
     
     const traveteComputedEntry = useMemo(() => {
         if (!isTraveteDashboard) {
@@ -2096,21 +2139,23 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 totalProduced: 0,
                 sharedLot: null,
                 sharedProduct: null,
+                sharedBaseProductId: null,
             };
         }
 
         const availableTime = parseFloat(traveteEntry.availableTime) || 0;
         const period = traveteEntry.period;
         const sharedLot = traveteEntry.lotId ? lots.find(l => l.id === traveteEntry.lotId) || null : null;
-        const sharedProductId = sharedLot?.productId || '';
-        const sharedProduct = sharedProductId
-            ? (productsForSelectedDate.find(p => p.id === sharedProductId) || null)
+        const sharedBaseProductId = resolveTraveteLotBaseId(sharedLot, productsForSelectedDate) || '';
+        const sharedReferenceProduct = sharedLot
+            ? findTraveteVariationForLot(sharedLot, 'Travete 2 Agulhas', productsForSelectedDate, traveteVariationLookup)
             : null;
 
         const employeeSummaries = traveteEntry.employeeEntries.map((emp) => {
             const produced = parseInt(emp.produced, 10) || 0;
             const manualStandardTime = parseFloat(emp.standardTime);
-            const fallbackStandardTime = sharedProduct?.standardTime || 0;
+            const variation = findTraveteVariationForLot(sharedLot, emp.machineType, productsForSelectedDate, traveteVariationLookup);
+            const fallbackStandardTime = variation?.standardTime || sharedReferenceProduct?.standardTime || 0;
             const standardTimeValue = (!Number.isNaN(manualStandardTime) && manualStandardTime > 0)
                 ? manualStandardTime
                 : fallbackStandardTime;
@@ -2118,15 +2163,21 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             const efficiency = (standardTimeValue > 0 && availableTime > 0 && produced > 0)
                 ? parseFloat((((produced * standardTimeValue) / availableTime) * 100).toFixed(2))
                 : 0;
+            const productId = variation?.id || '';
             const productionDetails = (sharedLot && produced > 0)
-                ? [{ productId: sharedProductId, lotId: sharedLot.id, produced }]
+                ? [{
+                    productId,
+                    lotId: sharedLot.id,
+                    produced,
+                    ...(sharedBaseProductId ? { productBaseId: sharedBaseProductId } : {}),
+                }]
                 : [];
 
             return {
                 ...emp,
                 lot: sharedLot,
-                product: sharedProduct,
-                productId: sharedProductId,
+                product: variation || sharedReferenceProduct || null,
+                productId,
                 produced,
                 meta,
                 efficiency,
@@ -2147,12 +2198,30 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         );
         const totalMeta = metas.reduce((sum, value) => sum + (value || 0), 0);
         const totalProduced = employeeSummaries.reduce((sum, emp) => sum + (emp.produced || 0), 0);
+        const aggregatedProductId = employeeSummaries.find(emp => emp.productId)?.productId
+            || sharedReferenceProduct?.id
+            || '';
         const productionDetails = (sharedLot && totalProduced > 0)
-            ? [{ productId: sharedProductId, lotId: sharedLot.id, produced: totalProduced }]
+            ? [{
+                lotId: sharedLot.id,
+                produced: totalProduced,
+                ...(aggregatedProductId ? { productId: aggregatedProductId } : {}),
+                ...(sharedBaseProductId ? { productBaseId: sharedBaseProductId } : {}),
+            }]
             : [];
 
-        return { employeeSummaries, goalDisplay, isValid, productionDetails, totalMeta, totalProduced, sharedLot, sharedProduct };
-    }, [isTraveteDashboard, traveteEntry, lots, productsForSelectedDate]);
+        return {
+            employeeSummaries,
+            goalDisplay,
+            isValid,
+            productionDetails,
+            totalMeta,
+            totalProduced,
+            sharedLot,
+            sharedProduct: sharedReferenceProduct,
+            sharedBaseProductId,
+        };
+    }, [isTraveteDashboard, traveteEntry, lots, productsForSelectedDate, traveteVariationLookup]);
 
     const isEntryFormValid = useMemo(() => {
         if (isTraveteDashboard) {
@@ -2272,12 +2341,12 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             const prodDataRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, "data");
 
             const sharedLot = traveteComputedEntry.sharedLot;
-            const sharedProductId = sharedLot?.productId || '';
+            const sharedBaseProductId = traveteComputedEntry.sharedBaseProductId || '';
             const employeeEntries = traveteComputedEntry.employeeSummaries.map(emp => ({
                 employeeId: emp.employeeId,
                 machineType: emp.machineType,
                 lotId: sharedLot?.id || '',
-                productId: sharedProductId,
+                productId: emp.productId || '',
                 produced: emp.produced || 0,
                 standardTime: emp.standardTimeValue || 0,
             }));
@@ -2290,6 +2359,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 goalDisplay: traveteComputedEntry.goalDisplay,
                 employeeEntries,
                 productionDetails: traveteComputedEntry.productionDetails,
+                ...(sharedBaseProductId ? { productBaseId: sharedBaseProductId } : {}),
                 observation: '',
                 createdBy: { uid: user.uid, email: user.email },
             };
@@ -2300,7 +2370,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             for (const detail of traveteComputedEntry.productionDetails) {
                 const lotToUpdate = detail.lotId
                     ? lots.find(l => l.id === detail.lotId)
-                    : lots.find(l => l.productId === detail.productId);
+                    : detail.productBaseId
+                        ? lots.find(l => resolveTraveteLotBaseId(l, productsForSelectedDate) === detail.productBaseId)
+                        : lots.find(l => l.productId === detail.productId);
                 if (lotToUpdate) {
                     const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id);
                     const newProduced = (lotToUpdate.produced || 0) + detail.produced;
@@ -3025,15 +3097,17 @@ const calculatePredictions = useCallback(() => {
     const handleTraveteFieldChange = (field, value) => {
         if (field === 'lotId') {
             const lot = lots.find(l => l.id === value) || null;
-            const product = lot ? productsForSelectedDate.find(p => p.id === lot.productId) || null : null;
-            const derivedTime = product?.standardTime ? product.standardTime.toString() : '';
             setTraveteEntry(prev => ({
                 ...prev,
                 lotId: value,
                 employeeEntries: prev.employeeEntries.map(emp => (
                     emp.standardTimeManual
                         ? emp
-                        : { ...emp, standardTime: derivedTime }
+                        : (() => {
+                            const variation = findTraveteVariationForLot(lot, emp.machineType, productsForSelectedDate, traveteVariationLookup);
+                            const derivedTime = formatTraveteStandardTimeValue(parseFloat(variation?.standardTime));
+                            return { ...emp, standardTime: derivedTime, standardTimeManual: false };
+                        })()
                 )),
             }));
             return;
@@ -3051,10 +3125,11 @@ const calculatePredictions = useCallback(() => {
                 switch (field) {
                     case 'machineType': {
                         updated.machineType = value;
-                        if (!emp.standardTimeManual) {
-                            updated.standardTime = '';
-                            updated.standardTimeManual = false;
-                        }
+                        const lot = prev.lotId ? lots.find(l => l.id === prev.lotId) || null : null;
+                        const variation = findTraveteVariationForLot(lot, value, productsForSelectedDate, traveteVariationLookup);
+                        const derivedTime = formatTraveteStandardTimeValue(parseFloat(variation?.standardTime));
+                        updated.standardTime = derivedTime;
+                        updated.standardTimeManual = false;
                         break;
                     }
                     case 'produced': {
@@ -3077,18 +3152,14 @@ const calculatePredictions = useCallback(() => {
     const handleTraveteStandardTimeBlur = (index) => {
         setTraveteEntry(prev => {
             const lot = prev.lotId ? lots.find(l => l.id === prev.lotId) || null : null;
-            const product = lot ? productsForSelectedDate.find(p => p.id === lot.productId) || null : null;
-            const derivedTime = product?.standardTime ? product.standardTime.toString() : '';
             return {
                 ...prev,
                 employeeEntries: prev.employeeEntries.map((emp, empIndex) => {
                     if (empIndex !== index) return emp;
                     if (emp.standardTime) return emp;
-                    return {
-                        ...emp,
-                        standardTime: derivedTime,
-                        standardTimeManual: false,
-                    };
+                    const variation = findTraveteVariationForLot(lot, emp.machineType, productsForSelectedDate, traveteVariationLookup);
+                    const derivedTime = formatTraveteStandardTimeValue(parseFloat(variation?.standardTime));
+                    return { ...emp, standardTime: derivedTime, standardTimeManual: false };
                 }),
             };
         });
