@@ -2044,6 +2044,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         standardTimeManual: false,
     }), []);
     const [traveteProductFormValues, setTraveteProductFormValues] = useState(() => createTraveteDefaultProductForm());
+    const resetTraveteProductFormValues = useCallback(() => {
+        setTraveteProductFormValues(createTraveteDefaultProductForm());
+    }, [setTraveteProductFormValues]);
     const [traveteEntry, setTraveteEntry] = useState({
         period: '',
         availableTime: 60,
@@ -2212,7 +2215,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
     useEffect(() => {
         if (!isTraveteDashboard) {
-            setTraveteProductFormValues(createTraveteDefaultProductForm());
+            resetTraveteProductFormValues();
             setTraveteEntry({
                 period: '',
                 availableTime: 60,
@@ -2220,7 +2223,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 employeeEntries: [createDefaultTraveteEmployee(1), createDefaultTraveteEmployee(2)],
             });
         }
-    }, [isTraveteDashboard, createDefaultTraveteEmployee]);
+    }, [isTraveteDashboard, createDefaultTraveteEmployee, resetTraveteProductFormValues]);
 
     const closeModal = () => setModalState({ type: null, data: null });
     
@@ -3156,7 +3159,7 @@ const calculatePredictions = useCallback(() => {
             });
 
             await batch.commit();
-            setTraveteProductFormValues(createTraveteDefaultProductForm());
+            resetTraveteProductFormValues();
             return;
         }
 
