@@ -2165,16 +2165,22 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         if (!isTraveteDashboard) {
             return {
                 employeeSummaries: [],
-                goalDisplay: '0 // 0',
+                goalDisplay: '- // -',
+                lotDisplay: '- // -',
                 isValid: false,
                 productionDetails: [],
                 totalMeta: 0,
                 totalProduced: 0,
+                goalBlocks: [],
+                lotBlocks: [],
             };
         }
 
         const availableTime = parseFloat(traveteEntry.availableTime) || 0;
         const period = traveteEntry.period;
+        const activeLots = [...lots]
+            .filter(lot => lot && (lot.status === 'ongoing' || lot.status === 'future'))
+            .sort((a, b) => (a.order || 0) - (b.order || 0));
 
         const employeeSummaries = traveteEntry.employeeEntries.map((emp) => {
             const manualStandardTime = parseFloat(emp.standardTime);
@@ -2244,38 +2250,112 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 standardTimeValue > 0
             );
 
+            const primaryLot = productSummaries.find(item => item.lot)?.lot || null;
+            const manualNextLot = productSummaries.slice(1).find(item => item.lot)?.lot || null;
+
+            const currentLot = primaryLot || activeLots[0] || null;
+            let nextLotCandidate = manualNextLot || null;
+
+            if (!nextLotCandidate && currentLot) {
+                const currentIndex = activeLots.findIndex(l => l.id === currentLot.id);
+                if (currentIndex !== -1) {
+                    nextLotCandidate = activeLots.slice(currentIndex + 1).find(Boolean) || null;
+                }
+            }
+
+            if (!nextLotCandidate && !currentLot && activeLots.length > 0) {
+                nextLotCandidate = activeLots[0];
+            }
+
+            const currentLotName = currentLot ? formatTraveteLotDisplayName(currentLot, products) : '';
+            const rawNextLotName = nextLotCandidate ? formatTraveteLotDisplayName(nextLotCandidate, products) : '';
+            const currentLotTarget = currentLot?.target || 0;
+            const currentLotProduced = currentLot?.produced || 0;
+            const currentLotProgress = currentLotTarget > 0 ? currentLotProduced / currentLotTarget : 0;
+            const hasManualNextLot = Boolean(manualNextLot);
+            const shouldShowNextLot = Boolean(nextLotCandidate) && (hasManualNextLot || currentLotProgress >= 0.85);
+            const nextLotName = shouldShowNextLot ? rawNextLotName : '';
+
+            const metaLabel = meta > 0 ? meta.toLocaleString('pt-BR') : '0';
+            const nextMetaValue = shouldShowNextLot ? meta : 0;
+            const nextMetaLabel = shouldShowNextLot
+                ? (nextMetaValue > 0 ? nextMetaValue.toLocaleString('pt-BR') : metaLabel)
+                : '';
+
+            const metaDisplay = meta > 0
+                ? (shouldShowNextLot && nextMetaLabel ? `${metaLabel} / ${nextMetaLabel}` : metaLabel)
+                : '-';
+
+            const machineSuffix = emp.machineType?.replace('Travete ', '') || '';
+            const currentLotLabel = currentLotName
+                ? `${currentLotName}${machineSuffix ? ` - ${machineSuffix}` : ''}`
+                : '';
+            const lotDisplay = currentLotLabel
+                ? (shouldShowNextLot && nextLotName ? `${currentLotLabel} / ${nextLotName}` : currentLotLabel)
+                : (shouldShowNextLot && nextLotName ? nextLotName : '-');
+
             return {
                 ...emp,
                 produced,
                 meta,
+                nextMeta: nextMetaValue,
                 efficiency,
                 standardTimeValue,
                 productionDetails,
                 productsForSave,
                 productSummaries,
                 valid,
+                metaDisplay,
+                lotDisplay,
+                currentLotName,
+                nextLotName,
+                shouldShowNextLot,
+                metaSegments: {
+                    current: meta,
+                    next: nextMetaValue,
+                    showNext: shouldShowNextLot,
+                },
+                lotSegments: {
+                    current: currentLotName,
+                    next: nextLotName,
+                    machineType: emp.machineType || '',
+                },
             };
         });
 
-        const metas = employeeSummaries.map(emp => emp.meta || 0);
-        const goalDisplay = metas.length > 0 ? metas.join(' // ') : '0 // 0';
+        const blockCount = Math.max(traveteEntry.employeeEntries.length || 0, 2);
+        const metaBlocks = Array.from({ length: blockCount }, (_, index) => {
+            const summary = employeeSummaries[index];
+            return summary ? (summary.metaDisplay || '-') : '-';
+        });
+        const lotBlocks = Array.from({ length: blockCount }, (_, index) => {
+            const summary = employeeSummaries[index];
+            return summary ? (summary.lotDisplay || '-') : '-';
+        });
+
+        const goalDisplay = metaBlocks.join(' // ');
+        const lotDisplay = lotBlocks.join(' // ');
+
         const isValid = Boolean(
             period &&
             availableTime > 0 &&
             employeeSummaries.length > 0 &&
             employeeSummaries.every(emp => emp.valid)
         );
-        const totalMeta = metas.reduce((sum, value) => sum + (value || 0), 0);
+        const totalMeta = employeeSummaries.reduce((sum, emp) => sum + (emp.meta || 0), 0);
         const totalProduced = employeeSummaries.reduce((sum, emp) => sum + (emp.produced || 0), 0);
         const productionDetails = employeeSummaries.flatMap(emp => emp.productionDetails);
 
         return {
             employeeSummaries,
             goalDisplay,
+            lotDisplay,
             isValid,
             productionDetails,
             totalMeta,
             totalProduced,
+            goalBlocks: employeeSummaries.map(emp => emp.metaSegments),
+            lotBlocks: employeeSummaries.map(emp => emp.lotSegments),
         };
     }, [isTraveteDashboard, traveteEntry, lots, productsForSelectedDate, traveteVariationLookup, products]);
 
@@ -2371,6 +2451,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                     }));
 
                     const lotNames = Array.from(new Set(employeePreview.flatMap(emp => (emp.products || []).map(p => p.lotName).filter(Boolean))));
+                    const lotDisplayValue = traveteComputedEntry.lotDisplay && traveteComputedEntry.lotDisplay.trim().length > 0
+                        ? traveteComputedEntry.lotDisplay
+                        : lotNames.join(' | ');
 
                     await setDoc(previewRef, {
                         period: traveteEntry.period,
@@ -2378,7 +2461,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                         availableTime: traveteEntry.availableTime,
                         people: traveteEntry.employeeEntries.length,
                         employeeEntries: employeePreview,
-                        lotDisplayName: lotNames.join(' | '),
+                        lotDisplayName: lotDisplayValue || '',
                         timestamp: Timestamp.now(),
                     });
                 }, 500);
@@ -2444,6 +2527,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 people: traveteEntry.employeeEntries.length,
                 availableTime: traveteEntry.availableTime,
                 goalDisplay: traveteComputedEntry.goalDisplay,
+                lotDisplay: traveteComputedEntry.lotDisplay,
+                traveteGoalBlocks: traveteComputedEntry.goalBlocks || [],
+                traveteLotBlocks: traveteComputedEntry.lotBlocks || [],
                 employeeEntries,
                 productionDetails: traveteComputedEntry.productionDetails,
                 observation: '',
@@ -2765,7 +2851,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
 const calculatePredictions = useCallback(() => {
     if (isTraveteDashboard) {
-        return { allPredictions: [], currentGoalPreview: traveteComputedEntry.goalDisplay || '0 // 0' };
+        return { allPredictions: [], currentGoalPreview: traveteComputedEntry.goalDisplay || '- // -' };
     }
 
     const people = parseFloat(newEntry.people) || 0;
@@ -2860,7 +2946,7 @@ const calculatePredictions = useCallback(() => {
     useEffect(() => {
         if (isTraveteDashboard) {
             setPredictedLots([]);
-            setGoalPreview(traveteComputedEntry.goalDisplay || '0 // 0');
+            setGoalPreview(traveteComputedEntry.goalDisplay || '- // -');
             return;
         }
 
@@ -3702,10 +3788,11 @@ const calculatePredictions = useCallback(() => {
                                          return (
                                              <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                                                  <td className="p-3 border-r dark:border-gray-600 align-top">
-                                                     <div className="font-semibold">{entry.period}</div>
-                                                     <div className="text-xs text-gray-500">Tempo: {formatNumber(entry.availableTime)} min</div>
-                                                     {machinesLabel && <div className="text-xs text-gray-500">Máquinas: {machinesLabel}</div>}
-                                                 </td>
+                                                 <div className="font-semibold">{entry.period}</div>
+                                                 <div className="text-xs text-gray-500">Tempo: {formatNumber(entry.availableTime)} min</div>
+                                                 {machinesLabel && <div className="text-xs text-gray-500">Máquinas: {machinesLabel}</div>}
+                                                 {entry.lotDisplay && <div className="text-xs text-gray-500">Lotes: {entry.lotDisplay}</div>}
+                                                </td>
                                                  <td className="p-3 text-center border-r dark:border-gray-600">{formatNumber(employeeOne.meta)}</td>
                                                  <td className="p-3 text-center border-r dark:border-gray-600">{formatNumber(employeeOne.produced)}</td>
                                                  <td className={`p-3 text-center border-r dark:border-gray-600 ${Number(employeeOne.efficiency || 0) < 65 ? 'text-red-500' : 'text-green-600'}`}>{formatEfficiency(employeeOne.efficiency)}</td>
@@ -3929,9 +4016,13 @@ const calculatePredictions = useCallback(() => {
                                      })}
                                  </div>
                                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-t pt-4 dark:border-gray-700">
+                                     <div className="flex flex-col justify-center items-center bg-blue-50 dark:bg-blue-900/40 p-3 rounded-md shadow-inner w-full md:w-64">
+                                         <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Lotes Previstos</label>
+                                         <span className="font-bold text-base text-blue-700 dark:text-blue-200 text-center">{traveteComputedEntry.lotDisplay || '- // -'}</span>
+                                     </div>
                                      <div className="flex flex-col justify-center items-center bg-blue-100 dark:bg-blue-900/50 p-3 rounded-md shadow-inner w-full md:w-64">
                                          <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Meta Prevista</label>
-                                         <span className="font-bold text-xl text-blue-600 dark:text-blue-300">{traveteComputedEntry.goalDisplay || '0 // 0'}</span>
+                                         <span className="font-bold text-xl text-blue-600 dark:text-blue-300">{traveteComputedEntry.goalDisplay || '- // -'}</span>
                                      </div>
                                      <button
                                          type="submit"
@@ -4543,6 +4634,9 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             .map((entry) => {
                 const availableTime = parseFloat(entry.availableTime) || 0;
 
+                const storedGoalBlocks = Array.isArray(entry.traveteGoalBlocks) ? entry.traveteGoalBlocks : null;
+                const storedLotBlocks = Array.isArray(entry.traveteLotBlocks) ? entry.traveteLotBlocks : null;
+
                 const employees = (entry.employeeEntries || []).map((emp, empIndex) => {
                     const productsArray = Array.isArray(emp.products) && emp.products.length > 0
                         ? emp.products
@@ -4582,6 +4676,37 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                         .filter(Boolean)
                         .join(' / ');
 
+                    const goalBlock = storedGoalBlocks?.[empIndex] || null;
+                    const lotBlock = storedLotBlocks?.[empIndex] || null;
+                    const goalBlockCurrent = goalBlock ? Number(goalBlock.current || 0) : meta;
+                    const goalBlockNext = goalBlock ? Number(goalBlock.next || 0) : 0;
+                    const goalBlockShowNext = goalBlock ? Boolean(goalBlock.showNext) && (goalBlock.next !== undefined && goalBlock.next !== null) : false;
+                    const goalDisplayForEmployee = goalBlock
+                        ? (() => {
+                            const currentLabel = goalBlockCurrent > 0 ? goalBlockCurrent.toLocaleString('pt-BR') : '0';
+                            const nextLabel = goalBlockShowNext
+                                ? (goalBlockNext > 0 ? goalBlockNext.toLocaleString('pt-BR') : currentLabel)
+                                : '';
+                            if (goalBlockShowNext && nextLabel) return `${currentLabel} / ${nextLabel}`;
+                            if (goalBlockCurrent > 0) return currentLabel;
+                            return '-';
+                        })()
+                        : (meta > 0 ? meta.toLocaleString('pt-BR') : '-');
+
+                    const lotDisplayForEmployee = lotBlock
+                        ? (() => {
+                            const suffix = (lotBlock.machineType || '').replace(/^Travete\s*/i, '').trim();
+                            const currentLabel = lotBlock.current
+                                ? `${lotBlock.current}${suffix ? ` - ${suffix}` : ''}`
+                                : '';
+                            const nextLabel = lotBlock.next || '';
+                            if (currentLabel) {
+                                return nextLabel ? `${currentLabel} / ${nextLabel}` : currentLabel;
+                            }
+                            return nextLabel || '-';
+                        })()
+                        : ((productNames || product?.name) ? (productNames || product?.name) : '-');
+
                     return {
                         ...emp,
                         produced: producedValue,
@@ -4592,12 +4717,19 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                         cumulativeProduced: cumulativeProduction[empIndex] || 0,
                         cumulativeEfficiency,
                         productName: productNames || product?.name || '',
+                        metaDisplay: goalDisplayForEmployee,
+                        lotDisplay: lotDisplayForEmployee,
                     };
                 });
 
-                const goalDisplay = employees.length > 0
-                    ? employees.map(emp => (emp.meta || 0).toLocaleString('pt-BR')).join(' // ')
-                    : '0 // 0';
+                const metaBlockStrings = employees.length > 0
+                    ? employees.map(emp => emp.metaDisplay || '-')
+                    : [];
+                const goalDisplay = entry.goalDisplay || (metaBlockStrings.length > 0 ? metaBlockStrings.join(' // ') : '- // -');
+                const lotBlockStrings = employees.length > 0
+                    ? employees.map(emp => emp.lotDisplay || '-')
+                    : [];
+                const lotDisplay = entry.lotDisplay || (lotBlockStrings.length > 0 ? lotBlockStrings.join(' // ') : '- // -');
 
                 const producedDisplay = employees.length > 0
                     ? employees.map(emp => (emp.produced || 0).toLocaleString('pt-BR')).join(' // ')
@@ -4639,12 +4771,14 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                     cumulativeMetaDisplay,
                     cumulativeProducedDisplay,
                     cumulativeEfficiencyDisplay,
+                    lotDisplay,
                     totalMeta,
                     totalProduced,
                     totalEfficiency,
                     totalCumulativeMeta,
                     totalCumulativeProduced,
                     totalCumulativeEfficiency,
+                    goalForDisplay: goalDisplay,
                 };
             });
     }, [isTraveteDashboard, productionData, productMapForToday]);
@@ -4827,15 +4961,23 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
 
             const getAlteracaoValue = (period) => {
                 const entry = traveteDataByPeriod[period];
-                if (entry && entry.employees?.length) {
-                    const names = entry.employees
-                        .map(emp => emp.productName || '')
-                        .filter(Boolean);
-                    if (names.length) {
-                        return names.join(' | ');
+                if (entry) {
+                    if (entry.lotDisplay) {
+                        return entry.lotDisplay;
+                    }
+                    if (entry.employees?.length) {
+                        const names = entry.employees
+                            .map(emp => emp.lotDisplay || emp.productName || '')
+                            .filter(Boolean);
+                        if (names.length) {
+                            return names.join(' // ');
+                        }
                     }
                 }
                 if (previewData && previewData.period === period) {
+                    if (previewData.lotDisplayName) {
+                        return previewData.lotDisplayName;
+                    }
                     const previewNames = (previewData.employeeEntries || [])
                         .map(emp => {
                             const productLots = (emp.products || [])
@@ -4843,17 +4985,11 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                                 .filter(Boolean)
                                 .join(' / ');
                             if (productLots) return productLots;
-                            if (previewData.lotDisplayName) {
-                                return previewData.lotDisplayName;
-                            }
                             return emp.machineType;
                         })
                         .filter(Boolean);
                     if (previewNames.length) {
-                        return previewNames.join(' | ');
-                    }
-                    if (previewData.lotDisplayName) {
-                        return previewData.lotDisplayName;
+                        return previewNames.join(' // ');
                     }
                 }
                 return '-';
