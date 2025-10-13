@@ -70,6 +70,81 @@ async function sha256Hex(message) {
 // --- ESTILOS GLOBAIS E ANIMAÇÕES ---
 const GlobalStyles = () => (
     <style>{`
+        :root {
+            --font-size-title: clamp(18px, 1.8vw, 28px);
+            --font-size-text: clamp(13px, 1.2vw, 18px);
+            --container-padding: clamp(12px, 2vw, 32px);
+            --container-gap: clamp(12px, 2vw, 32px);
+            --app-max-width: 1600px;
+        }
+        body {
+            font-size: var(--font-size-text);
+            margin: 0;
+        }
+        .responsive-root {
+            padding-inline: var(--container-padding);
+        }
+        .responsive-main {
+            width: min(100%, var(--app-max-width));
+            margin: 0 auto;
+        }
+        .responsive-main,
+        .dashboard-grid,
+        .responsive-grid {
+            gap: var(--container-gap);
+        }
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+        }
+        .responsive-card,
+        .dashboard-card {
+            width: 100%;
+        }
+        .responsive-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .responsive-actions > * {
+            width: 100%;
+        }
+        .responsive-form-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+        .responsive-tv {
+            height: calc(100vh - 120px);
+            overflow-y: auto;
+        }
+        @media (min-width: 769px) {
+            .responsive-actions {
+                flex-direction: row;
+                align-items: center;
+            }
+            .responsive-actions > * {
+                width: auto;
+            }
+            .responsive-form-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+        @media (min-width: 1025px) {
+            .dashboard-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+        @media (min-width: 1280px) {
+            .dashboard-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+        @media (min-width: 1536px) {
+            .responsive-main {
+                width: min(100%, var(--app-max-width));
+            }
+        }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes scaleUp { from { transform: scale(0.95) translateY(10px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
         @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
@@ -534,17 +609,17 @@ const useStock = () => useContext(StockContext);
 const StockHeader = ({ onNavigateToCrono }) => {
     const { logout } = useAuth();
     return (
-        <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-40">
-            <div className="flex items-center gap-4">
+        <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between sticky top-0 z-40">
+            <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
                 <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
                 <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white">Painel de Estoque</h1>
             </div>
-            <div className="flex items-center gap-4">
-                <button onClick={onNavigateToCrono} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full md:w-auto md:justify-end">
+                <button onClick={onNavigateToCrono} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center">
                     <Home size={20} />
                     <span className="hidden sm:inline">Quadro de Produção</span>
                 </button>
-                <button onClick={logout} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 text-red-500">
+                <button onClick={logout} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 text-red-500 w-full sm:w-auto justify-center">
                     <LogOut size={20} />
                     <span className="hidden sm:inline">Sair</span>
                 </button>
@@ -561,7 +636,7 @@ const StockSidebar = ({ activePage, setActivePage }) => {
         { id: 'trash', label: 'Lixeira', icon: Trash },
     ];
     return (
-        <aside className="w-64 bg-white dark:bg-gray-900 p-4 flex flex-col">
+        <aside className="w-full lg:w-64 bg-white dark:bg-gray-900 p-4 flex flex-col flex-shrink-0">
             <nav className="flex flex-col gap-2">
                 {navItems.map(item => (
                     <button key={item.id} onClick={() => setActivePage(item.id)}
@@ -1245,7 +1320,7 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
 
     return (
         <StockProvider>
-            <div className="min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans flex flex-col">
+            <div className="responsive-root min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans flex flex-col">
                 <ConfirmationModal 
                     isOpen={confirmation.isOpen}
                     onClose={() => setConfirmation({ isOpen: false, title: '', message: '', onConfirm: () => {} })}
@@ -1254,9 +1329,9 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
                     message={confirmation.message}
                 />
                 <StockHeader onNavigateToCrono={onNavigateToCrono} />
-                <div className="flex flex-grow">
+                <div className="flex flex-col lg:flex-row flex-grow">
                     <StockSidebar activePage={activePage} setActivePage={setActivePage} />
-                    <main className="flex-grow bg-gray-50 dark:bg-gray-800/50">
+                    <main className="flex-grow bg-gray-50 dark:bg-gray-800/50 responsive-main">
                         {renderPage()}
                     </main>
                 </div>
@@ -2271,20 +2346,29 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             const rawNextLotName = nextLotCandidate ? formatTraveteLotDisplayName(nextLotCandidate, products) : '';
             const currentLotTarget = currentLot?.target || 0;
             const currentLotProduced = currentLot?.produced || 0;
-            const currentLotProgress = currentLotTarget > 0 ? currentLotProduced / currentLotTarget : 0;
+            const remainingInCurrentLot = currentLot ? Math.max(0, currentLotTarget - currentLotProduced) : 0;
             const hasManualNextLot = Boolean(manualNextLot);
-            const shouldShowNextLot = Boolean(nextLotCandidate) && (hasManualNextLot || currentLotProgress >= 0.85);
+            const nextLotTargetValue = nextLotCandidate ? Math.max(0, nextLotCandidate.target || 0) : 0;
+            const canCoverCurrentLot = hasManualNextLot
+                || remainingInCurrentLot <= 0
+                || (meta > 0 && remainingInCurrentLot > 0 && meta >= remainingInCurrentLot);
+            const shouldShowNextLot = Boolean(nextLotCandidate)
+                && (hasManualNextLot || canCoverCurrentLot)
+                && nextLotTargetValue > 0;
             const nextLotName = shouldShowNextLot ? rawNextLotName : '';
 
-            const metaLabel = meta > 0 ? meta.toLocaleString('pt-BR') : '0';
-            const nextMetaValue = shouldShowNextLot ? meta : 0;
-            const nextMetaLabel = shouldShowNextLot
-                ? (nextMetaValue > 0 ? nextMetaValue.toLocaleString('pt-BR') : metaLabel)
+            const remainingLabel = currentLot
+                ? remainingInCurrentLot.toLocaleString('pt-BR')
+                : (shouldShowNextLot && nextLotTargetValue > 0
+                    ? '0'
+                    : '-');
+            const nextMetaLabel = shouldShowNextLot && nextLotTargetValue > 0
+                ? nextLotTargetValue.toLocaleString('pt-BR')
                 : '';
 
-            const metaDisplay = meta > 0
-                ? (shouldShowNextLot && nextMetaLabel ? `${metaLabel} / ${nextMetaLabel}` : metaLabel)
-                : '-';
+            const metaDisplay = currentLot
+                ? (nextMetaLabel ? `${remainingLabel}/${nextMetaLabel}` : remainingLabel)
+                : (nextMetaLabel ? `${remainingLabel}/${nextMetaLabel}` : remainingLabel);
 
             const machineSuffix = emp.machineType?.replace('Travete ', '') || '';
             const currentLotLabel = currentLotName
@@ -2298,7 +2382,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 ...emp,
                 produced,
                 meta,
-                nextMeta: nextMetaValue,
+                nextMeta: shouldShowNextLot ? nextLotTargetValue : null,
                 efficiency,
                 standardTimeValue,
                 productionDetails,
@@ -2311,8 +2395,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 nextLotName,
                 shouldShowNextLot,
                 metaSegments: {
-                    current: meta,
-                    next: nextMetaValue,
+                    current: remainingInCurrentLot,
+                    next: shouldShowNextLot ? nextLotTargetValue : null,
                     showNext: shouldShowNextLot,
                 },
                 lotSegments: {
@@ -2358,6 +2442,12 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             lotBlocks: employeeSummaries.map(emp => emp.lotSegments),
         };
     }, [isTraveteDashboard, traveteEntry, lots, productsForSelectedDate, traveteVariationLookup, products]);
+
+    const travetePreviewPending = useMemo(() => {
+        if (!isTraveteDashboard) return false;
+        if (!traveteEntry.period || !(parseFloat(traveteEntry.availableTime) > 0)) return false;
+        return traveteEntry.employeeEntries.some(emp => (emp.products || []).some(item => item.lotId));
+    }, [isTraveteDashboard, traveteEntry]);
 
     const isEntryFormValid = useMemo(() => {
         if (isTraveteDashboard) {
@@ -3637,7 +3727,7 @@ const calculatePredictions = useCallback(() => {
     }
 
     return (
-        <div className="min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans">
+        <div className="responsive-root min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans">
             <GlobalStyles/>
             <EditEntryModal 
                 isOpen={modalState.type === 'editEntry'} 
@@ -3656,11 +3746,11 @@ const calculatePredictions = useCallback(() => {
             <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={roles} />
             <TvSelectorModal isOpen={modalState.type === 'tvSelector'} onClose={closeModal} onSelect={startTvMode} onStartCarousel={startTvMode} dashboards={dashboards} />
 
-            <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-20">
-                <div className="flex items-center gap-4">
+            <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between sticky top-0 z-20">
+                <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
                     <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
-                    <div ref={navRef} className="relative">
-                        <button onClick={() => setIsNavOpen(!isNavOpen)} title="Mudar Quadro" className="flex items-center gap-2 p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
+                    <div ref={navRef} className="relative w-full md:w-auto">
+                        <button onClick={() => setIsNavOpen(!isNavOpen)} title="Mudar Quadro" className="flex w-full items-center justify-between gap-2 p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
                             <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white tracking-wider text-center">{currentDashboard.name}</h1>
                             <ChevronDownIcon size={20} className={`transition-transform ${isNavOpen ? 'rotate-180' : ''}`} />
                         </button>
@@ -3689,8 +3779,8 @@ const calculatePredictions = useCallback(() => {
                         )}
                     </div>
                 </div>
-                <div className="flex items-center space-x-2 sm:space-x-4">
-                    <button onClick={onNavigateToStock} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full md:w-auto md:justify-end">
+                    <button onClick={onNavigateToStock} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center">
                         <Warehouse size={20} />
                         <span className="hidden sm:inline">Gerenciamento de Estoque</span>
                     </button>
@@ -3702,7 +3792,7 @@ const calculatePredictions = useCallback(() => {
                 </div>
             </header>
             
-            <main className="p-4 md:p-8 grid grid-cols-1 gap-8">
+            <main className="p-4 md:p-8 grid grid-cols-1 gap-8 responsive-main">
                  <section className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                      <div className="lg:col-span-1">
                          <CalendarView selectedDate={selectedDate} setSelectedDate={setSelectedDate} currentMonth={currentMonth} setCurrentMonth={setCurrentMonth} calendarView={calendarView} setCalendarView={setCalendarView} allProductionData={allProductionData} />
@@ -4020,19 +4110,21 @@ const calculatePredictions = useCallback(() => {
                                          <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Lotes Previstos</label>
                                          <span className="font-bold text-base text-blue-700 dark:text-blue-200 text-center">{traveteComputedEntry.lotDisplay || '- // -'}</span>
                                      </div>
-                                     <div className="flex flex-col justify-center items-center bg-blue-100 dark:bg-blue-900/50 p-3 rounded-md shadow-inner w-full md:w-64">
-                                         <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Meta Prevista</label>
-                                         <span className="font-bold text-xl text-blue-600 dark:text-blue-300">{traveteComputedEntry.goalDisplay || '- // -'}</span>
-                                     </div>
-                                     <button
-                                         type="submit"
-                                         disabled={!isEntryFormValid}
-                                         className="h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                     >
-                                         Adicionar
-                                     </button>
-                                 </div>
-                             </form>
+                                    <div className="flex flex-col justify-center items-center bg-blue-100 dark:bg-blue-900/50 p-3 rounded-md shadow-inner w-full md:w-64">
+                                        <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Meta Prevista</label>
+                                        <span className={`font-bold text-xl ${travetePreviewPending ? 'text-yellow-500 dark:text-yellow-300' : 'text-blue-600 dark:text-blue-300'}`}>
+                                            {traveteComputedEntry.goalDisplay || '- // -'}
+                                        </span>
+                                    </div>
+                                    <button
+                                        type="submit"
+                                        disabled={!isEntryFormValid}
+                                        className="h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
+                                    >
+                                        Adicionar
+                                    </button>
+                                </div>
+                            </form>
                          ) : (
                              <form onSubmit={handleAddEntry} className="grid grid-cols-1 gap-4 items-end">
                                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -4086,11 +4178,11 @@ const calculatePredictions = useCallback(() => {
                                              <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Meta Prevista</label>
                                              <span className="font-bold text-xl text-blue-600 dark:text-blue-400">{goalPreview || '0'}</span>
                                          </div>
-                                         <button type="submit" disabled={!isEntryFormValid} className="h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Adicionar</button>
-                                     </div>
-                                 </div>
-                             </form>
-                         )}
+                                        <button type="submit" disabled={!isEntryFormValid} className="h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto">Adicionar</button>
+                                    </div>
+                                </div>
+                            </form>
+                        )}
                      </section>
                  )}
                   <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
@@ -4121,7 +4213,7 @@ const calculatePredictions = useCallback(() => {
                                </div>
                                <div className="flex flex-col"><label htmlFor="newLotTarget">Quantidade</label><input type="number" id="newLotTarget" name="target" value={newLot.target} onChange={e => setNewLot({...newLot, target: e.target.value})} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
                                <div className="flex flex-col"><label htmlFor="newLotCustomName">Nome (Opcional)</label><input type="text" id="newLotCustomName" name="customName" value={newLot.customName} onChange={e => setNewLot({...newLot, customName: e.target.value})} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                               <button type="submit" className="h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600">Criar Lote</button>
+                               <button type="submit" className="h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600 w-full sm:w-auto">Criar Lote</button>
                           </form>
                       </div>}
                       <div className="flex gap-2 mb-4 border-b pb-2 dark:border-gray-700 flex-wrap">
@@ -5036,7 +5128,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             const shouldWarnLowEfficiency = (entry) => entry?.employees?.some(emp => (emp.efficiency || 0) < 70);
 
             return (
-                <div className="overflow-x-auto w-full text-center p-6 border-4 border-blue-900 rounded-xl shadow-2xl bg-white text-gray-900">
+                <div className="overflow-x-auto w-full text-center p-6 border-4 border-blue-900 rounded-xl shadow-2xl bg-white text-gray-900 responsive-tv">
                     <table className="min-w-full table-fixed">
                         <thead className="text-white bg-blue-500">
                             <tr>
