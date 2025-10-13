@@ -214,6 +214,21 @@ const createDefaultTraveteEmployee = (employeeId) => ({
     products: [createDefaultTraveteProductItem()],
 });
 
+const getOrderedActiveLots = (lots = []) =>
+    [...lots]
+        .filter(lot => lot && (lot.status === 'ongoing' || lot.status === 'future'))
+        .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+const getLotRemainingPieces = (lot) => {
+    if (!lot) return 0;
+    return Math.max(0, (lot.target || 0) - (lot.produced || 0));
+};
+
+const splitGoalSegments = (goalDisplay = '') => goalDisplay
+    .split('/')
+    .map(segment => segment.trim())
+    .filter(Boolean);
+
 const formatTraveteStandardTimeValue = (value) => {
     if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) return '';
     return parseFloat(value.toFixed(2)).toString();
@@ -2652,9 +2667,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
         const availableTime = parseFloat(entryDraft.availableTime) || 0;
         const period = entryDraft.period;
-        const activeLots = [...lots]
-            .filter(lot => lot && (lot.status === 'ongoing' || lot.status === 'future'))
-            .sort((a, b) => (a.order || 0) - (b.order || 0));
+        const activeLots = getOrderedActiveLots(lots);
 
         const employeeSummaries = (entryDraft.employeeEntries || []).map((emp) => {
             const manualStandardTime = parseFloat(emp.standardTime);
@@ -2744,19 +2757,15 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
             const currentLotName = currentLot ? formatTraveteLotDisplayName(currentLot, products) : '';
             const rawNextLotName = nextLotCandidate ? formatTraveteLotDisplayName(nextLotCandidate, products) : '';
-            const currentLotTarget = currentLot?.target || 0;
-            const currentLotProduced = currentLot?.produced || 0;
-            const remainingInCurrentLot = currentLot ? Math.max(0, currentLotTarget - currentLotProduced) : 0;
-            const nextLotRemaining = nextLotCandidate
-                ? Math.max(0, (nextLotCandidate.target || 0) - (nextLotCandidate.produced || 0))
-                : 0;
+            const remainingInCurrentLot = getLotRemainingPieces(currentLot);
+            const nextLotRemaining = getLotRemainingPieces(nextLotCandidate);
 
             const plannedForCurrentLot = currentLot ? Math.min(meta, remainingInCurrentLot || 0) : 0;
             const leftoverMetaForNext = Math.max(0, meta - plannedForCurrentLot);
             const manualNextProduced = manualNextLotItem ? manualNextLotItem.produced || 0 : 0;
             const nextMetaPieces = manualNextLotItem && manualNextProduced > 0
                 ? manualNextProduced
-                : Math.min(leftoverMetaForNext, nextLotRemaining > 0 ? nextLotRemaining : leftoverMetaForNext);
+                : nextLotRemaining;
 
             const shouldShowNextLot = Boolean(nextLotCandidate)
                 && (manualNextLotItem || leftoverMetaForNext > 0)
@@ -3472,10 +3481,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         }
     }, [newEntry.productId, productsForSelectedDate]);
 
-const calculatePredictions = useCallback(() => {
-    if (isTraveteDashboard) {
-        return { allPredictions: [], currentGoalPreview: traveteComputedEntry.goalDisplay || '- // -' };
-    }
+    const calculatePredictions = useCallback(() => {
+        if (isTraveteDashboard) {
+            return { allPredictions: [], currentGoalPreview: traveteComputedEntry.goalDisplay || '- // -' };
+        }
 
     const people = parseFloat(newEntry.people) || 0;
     const availableTime = parseFloat(newEntry.availableTime) || 0;
@@ -3490,7 +3499,14 @@ const calculatePredictions = useCallback(() => {
         if (urgentProduct && urgentProduct.standardTime > 0) {
             timeConsumedByUrgent = urgentProduct.standardTime * urgentProduction.produced;
             const urgentLot = lots.find(l => l.productId === urgentProduct.id);
-            urgentPrediction = { ...(urgentLot || {}), productId: urgentProduct.id, productName: urgentProduct.name, producible: parseInt(urgentProduction.produced, 10), isUrgent: true };
+            urgentPrediction = {
+                ...(urgentLot || {}),
+                productId: urgentProduct.id,
+                productName: urgentProduct.name,
+                producible: parseInt(urgentProduction.produced, 10),
+                remainingPieces: getLotRemainingPieces(urgentLot),
+                isUrgent: true,
+            };
         }
     }
 
@@ -3499,9 +3515,7 @@ const calculatePredictions = useCallback(() => {
     const normalPredictions = [];
 
     if (timeForNormal > 0) {
-        const activeLots = lots
-            .filter(l => l.status === 'ongoing' || l.status === 'future')
-            .sort((a, b) => a.order - b.order);
+        const activeLots = getOrderedActiveLots(lots);
 
         // 1) Encontrar o primeiro lote incompleto (prioridade real)
         let startIndex = activeLots.findIndex(l => ((l.target || 0) - (l.produced || 0)) > 0);
@@ -3521,7 +3535,7 @@ const calculatePredictions = useCallback(() => {
 
                 if (!productForLot || productForLot.standardTime <= 0) continue;
 
-                const remainingPiecesInLot = Math.max(0, (lot.target || 0) - (lot.produced || 0));
+                const remainingPiecesInLot = getLotRemainingPieces(lot);
                 if (remainingPiecesInLot === 0) continue;
 
                 // Se não há tempo sequer para 1 peça (check rápido), para o cálculo.
@@ -3540,7 +3554,12 @@ const calculatePredictions = useCallback(() => {
                     break;
                 }
 
-                normalPredictions.push({ ...lot, producible, productName: productForLot.name });
+                normalPredictions.push({
+                    ...lot,
+                    producible,
+                    remainingPieces: remainingPiecesInLot,
+                    productName: productForLot.name,
+                });
 
                 // subtrai o tempo "consumido" por essa previsão
                 timeForNormal -= producible * productForLot.standardTime;
@@ -3555,15 +3574,32 @@ const calculatePredictions = useCallback(() => {
                 const producibleFloat = timeForNormal / selectedProduct.standardTime;
                 const producible = Math.round(producibleFloat);
                 if (producible > 0) {
-                    normalPredictions.push({ id: `nolot-${selectedProduct.id}`, productId: selectedProduct.id, productName: selectedProduct.name, producible });
+                    normalPredictions.push({
+                        id: `nolot-${selectedProduct.id}`,
+                        productId: selectedProduct.id,
+                        productName: selectedProduct.name,
+                        producible,
+                        remainingPieces: producible,
+                    });
                 }
             }
         }
     }
 
     const allPredictions = urgentPrediction ? [urgentPrediction, ...normalPredictions] : normalPredictions;
-    return { allPredictions, currentGoalPreview: allPredictions.map(p => p.producible || 0).join(' / ') || '0' };
-}, [isTraveteDashboard, traveteComputedEntry.goalDisplay, newEntry.people, newEntry.availableTime, newEntry.productId, productsForSelectedDate, lots, urgentProduction, showUrgent]);
+    const normalGoalSegments = normalPredictions
+        .map(prediction => {
+            const value = prediction.remainingPieces ?? prediction.producible ?? 0;
+            return value > 0 ? value : 0;
+        })
+        .filter((value, index) => value > 0 || index === 0);
+    return {
+        allPredictions,
+        currentGoalPreview: normalGoalSegments.length > 0
+            ? normalGoalSegments.join(' / ')
+            : '0',
+    };
+    }, [isTraveteDashboard, traveteComputedEntry.goalDisplay, newEntry.people, newEntry.availableTime, newEntry.productId, productsForSelectedDate, lots, urgentProduction, showUrgent]);
 
   
     useEffect(() => {
@@ -3583,8 +3619,17 @@ const calculatePredictions = useCallback(() => {
         }
     }, [isTraveteDashboard, traveteComputedEntry.goalDisplay, calculatePredictions, newEntry.productions.length]);
 
-    const productMapForSelectedDate = useMemo(() => 
-        new Map(productsForSelectedDate.map(p => [p.id, p])), 
+    const predictedLotLabel = useMemo(() => {
+        if (isTraveteDashboard) return '';
+        const labels = predictedLots
+            .filter(lot => !lot.isUrgent)
+            .map(lot => lot.productName || lot.name || '')
+            .filter(Boolean);
+        return labels.join(' / ');
+    }, [isTraveteDashboard, predictedLots]);
+
+    const productMapForSelectedDate = useMemo(() =>
+        new Map(productsForSelectedDate.map(p => [p.id, p])),
     [productsForSelectedDate]);
     
     const processedData = useMemo(() => {
@@ -3600,10 +3645,7 @@ const calculatePredictions = useCallback(() => {
             const totalAvailableTime = (item.people || 0) * (item.availableTime || 0);
             const efficiency = totalAvailableTime > 0 ? parseFloat(((totalTimeValue / totalAvailableTime) * 100).toFixed(2)) : 0;
             const numericGoal = (item.goalDisplay || "0").split(' / ').reduce((acc, val) => acc + (parseInt(val.trim(), 10) || 0), 0);
-            const goalSegments = (item.goalDisplay || '')
-                .split('/')
-                .map(segment => segment.trim())
-                .filter(segment => segment.length > 0);
+            const goalSegments = splitGoalSegments(item.goalDisplay || '');
             const goalForDisplay = goalSegments.length > 0
                 ? goalSegments.join('/')
                 : (numericGoal ? numericGoal.toString() : '0');
@@ -4775,11 +4817,17 @@ const calculatePredictions = useCallback(() => {
                                              )}
                                          </div>
                                      </div>
-                                     <div className="flex justify-end gap-4 items-center pt-4 border-t dark:border-gray-700">
-                                         <div className="flex flex-col justify-center items-center bg-blue-100 dark:bg-blue-900/50 p-2 rounded-md shadow-inner h-full min-h-[60px] w-48">
-                                             <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Meta Prevista</label>
-                                             <span className="font-bold text-xl text-blue-600 dark:text-blue-400">{goalPreview || '0'}</span>
-                                         </div>
+                                    <div className="flex justify-end gap-4 items-center pt-4 border-t dark:border-gray-700">
+                                        {predictedLotLabel && (
+                                            <div className="flex flex-col justify-center items-center bg-blue-50 dark:bg-blue-900/30 p-2 rounded-md shadow-inner h-full min-h-[60px] w-48 text-center">
+                                                <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Lotes Previstos</label>
+                                                <span className="font-semibold text-base text-blue-600 dark:text-blue-300">{predictedLotLabel}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex flex-col justify-center items-center bg-blue-100 dark:bg-blue-900/50 p-2 rounded-md shadow-inner h-full min-h-[60px] w-48">
+                                            <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Meta Prevista</label>
+                                            <span className="font-bold text-xl text-blue-600 dark:text-blue-400">{goalPreview || '0'}</span>
+                                        </div>
                                         <button type="submit" disabled={!isEntryFormValid} className="h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto">Adicionar</button>
                                     </div>
                                 </div>
@@ -5334,10 +5382,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             const totalAvailableTime = (item.people || 0) * (item.availableTime || 0);
             const efficiency = totalAvailableTime > 0 ? parseFloat(((totalTimeValue / totalAvailableTime) * 100).toFixed(2)) : 0;
             const numericGoal = (item.goalDisplay||"0").split(' / ').reduce((a,v)=>a+(parseInt(v.trim(),10)||0),0);
-            const goalSegments = (item.goalDisplay || '')
-                .split('/')
-                .map(segment => segment.trim())
-                .filter(segment => segment.length > 0);
+            const goalSegments = splitGoalSegments(item.goalDisplay || '');
             const goalForDisplay = goalSegments.length > 0
                 ? goalSegments.join('/')
                 : (numericGoal ? numericGoal.toString() : '0');
@@ -5845,22 +5890,134 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                 return '-';
             };
 
+            const formatTraveteEmployeeProduction = (employee) => {
+                const productDetails = Array.isArray(employee.products) && employee.products.length > 0
+                    ? employee.products
+                    : (employee.productionDetails || []);
+
+                if (productDetails.length > 0) {
+                    const producedSegments = productDetails.map(detail => parseInt(detail.produced, 10) || 0);
+                    const sanitizedSegments = producedSegments.filter((value, idx) => (idx === 0) || value > 0);
+
+                    if (sanitizedSegments.length > 1) {
+                        return sanitizedSegments
+                            .map(value => value.toLocaleString('pt-BR'))
+                            .join(' / ');
+                    }
+
+                    if (sanitizedSegments.length === 1) {
+                        return sanitizedSegments[0].toLocaleString('pt-BR');
+                    }
+                }
+
+                const producedValue = employee.produced !== undefined
+                    ? parseInt(employee.produced, 10) || 0
+                    : 0;
+
+                return producedValue.toLocaleString('pt-BR');
+            };
+
+            const joinTraveteEmployees = (entry, mapper, fallbackValue = '-') => {
+                const employees = entry?.employees || [];
+                if (employees.length === 0) {
+                    return null;
+                }
+
+                const formattedValues = employees.map((employee, index) => {
+                    const rawValue = mapper(employee, index);
+                    if (rawValue === null || rawValue === undefined) {
+                        return '';
+                    }
+                    if (typeof rawValue === 'number') {
+                        return rawValue.toLocaleString('pt-BR');
+                    }
+                    return String(rawValue);
+                });
+
+                const hasContent = formattedValues.some(value => value !== '');
+                if (!hasContent) {
+                    if (fallbackValue === null) {
+                        return null;
+                    }
+                    return employees.map(() => fallbackValue).join(' // ');
+                }
+
+                return formattedValues.map(value => (value === '' ? fallbackValue : value)).join(' // ');
+            };
+
             const getTraveteCellContent = (period, rowKey) => {
                 const entry = traveteDataByPeriod[period];
                 if (entry) {
                     switch (rowKey) {
-                        case 'goalDisplay':
-                            return entry.goalDisplay || '-';
-                        case 'producedDisplay':
-                            return entry.producedDisplay || '-';
-                        case 'efficiencyDisplay':
-                            return entry.efficiencyDisplay || '-';
-                        case 'cumulativeMetaDisplay':
-                            return entry.cumulativeMetaDisplay || '-';
-                        case 'cumulativeProducedDisplay':
-                            return entry.cumulativeProducedDisplay || '-';
-                        case 'cumulativeEfficiencyDisplay':
-                            return entry.cumulativeEfficiencyDisplay || '-';
+                        case 'goalDisplay': {
+                            const directValue = entry.goalDisplay;
+                            if (directValue) return directValue;
+                            const fallback = joinTraveteEmployees(entry, (emp) => {
+                                if (emp.metaDisplay) return emp.metaDisplay;
+                                if (typeof emp.meta === 'number' && emp.meta > 0) {
+                                    return emp.meta;
+                                }
+                                return null;
+                            });
+                            return fallback || '-';
+                        }
+                        case 'producedDisplay': {
+                            const directValue = entry.producedDisplay;
+                            if (directValue) return directValue;
+                            const fallback = joinTraveteEmployees(entry, (emp) => {
+                                if (emp.producedDisplay) return emp.producedDisplay;
+                                return formatTraveteEmployeeProduction(emp);
+                            }, '0');
+                            return fallback || '0 // 0';
+                        }
+                        case 'efficiencyDisplay': {
+                            const directValue = entry.efficiencyDisplay;
+                            if (directValue) return directValue;
+                            const fallback = joinTraveteEmployees(entry, (emp) => {
+                                const raw = typeof emp.efficiency === 'number'
+                                    ? emp.efficiency
+                                    : parseFloat(emp.efficiency);
+                                const value = Number.isFinite(raw) ? raw : 0;
+                                return `${value.toFixed(2)}%`;
+                            }, '0%');
+                            return fallback || '0% // 0%';
+                        }
+                        case 'cumulativeMetaDisplay': {
+                            const directValue = entry.cumulativeMetaDisplay;
+                            if (directValue) return directValue;
+                            const fallback = joinTraveteEmployees(entry, (emp) => {
+                                const raw = typeof emp.cumulativeMeta === 'number'
+                                    ? emp.cumulativeMeta
+                                    : parseInt(emp.cumulativeMeta, 10);
+                                const value = Number.isFinite(raw) ? raw : 0;
+                                return value;
+                            }, '0');
+                            return fallback || '0 // 0';
+                        }
+                        case 'cumulativeProducedDisplay': {
+                            const directValue = entry.cumulativeProducedDisplay;
+                            if (directValue) return directValue;
+                            const fallback = joinTraveteEmployees(entry, (emp) => {
+                                const raw = typeof emp.cumulativeProduced === 'number'
+                                    ? emp.cumulativeProduced
+                                    : parseInt(emp.cumulativeProduced, 10);
+                                const value = Number.isFinite(raw) ? raw : 0;
+                                return value;
+                            }, '0');
+                            return fallback || '0 // 0';
+                        }
+                        case 'cumulativeEfficiencyDisplay': {
+                            const directValue = entry.cumulativeEfficiencyDisplay;
+                            if (directValue) return directValue;
+                            const fallback = joinTraveteEmployees(entry, (emp) => {
+                                const raw = typeof emp.cumulativeEfficiency === 'number'
+                                    ? emp.cumulativeEfficiency
+                                    : parseFloat(emp.cumulativeEfficiency);
+                                const value = Number.isFinite(raw) ? raw : 0;
+                                return `${value.toFixed(2)}%`;
+                            }, '0%');
+                            return fallback || '0% // 0%';
+                        }
                         default:
                             return '-';
                     }
