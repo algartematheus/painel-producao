@@ -123,6 +123,14 @@ const createTraveteDefaultProductForm = () => ({
     conventionalManual: false,
 });
 
+const createDefaultTraveteEmployee = (employeeId) => ({
+    employeeId,
+    machineType: employeeId === 1 ? 'Travete 2 Agulhas' : 'Travete 1 Agulha',
+    produced: '',
+    standardTime: '',
+    standardTimeManual: false,
+});
+
 
 // #####################################################################
 // #                                                                   #
@@ -2035,17 +2043,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     const [editingProductData, setEditingProductData] = useState({ name: '', standardTime: '' });
     
     const [newEntry, setNewEntry] = useState({ period: '', people: '', availableTime: 60, productId: '', productions: [] });
-    const createDefaultTraveteEmployee = useCallback((employeeId) => ({
-        employeeId,
-        machineType: employeeId === 1 ? 'Travete 2 Agulhas' : 'Travete 1 Agulha',
-        produced: '',
-        standardTime: '',
-        standardTimeManual: false,
-    }), []);
     const [traveteProductForm, setTraveteProductForm] = useState(() => createTraveteDefaultProductForm());
     const resetTraveteProductForm = useCallback(() => {
         setTraveteProductForm(createTraveteDefaultProductForm());
-    }, [setTraveteProductForm, createTraveteDefaultProductForm]);
+    }, [setTraveteProductForm]);
     const [traveteEntry, setTraveteEntry] = useState({
         period: '',
         availableTime: 60,
@@ -2214,7 +2215,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
     useEffect(() => {
         if (!isTraveteDashboard) {
-            resetTraveteProductForm();
+            setTraveteProductForm(createTraveteDefaultProductForm());
             setTraveteEntry({
                 period: '',
                 availableTime: 60,
@@ -2222,7 +2223,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 employeeEntries: [createDefaultTraveteEmployee(1), createDefaultTraveteEmployee(2)],
             });
         }
-    }, [isTraveteDashboard, createDefaultTraveteEmployee, resetTraveteProductForm]);
+    }, [isTraveteDashboard]);
 
     const closeModal = () => setModalState({ type: null, data: null });
     
@@ -2395,7 +2396,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         setNewEntry({ period: '', people: '', availableTime: 60, productId: newEntry.productId, productions: [] });
         setUrgentProduction({productId: '', produced: ''});
         setShowUrgent(false);
-    }, [currentDashboard, isTraveteDashboard, traveteComputedEntry, traveteEntry, allProductionData, dateKey, lots, user, createDefaultTraveteEmployee, isEntryFormValid, showUrgent, urgentProduction, predictedLots, newEntry, goalPreview]);
+    }, [currentDashboard, isTraveteDashboard, traveteComputedEntry, traveteEntry, allProductionData, dateKey, lots, user, isEntryFormValid, showUrgent, urgentProduction, predictedLots, newEntry, goalPreview]);
     
     
     const handleSaveEntry = async (entryId, updatedData) => {
