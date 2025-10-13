@@ -2043,10 +2043,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         standardTime: '',
         standardTimeManual: false,
     }), []);
-    const [traveteProductFormValues, setTraveteProductFormValues] = useState(() => createTraveteDefaultProductForm());
-    const resetTraveteProductFormValues = useCallback(() => {
-        setTraveteProductFormValues(createTraveteDefaultProductForm());
-    }, [setTraveteProductFormValues]);
+    const [traveteProductForm, setTraveteProductForm] = useState(() => createTraveteDefaultProductForm());
+    const resetTraveteProductForm = useCallback(() => {
+        setTraveteProductForm(createTraveteDefaultProductForm());
+    }, []);
     const [traveteEntry, setTraveteEntry] = useState({
         period: '',
         availableTime: 60,
@@ -2215,7 +2215,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
     useEffect(() => {
         if (!isTraveteDashboard) {
-            resetTraveteProductFormValues();
+            resetTraveteProductForm();
             setTraveteEntry({
                 period: '',
                 availableTime: 60,
@@ -2223,7 +2223,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 employeeEntries: [createDefaultTraveteEmployee(1), createDefaultTraveteEmployee(2)],
             });
         }
-    }, [isTraveteDashboard, createDefaultTraveteEmployee, resetTraveteProductFormValues]);
+    }, [isTraveteDashboard, createDefaultTraveteEmployee, resetTraveteProductForm]);
 
     const closeModal = () => setModalState({ type: null, data: null });
     
@@ -2969,7 +2969,7 @@ const calculatePredictions = useCallback(() => {
     const handleUrgentChange = (e) => setUrgentProduction(prev => ({...prev, [e.target.name]: e.target.value}));
     const handleProductionChange = (index, value) => { const newProductions = [...newEntry.productions]; newProductions[index] = value; setNewEntry(prev => ({ ...prev, productions: newProductions })); };
     const handleTraveteBaseTimeChange = (value) => {
-        setTraveteProductFormValues(prev => {
+        setTraveteProductForm(prev => {
             const numericValue = parseFloat(value);
             const isValid = !Number.isNaN(numericValue) && numericValue > 0;
             const nextState = { ...prev, baseTime: value };
@@ -2983,7 +2983,7 @@ const calculatePredictions = useCallback(() => {
         });
     };
     const handleTraveteVariationToggle = (field, checked) => {
-        setTraveteProductFormValues(prev => {
+        setTraveteProductForm(prev => {
             const nextState = { ...prev, [field]: checked };
             if (checked) {
                 if (field === 'createOneNeedle' && !prev.oneNeedleManual && !prev.oneNeedleTime) {
@@ -3000,7 +3000,7 @@ const calculatePredictions = useCallback(() => {
     };
     const handleTraveteVariationTimeChange = (field, value) => {
         const manualField = field === 'oneNeedleTime' ? 'oneNeedleManual' : 'conventionalManual';
-        setTraveteProductFormValues(prev => ({
+        setTraveteProductForm(prev => ({
             ...prev,
             [field]: value,
             [manualField]: value !== '',
@@ -3009,7 +3009,7 @@ const calculatePredictions = useCallback(() => {
     const handleTraveteVariationTimeBlur = (field) => {
         const manualField = field === 'oneNeedleTime' ? 'oneNeedleManual' : 'conventionalManual';
         const multiplier = field === 'oneNeedleTime' ? 2 : 3;
-        setTraveteProductFormValues(prev => {
+        setTraveteProductForm(prev => {
             if (prev[field]) {
                 return prev;
             }
@@ -3099,7 +3099,7 @@ const calculatePredictions = useCallback(() => {
         if (!currentDashboard) return;
 
         if (isTraveteDashboard) {
-            const trimmedName = traveteProductFormValues.baseName.trim();
+            const trimmedName = traveteProductForm.baseName.trim();
             if (!trimmedName) return;
 
             const variationConfigs = [
@@ -3108,13 +3108,13 @@ const calculatePredictions = useCallback(() => {
                 { key: 'createConventional', suffix: 'Convencional', machineType: 'Travete Convencional', timeField: 'conventionalTime', defaultMultiplier: 3 },
             ];
 
-            const baseTimeNumeric = parseFloat(traveteProductFormValues.baseTime);
+            const baseTimeNumeric = parseFloat(traveteProductForm.baseTime);
             let hasInvalid = false;
             const variationsToCreate = variationConfigs.reduce((acc, config) => {
-                if (!traveteProductFormValues[config.key]) {
+                if (!traveteProductForm[config.key]) {
                     return acc;
                 }
-                const rawTime = traveteProductFormValues[config.timeField];
+                const rawTime = traveteProductForm[config.timeField];
                 const parsedTime = parseFloat(rawTime);
                 if (Number.isNaN(parsedTime) || parsedTime <= 0) {
                     hasInvalid = true;
@@ -3159,7 +3159,7 @@ const calculatePredictions = useCallback(() => {
             });
 
             await batch.commit();
-            resetTraveteProductFormValues();
+            resetTraveteProductForm();
             return;
         }
 
@@ -3865,8 +3865,8 @@ const calculatePredictions = useCallback(() => {
                                               <input
                                                   id="travete-base-name"
                                                   type="text"
-                                                  value={traveteProductFormValues.baseName}
-                                                  onChange={(e) => setTraveteProductFormValues(prev => ({ ...prev, baseName: e.target.value }))}
+                                                  value={traveteProductForm.baseName}
+                                                  onChange={(e) => setTraveteProductForm(prev => ({ ...prev, baseName: e.target.value }))}
                                                   required
                                                   className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
                                               />
@@ -3878,7 +3878,7 @@ const calculatePredictions = useCallback(() => {
                                                       <label className="flex items-center gap-2 text-sm font-medium">
                                                           <input
                                                               type="checkbox"
-                                                              checked={traveteProductFormValues.createTwoNeedle}
+                                                              checked={traveteProductForm.createTwoNeedle}
                                                               onChange={(e) => handleTraveteVariationToggle('createTwoNeedle', e.target.checked)}
                                                           />
                                                           Travete 2 Agulhas
@@ -3887,18 +3887,18 @@ const calculatePredictions = useCallback(() => {
                                                           type="number"
                                                           step="0.01"
                                                           min="0"
-                                                          value={traveteProductFormValues.baseTime}
+                                                          value={traveteProductForm.baseTime}
                                                           onChange={(e) => handleTraveteBaseTimeChange(e.target.value)}
                                                           className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
                                                           placeholder="Tempo (min)"
-                                                          required={traveteProductFormValues.createTwoNeedle}
+                                                          required={traveteProductForm.createTwoNeedle}
                                                       />
                                                   </div>
                                                   <div className="space-y-2">
                                                       <label className="flex items-center gap-2 text-sm font-medium">
                                                           <input
                                                               type="checkbox"
-                                                              checked={traveteProductFormValues.createOneNeedle}
+                                                              checked={traveteProductForm.createOneNeedle}
                                                               onChange={(e) => handleTraveteVariationToggle('createOneNeedle', e.target.checked)}
                                                           />
                                                           Travete 1 Agulha
@@ -3907,20 +3907,20 @@ const calculatePredictions = useCallback(() => {
                                                           type="number"
                                                           step="0.01"
                                                           min="0"
-                                                          value={traveteProductFormValues.oneNeedleTime}
+                                                          value={traveteProductForm.oneNeedleTime}
                                                           onChange={(e) => handleTraveteVariationTimeChange('oneNeedleTime', e.target.value)}
                                                           onBlur={() => handleTraveteVariationTimeBlur('oneNeedleTime')}
-                                                          className={`w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 ${!traveteProductFormValues.createOneNeedle ? 'opacity-60' : ''}`}
+                                                          className={`w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 ${!traveteProductForm.createOneNeedle ? 'opacity-60' : ''}`}
                                                           placeholder="Tempo (min)"
-                                                          required={traveteProductFormValues.createOneNeedle}
-                                                          disabled={!traveteProductFormValues.createOneNeedle}
+                                                          required={traveteProductForm.createOneNeedle}
+                                                          disabled={!traveteProductForm.createOneNeedle}
                                                       />
                                                   </div>
                                                   <div className="space-y-2">
                                                       <label className="flex items-center gap-2 text-sm font-medium">
                                                           <input
                                                               type="checkbox"
-                                                              checked={traveteProductFormValues.createConventional}
+                                                              checked={traveteProductForm.createConventional}
                                                               onChange={(e) => handleTraveteVariationToggle('createConventional', e.target.checked)}
                                                           />
                                                           Travete Convencional
@@ -3929,13 +3929,13 @@ const calculatePredictions = useCallback(() => {
                                                           type="number"
                                                           step="0.01"
                                                           min="0"
-                                                          value={traveteProductFormValues.conventionalTime}
+                                                          value={traveteProductForm.conventionalTime}
                                                           onChange={(e) => handleTraveteVariationTimeChange('conventionalTime', e.target.value)}
                                                           onBlur={() => handleTraveteVariationTimeBlur('conventionalTime')}
-                                                          className={`w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 ${!traveteProductFormValues.createConventional ? 'opacity-60' : ''}`}
+                                                          className={`w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 ${!traveteProductForm.createConventional ? 'opacity-60' : ''}`}
                                                           placeholder="Tempo (min)"
-                                                          required={traveteProductFormValues.createConventional}
-                                                          disabled={!traveteProductFormValues.createConventional}
+                                                          required={traveteProductForm.createConventional}
+                                                          disabled={!traveteProductForm.createConventional}
                                                       />
                                                   </div>
                                               </div>
