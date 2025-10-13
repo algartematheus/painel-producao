@@ -19,6 +19,9 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
 } from 'firebase/auth';
 
 // =====================================================================
@@ -35,6 +38,7 @@ const initialDashboards = [
 ];
 
 const FIXED_PERIODS = ["08:00", "09:00", "10:00", "11:00", "11:45", "14:00", "15:00", "16:00", "17:00"];
+const TRAVETE_MACHINES = ['Travete 2 Agulhas', 'Travete 1 Agulha', 'Travete Convencional'];
 
 const ALL_PERMISSIONS = {
     MANAGE_DASHBOARDS: 'Gerenciar Quadros (Criar/Renomear/Excluir/Reordenar)',
@@ -67,6 +71,81 @@ async function sha256Hex(message) {
 // --- ESTILOS GLOBAIS E ANIMAÇÕES ---
 const GlobalStyles = () => (
     <style>{`
+        :root {
+            --font-size-title: clamp(18px, 1.8vw, 28px);
+            --font-size-text: clamp(13px, 1.2vw, 18px);
+            --container-padding: clamp(12px, 2vw, 32px);
+            --container-gap: clamp(12px, 2vw, 32px);
+            --app-max-width: 1600px;
+        }
+        body {
+            font-size: var(--font-size-text);
+            margin: 0;
+        }
+        .responsive-root {
+            padding-inline: var(--container-padding);
+        }
+        .responsive-main {
+            width: min(100%, var(--app-max-width));
+            margin: 0 auto;
+        }
+        .responsive-main,
+        .dashboard-grid,
+        .responsive-grid {
+            gap: var(--container-gap);
+        }
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+        }
+        .responsive-card,
+        .dashboard-card {
+            width: 100%;
+        }
+        .responsive-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .responsive-actions > * {
+            width: 100%;
+        }
+        .responsive-form-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+        .responsive-tv {
+            height: calc(100vh - 120px);
+            overflow-y: auto;
+        }
+        @media (min-width: 769px) {
+            .responsive-actions {
+                flex-direction: row;
+                align-items: center;
+            }
+            .responsive-actions > * {
+                width: auto;
+            }
+            .responsive-form-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+        @media (min-width: 1025px) {
+            .dashboard-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+        @media (min-width: 1280px) {
+            .dashboard-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+        @media (min-width: 1536px) {
+            .responsive-main {
+                width: min(100%, var(--app-max-width));
+            }
+        }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes scaleUp { from { transform: scale(0.95) translateY(10px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
         @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
@@ -108,6 +187,90 @@ const usePrevious = (value) => {
     return ref.current;
 }
 
+const createTraveteDefaultProductForm = () => ({
+    baseName: '',
+    baseTime: '',
+    createTwoNeedle: true,
+    createOneNeedle: true,
+    createConventional: true,
+    oneNeedleTime: '',
+    conventionalTime: '',
+    oneNeedleManual: false,
+    conventionalManual: false,
+});
+
+const createDefaultTraveteProductItem = () => ({
+    lotId: '',
+    produced: '',
+});
+
+const createDefaultTraveteEmployee = (employeeId) => ({
+    employeeId,
+    machineType: employeeId === 1 ? 'Travete 2 Agulhas' : 'Travete 1 Agulha',
+    standardTime: '',
+    standardTimeManual: false,
+    products: [createDefaultTraveteProductItem()],
+});
+
+const formatTraveteStandardTimeValue = (value) => {
+    if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) return '';
+    return parseFloat(value.toFixed(2)).toString();
+};
+
+const resolveTraveteLotBaseId = (lot, products) => {
+    if (!lot) return null;
+    if (lot.productBaseId) return lot.productBaseId;
+    if (lot.baseProductId) return lot.baseProductId;
+    if (lot.productId) {
+        const directProduct = products.find(p => p.id === lot.productId);
+        if (directProduct?.baseProductId) return directProduct.baseProductId;
+        return lot.productId;
+    }
+    return null;
+};
+
+const findTraveteVariationForLot = (lot, machineType, products, variationLookup) => {
+    if (!lot || !machineType) return null;
+    const baseId = resolveTraveteLotBaseId(lot, products);
+    if (!baseId) return null;
+
+    const variationFromLookup = variationLookup?.get(baseId)?.get(machineType);
+    if (variationFromLookup) {
+        return variationFromLookup;
+    }
+
+    return products.find(p => p.machineType === machineType && (p.baseProductId === baseId || p.id === baseId)) || null;
+};
+
+const formatTraveteLotDisplayName = (lot, products) => {
+    if (!lot) return '';
+
+    const baseId = resolveTraveteLotBaseId(lot, products);
+    const productForLot = lot.productId ? products.find(p => p.id === lot.productId) : null;
+    const baseProduct = baseId ? products.find(p => p.id === baseId) : null;
+
+    const baseName = (
+        lot.baseProductName ||
+        productForLot?.baseProductName ||
+        baseProduct?.baseProductName ||
+        (baseProduct?.name ? baseProduct.name.replace(/\s-\s.*$/, '') : null) ||
+        (productForLot?.name ? productForLot.name.replace(/\s-\s.*$/, '') : null) ||
+        (lot.productName ? lot.productName.replace(/\s-\s.*$/, '') : null) ||
+        lot.name ||
+        lot.id ||
+        ''
+    );
+
+    return lot.customName ? `${baseName} - ${lot.customName}` : baseName;
+};
+
+const getTraveteBaseProductName = (product) => {
+    if (!product) return '';
+    if (product.baseProductName) return product.baseProductName;
+    if (product.name) return product.name.replace(/\s-\s.*$/, '');
+    return product.id || '';
+};
+
 
 // #####################################################################
 // #                                                                   #
@@ -129,7 +292,12 @@ export const AuthProvider = ({ children }) => {
         return unsubscribe;
     }, []);
 
-    const login = (email, password) => signInWithEmailAndPassword(auth, email, password);
+    const login = async (email, password, persistenceType) => {
+        if (persistenceType) {
+            await setPersistence(auth, persistenceType);
+        }
+        return signInWithEmailAndPassword(auth, email, password);
+    };
     const logout = () => signOut(auth);
 
     const value = useMemo(() => ({
@@ -153,12 +321,27 @@ const LoginPage = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [rememberMe, setRememberMe] = useState(() => {
+        const stored = localStorage.getItem('rememberLoginPersistence');
+        if (stored === null) {
+            return true;
+        }
+        return stored === 'true';
+    });
+
+    useEffect(() => {
+        localStorage.setItem('rememberLoginPersistence', rememberMe ? 'true' : 'false');
+    }, [rememberMe]);
 
     const handleLogin = async (e) => {
         e.preventDefault();
         setError('');
         try {
-            await login(email, password);
+            await login(
+                email,
+                password,
+                rememberMe ? browserLocalPersistence : browserSessionPersistence
+            );
         } catch (err) {
             setError('Falha no login. Verifique seu e-mail e senha.');
             console.error(err);
@@ -203,6 +386,18 @@ const LoginPage = () => {
                     </div>
 
                     {error && <p className="mt-2 text-sm text-center text-red-600">{error}</p>}
+
+                    <div className="flex items-center justify-between">
+                        <label className="flex items-center text-sm text-gray-600 dark:text-gray-300">
+                            <input
+                                type="checkbox"
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                checked={rememberMe}
+                                onChange={(e) => setRememberMe(e.target.checked)}
+                            />
+                            <span className="ml-2">Manter-me conectado</span>
+                        </label>
+                    </div>
 
                     <div>
                         <button type="submit" className="group relative flex justify-center w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
@@ -415,17 +610,17 @@ const useStock = () => useContext(StockContext);
 const StockHeader = ({ onNavigateToCrono }) => {
     const { logout } = useAuth();
     return (
-        <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-40">
-            <div className="flex items-center gap-4">
+        <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between sticky top-0 z-40">
+            <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
                 <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
                 <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white">Painel de Estoque</h1>
             </div>
-            <div className="flex items-center gap-4">
-                <button onClick={onNavigateToCrono} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full md:w-auto md:justify-end">
+                <button onClick={onNavigateToCrono} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center">
                     <Home size={20} />
                     <span className="hidden sm:inline">Quadro de Produção</span>
                 </button>
-                <button onClick={logout} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 text-red-500">
+                <button onClick={logout} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 text-red-500 w-full sm:w-auto justify-center">
                     <LogOut size={20} />
                     <span className="hidden sm:inline">Sair</span>
                 </button>
@@ -442,7 +637,7 @@ const StockSidebar = ({ activePage, setActivePage }) => {
         { id: 'trash', label: 'Lixeira', icon: Trash },
     ];
     return (
-        <aside className="w-64 bg-white dark:bg-gray-900 p-4 flex flex-col">
+        <aside className="w-full lg:w-64 bg-white dark:bg-gray-900 p-4 flex flex-col flex-shrink-0">
             <nav className="flex flex-col gap-2">
                 {navItems.map(item => (
                     <button key={item.id} onClick={() => setActivePage(item.id)}
@@ -1126,7 +1321,7 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
 
     return (
         <StockProvider>
-            <div className="min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans flex flex-col">
+            <div className="responsive-root min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans flex flex-col">
                 <ConfirmationModal 
                     isOpen={confirmation.isOpen}
                     onClose={() => setConfirmation({ isOpen: false, title: '', message: '', onConfirm: () => {} })}
@@ -1135,9 +1330,9 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
                     message={confirmation.message}
                 />
                 <StockHeader onNavigateToCrono={onNavigateToCrono} />
-                <div className="flex flex-grow">
+                <div className="flex flex-col lg:flex-row flex-grow">
                     <StockSidebar activePage={activePage} setActivePage={setActivePage} />
-                    <main className="flex-grow bg-gray-50 dark:bg-gray-800/50">
+                    <main className="flex-grow bg-gray-50 dark:bg-gray-800/50 responsive-main">
                         {renderPage()}
                     </main>
                 </div>
@@ -1160,107 +1355,371 @@ const StockManagementApp = ({ onNavigateToCrono }) => {
 // #                                                                   #
 // #####################################################################
 
-const EditEntryModal = ({ isOpen, onClose, entry, onSave, products }) => {
+const EditEntryModal = ({
+    isOpen,
+    onClose,
+    entry,
+    onSave,
+    products,
+    lots = [],
+    traveteMachines = TRAVETE_MACHINES,
+    traveteVariationLookup = new Map(),
+}) => {
     const [entryData, setEntryData] = useState(null);
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
 
     useEffect(() => {
         if (isOpen && entry) {
-            setEntryData({
-                people: entry.people,
-                availableTime: entry.availableTime,
-                productions: entry.productionDetails.reduce((acc, detail) => {
-                    acc[detail.productId] = detail.produced.toString();
-                    return acc;
-                }, {}),
-            });
+            if (Array.isArray(entry.employeeEntries) && entry.employeeEntries.length > 0) {
+                setEntryData({
+                    type: 'travete',
+                    availableTime: entry.availableTime || 0,
+                    observation: entry.observation || '',
+                    employeeEntries: entry.employeeEntries.map((emp, idx) => {
+                        const baseProducts = Array.isArray(emp.products) && emp.products.length > 0
+                            ? emp.products
+                            : (emp.productionDetails || []);
+                        const normalizedProducts = baseProducts.map(detail => ({
+                            lotId: detail.lotId || '',
+                            productId: detail.productId || '',
+                            produced: detail.produced !== undefined ? String(detail.produced) : '',
+                        }));
+                        if (normalizedProducts.length === 0) {
+                            normalizedProducts.push(createDefaultTraveteProductItem());
+                        }
+                        const standardTimeValue = emp.standardTime !== undefined && emp.standardTime !== null
+                            ? String(emp.standardTime)
+                            : '';
+                        return {
+                            employeeId: emp.employeeId || idx + 1,
+                            machineType: emp.machineType || traveteMachines[idx] || traveteMachines[0],
+                            standardTime: standardTimeValue,
+                            standardTimeManual: standardTimeValue !== '',
+                            products: normalizedProducts,
+                        };
+                    }),
+                });
+            } else {
+                setEntryData({
+                    type: 'default',
+                    people: entry.people,
+                    availableTime: entry.availableTime,
+                    productions: entry.productionDetails.reduce((acc, detail) => {
+                        acc[detail.productId] = detail.produced.toString();
+                        return acc;
+                    }, {}),
+                });
+            }
+        } else if (!isOpen) {
+            setEntryData(null);
         }
-    }, [isOpen, entry]);
+    }, [isOpen, entry, traveteMachines]);
+
+    const traveteLotOptions = useMemo(
+        () => lots.filter(lot => lot.status !== 'completed'),
+        [lots]
+    );
 
     if (!isOpen || !entryData) return null;
+
+    const isTraveteEntry = entryData.type === 'travete';
 
     const handleProductionChange = (productId, value) => {
         setEntryData(prev => ({
             ...prev,
             productions: {
                 ...prev.productions,
-                [productId]: value
-            }
+                [productId]: value,
+            },
         }));
     };
 
+    const deriveTraveteStandardTime = (lotId, machineType) => {
+        const lot = lots.find(l => l.id === lotId) || null;
+        if (!lot || !machineType) return '';
+        const variation = findTraveteVariationForLot(lot, machineType, products, traveteVariationLookup);
+        const numeric = variation?.standardTime ? parseFloat(variation.standardTime) : NaN;
+        if (!Number.isFinite(numeric) || numeric <= 0) return '';
+        return formatTraveteStandardTimeValue(numeric);
+    };
+
+    const handleTraveteEmployeeChange = (index, field, value) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== index) return emp;
+                const updated = { ...emp };
+                switch (field) {
+                    case 'machineType': {
+                        updated.machineType = value;
+                        if (!updated.standardTimeManual) {
+                            const firstLotId = updated.products.find(item => item.lotId)?.lotId;
+                            if (firstLotId) {
+                                const derived = deriveTraveteStandardTime(firstLotId, value);
+                                updated.standardTime = derived;
+                            }
+                        }
+                        break;
+                    }
+                    case 'standardTime': {
+                        updated.standardTime = value;
+                        updated.standardTimeManual = value !== '';
+                        break;
+                    }
+                    default: {
+                        updated[field] = value;
+                    }
+                }
+                return updated;
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteProductChange = (employeeIndex, productIndex, field, value) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                const updatedProducts = emp.products.map((product, prodIdx) => {
+                    if (prodIdx !== productIndex) return product;
+                    return { ...product, [field]: value };
+                });
+                const updatedEmployee = { ...emp, products: updatedProducts };
+                if (field === 'lotId' && !emp.standardTimeManual) {
+                    const derived = deriveTraveteStandardTime(value, emp.machineType);
+                    if (derived) {
+                        updatedEmployee.standardTime = derived;
+                    }
+                }
+                return updatedEmployee;
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteAddProduct = (employeeIndex) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                return { ...emp, products: [...emp.products, createDefaultTraveteProductItem()] };
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteRemoveProduct = (employeeIndex, productIndex) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                const remaining = emp.products.filter((_, idx) => idx !== productIndex);
+                return { ...emp, products: remaining.length > 0 ? remaining : [createDefaultTraveteProductItem()] };
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
     const handleSave = () => {
+        if (isTraveteEntry) {
+            const normalizedEmployees = entryData.employeeEntries.map(emp => ({
+                employeeId: emp.employeeId,
+                machineType: emp.machineType,
+                standardTime: emp.standardTime,
+                products: emp.products.map(product => ({
+                    ...product,
+                    produced: parseInt(product.produced, 10) || 0,
+                })),
+            }));
+
+            onSave(entry.id, {
+                type: 'travete',
+                availableTime: parseFloat(entryData.availableTime) || 0,
+                employeeEntries: normalizedEmployees,
+                observation: entryData.observation || '',
+            });
+            onClose();
+            return;
+        }
+
         const updatedProductions = Object.entries(entryData.productions).map(([productId, produced]) => ({
             productId,
-            produced: parseInt(produced, 10) || 0
+            produced: parseInt(produced, 10) || 0,
         }));
 
         onSave(entry.id, {
             ...entryData,
-            productions: updatedProductions
+            productions: updatedProductions,
         });
         onClose();
     };
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-40 modal-backdrop">
-            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg modal-content">
+            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-3xl modal-content max-h-[90vh] overflow-y-auto">
                 <h2 className="text-xl font-bold mb-4">Editar Lançamento: {entry.period}</h2>
-                <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label htmlFor="edit-people" className="block text-sm font-medium">Nº Pessoas</label>
-                            <input
-                                id="edit-people"
-                                type="number"
-                                value={entryData.people}
-                                onChange={(e) => setEntryData({ ...entryData, people: e.target.value })}
-                                className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                            />
+                {isTraveteEntry ? (
+                    <div className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="flex flex-col">
+                                <label htmlFor="travete-edit-time" className="text-sm font-medium">Tempo Disp. (min)</label>
+                                <input
+                                    id="travete-edit-time"
+                                    type="number"
+                                    value={entryData.availableTime}
+                                    onChange={(e) => setEntryData(prev => ({ ...prev, availableTime: e.target.value }))}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                            <div className="md:col-span-2 flex flex-col">
+                                <label htmlFor="travete-edit-observation" className="text-sm font-medium">Observação</label>
+                                <textarea
+                                    id="travete-edit-observation"
+                                    value={entryData.observation}
+                                    onChange={(e) => setEntryData(prev => ({ ...prev, observation: e.target.value }))}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                    rows={2}
+                                />
+                            </div>
                         </div>
-                        <div>
-                            <label htmlFor="edit-time" className="block text-sm font-medium">Tempo Disp. (min)</label>
-                            <input
-                                id="edit-time"
-                                type="number"
-                                value={entryData.availableTime}
-                                onChange={(e) => setEntryData({ ...entryData, availableTime: e.target.value })}
-                                className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                            />
-                        </div>
-                    </div>
-                    <div>
-                        <h3 className="text-lg font-medium mb-2">Produção</h3>
-                        <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
-                            {entry.productionDetails.map(detail => {
-                                const product = products.find(p => p.id === detail.productId);
-                                return (
-                                    <div key={detail.productId} className="grid grid-cols-3 items-center gap-2">
-                                        <label htmlFor={`edit-prod-${detail.productId}`} className="col-span-2 truncate">
-                                            {product ? product.name : 'Produto Desconhecido'}
-                                        </label>
-                                        <input
-                                            id={`edit-prod-${detail.productId}`}
-                                            type="number"
-                                            value={entryData.productions[detail.productId] || ''}
-                                            onChange={(e) => handleProductionChange(detail.productId, e.target.value)}
-                                            className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                        />
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            {entryData.employeeEntries.map((employee, index) => (
+                                <div key={employee.employeeId || index} className="p-4 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/60 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-lg font-semibold">Funcionário {employee.employeeId}</h3>
                                     </div>
-                                );
-                            })}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div className="flex flex-col">
+                                            <label className="text-sm font-medium">Máquina</label>
+                                            <select
+                                                value={employee.machineType}
+                                                onChange={(e) => handleTraveteEmployeeChange(index, 'machineType', e.target.value)}
+                                                className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                            >
+                                                {traveteMachines.map(machine => (
+                                                    <option key={machine} value={machine}>{machine}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <label className="text-sm font-medium">Tempo por Peça (min)</label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                value={employee.standardTime}
+                                                onChange={(e) => handleTraveteEmployeeChange(index, 'standardTime', e.target.value)}
+                                                className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-3">
+                                        {employee.products.map((productItem, productIdx) => (
+                                            <div key={`${employee.employeeId}-${productIdx}`} className="p-3 rounded-lg bg-white dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                    <label className="text-sm font-semibold">Produto / Lote</label>
+                                                    {employee.products.length > 1 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleTraveteRemoveProduct(index, productIdx)}
+                                                            className="text-red-500 hover:text-red-400"
+                                                        >
+                                                            <Trash size={16} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <select
+                                                    value={productItem.lotId}
+                                                    onChange={(e) => handleTraveteProductChange(index, productIdx, 'lotId', e.target.value)}
+                                                    className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                >
+                                                    <option value="">Selecione...</option>
+                                                    {traveteLotOptions.map(lotOption => (
+                                                        <option key={lotOption.id} value={lotOption.id}>
+                                                            {formatTraveteLotDisplayName(lotOption, products)}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <div className="flex flex-col">
+                                                    <label className="text-sm">Quantidade Produzida</label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        value={productItem.produced}
+                                                        onChange={(e) => handleTraveteProductChange(index, productIdx, 'produced', e.target.value)}
+                                                        className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
+                                        <button
+                                            type="button"
+                                            onClick={() => handleTraveteAddProduct(index)}
+                                            className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-500"
+                                        >
+                                            <PlusCircle size={16} /> Adicionar item fora de ordem
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
-                </div>
-                <div className="flex justify-end gap-4 mt-6 pt-4 border-t dark:border-gray-700">
-                    <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-600">Cancelar</button>
-                    <button type="button" onClick={handleSave} className="px-4 py-2 rounded-md bg-blue-600 text-white">Salvar Alterações</button>
+                ) : (
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label htmlFor="edit-people" className="block text-sm font-medium">Nº Pessoas</label>
+                                <input
+                                    id="edit-people"
+                                    type="number"
+                                    value={entryData.people}
+                                    onChange={(e) => setEntryData({ ...entryData, people: e.target.value })}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="edit-time" className="block text-sm font-medium">Tempo Disp. (min)</label>
+                                <input
+                                    id="edit-time"
+                                    type="number"
+                                    value={entryData.availableTime}
+                                    onChange={(e) => setEntryData({ ...entryData, availableTime: e.target.value })}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <h3 className="text-sm font-semibold mb-2">Produções</h3>
+                            <div className="space-y-2 max-h-64 overflow-y-auto">
+                                {entry.productionDetails.map(detail => {
+                                    const product = products.find(p => p.id === detail.productId);
+                                    return (
+                                        <div key={detail.productId} className="flex items-center justify-between">
+                                            <span className="text-sm font-medium">{product?.name || detail.productId}</span>
+                                            <input
+                                                type="number"
+                                                value={entryData.productions[detail.productId]}
+                                                onChange={(e) => handleProductionChange(detail.productId, e.target.value)}
+                                                className="w-24 p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                            />
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                )}
+                <div className="mt-6 flex justify-end gap-3">
+                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-md">Cancelar</button>
+                    <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Salvar</button>
                 </div>
             </div>
         </div>
     );
 };
+
+
 
 const DashboardActionModal = ({ isOpen, onClose, onConfirm, mode, initialName }) => {
     const [name, setName] = useState('');
@@ -1966,6 +2425,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     useEffect(() => { if (currentDashboardIndex >= dashboards.length && dashboards.length > 0) { setCurrentDashboardIndex(dashboards.length - 1); } }, [dashboards, currentDashboardIndex, setCurrentDashboardIndex]);
 
     const currentDashboard = dashboards[currentDashboardIndex] || null;
+    const isTraveteDashboard = currentDashboard?.id === 'travete';
     
     const [products, setProducts] = useState([]);
     const [lots, setLots] = useState([]);
@@ -1987,7 +2447,17 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     const [editingProductData, setEditingProductData] = useState({ name: '', standardTime: '' });
     
     const [newEntry, setNewEntry] = useState({ period: '', people: '', availableTime: 60, productId: '', productions: [] });
-    
+    const [traveteProductForm, setTraveteProductForm] = useState(() => createTraveteDefaultProductForm());
+    const resetTraveteProductForm = useCallback(() => {
+        setTraveteProductForm(createTraveteDefaultProductForm());
+    }, [setTraveteProductForm]);
+    const [traveteEntry, setTraveteEntry] = useState({
+        period: '',
+        availableTime: 60,
+        employeeEntries: [createDefaultTraveteEmployee(1), createDefaultTraveteEmployee(2)],
+    });
+    const traveteMachines = TRAVETE_MACHINES;
+
     const [goalPreview, setGoalPreview] = useState("0");
     const [predictedLots, setPredictedLots] = useState([]);
     const [modalState, setModalState] = useState({ type: null, data: null });
@@ -1999,7 +2469,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
 
     const productsForSelectedDate = useMemo(() => {
         const targetDate = new Date(selectedDate);
-        targetDate.setHours(23, 59, 59, 999); 
+        targetDate.setHours(23, 59, 59, 999);
 
         return products
             .map(p => {
@@ -2017,24 +2487,283 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             })
             .filter(Boolean);
     }, [products, selectedDate]);
+
+    const traveteVariationLookup = useMemo(() => {
+        const lookup = new Map();
+        productsForSelectedDate.forEach(product => {
+            if (!product?.machineType) return;
+            const baseId = product.baseProductId || product.id;
+            if (!lookup.has(baseId)) {
+                lookup.set(baseId, new Map());
+            }
+            lookup.get(baseId).set(product.machineType, product);
+        });
+        return lookup;
+    }, [productsForSelectedDate]);
     
+    const summarizeTraveteEntry = useCallback((entryDraft) => {
+        const defaultResult = {
+            employeeSummaries: [],
+            goalDisplay: '- // -',
+            lotDisplay: '- // -',
+            isValid: false,
+            productionDetails: [],
+            totalMeta: 0,
+            totalProduced: 0,
+            goalBlocks: [],
+            lotBlocks: [],
+        };
+
+        if (!entryDraft) {
+            return defaultResult;
+        }
+
+        const availableTime = parseFloat(entryDraft.availableTime) || 0;
+        const period = entryDraft.period;
+        const activeLots = [...lots]
+            .filter(lot => lot && (lot.status === 'ongoing' || lot.status === 'future'))
+            .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+        const employeeSummaries = (entryDraft.employeeEntries || []).map((emp) => {
+            const manualStandardTime = parseFloat(emp.standardTime);
+            let derivedStandardTime = 0;
+
+            const productSummaries = (emp.products || []).map(productItem => {
+                const lot = productItem.lotId ? (lots.find(l => l.id === productItem.lotId) || null) : null;
+                const produced = parseInt(productItem.produced, 10) || 0;
+                const variation = lot
+                    ? findTraveteVariationForLot(lot, emp.machineType, productsForSelectedDate, traveteVariationLookup)
+                    : null;
+                const baseProductId = lot ? resolveTraveteLotBaseId(lot, productsForSelectedDate) : null;
+                const variationStandardTime = variation?.standardTime ? parseFloat(variation.standardTime) : NaN;
+                if (!Number.isNaN(variationStandardTime) && variationStandardTime > 0 && derivedStandardTime <= 0) {
+                    derivedStandardTime = variationStandardTime;
+                }
+
+                return {
+                    lot,
+                    lotId: lot?.id || '',
+                    productId: variation?.id || '',
+                    productBaseId: baseProductId || '',
+                    produced,
+                    standardTime: (!Number.isNaN(variationStandardTime) && variationStandardTime > 0)
+                        ? variationStandardTime
+                        : 0,
+                };
+            });
+
+            const standardTimeValue = (!Number.isNaN(manualStandardTime) && manualStandardTime > 0)
+                ? manualStandardTime
+                : derivedStandardTime;
+
+            const produced = productSummaries.reduce((sum, item) => sum + (item.produced || 0), 0);
+            const meta = (standardTimeValue > 0 && availableTime > 0)
+                ? Math.round(availableTime / standardTimeValue)
+                : 0;
+            const efficiency = (standardTimeValue > 0 && availableTime > 0 && produced > 0)
+                ? parseFloat((((produced * standardTimeValue) / availableTime) * 100).toFixed(2))
+                : 0;
+
+            const productionDetails = productSummaries
+                .filter(item => item.produced > 0 && item.lotId)
+                .map(item => ({
+                    lotId: item.lotId,
+                    productId: item.productId,
+                    produced: item.produced,
+                    ...(item.productBaseId ? { productBaseId: item.productBaseId } : {}),
+                    standardTime: item.standardTime || standardTimeValue || 0,
+                }));
+
+            const productsForSave = productSummaries
+                .filter(item => item.produced > 0 && item.lotId)
+                .map(item => ({
+                    lotId: item.lotId,
+                    produced: item.produced,
+                    productId: item.productId,
+                    productBaseId: item.productBaseId || undefined,
+                    standardTime: item.standardTime || standardTimeValue || 0,
+                    lotName: item.lot ? formatTraveteLotDisplayName(item.lot, products) : '',
+                }));
+
+            const valid = Boolean(
+                period &&
+                availableTime > 0 &&
+                productionDetails.length > 0 &&
+                standardTimeValue > 0
+            );
+
+            const primaryLot = productSummaries.find(item => item.lot)?.lot || null;
+            const manualNextLotItem = productSummaries.slice(1).find(item => item.lot) || null;
+            const manualNextLot = manualNextLotItem?.lot || null;
+
+            const currentLot = primaryLot || activeLots[0] || null;
+            let nextLotCandidate = manualNextLot || null;
+
+            if (!nextLotCandidate && currentLot) {
+                const currentIndex = activeLots.findIndex(l => l.id === currentLot.id);
+                if (currentIndex !== -1) {
+                    nextLotCandidate = activeLots.slice(currentIndex + 1).find(Boolean) || null;
+                }
+            }
+
+            if (!nextLotCandidate && !currentLot && activeLots.length > 0) {
+                nextLotCandidate = activeLots[0];
+            }
+
+            const currentLotName = currentLot ? formatTraveteLotDisplayName(currentLot, products) : '';
+            const rawNextLotName = nextLotCandidate ? formatTraveteLotDisplayName(nextLotCandidate, products) : '';
+            const currentLotTarget = currentLot?.target || 0;
+            const currentLotProduced = currentLot?.produced || 0;
+            const remainingInCurrentLot = currentLot ? Math.max(0, currentLotTarget - currentLotProduced) : 0;
+            const nextLotRemaining = nextLotCandidate
+                ? Math.max(0, (nextLotCandidate.target || 0) - (nextLotCandidate.produced || 0))
+                : 0;
+
+            const plannedForCurrentLot = currentLot ? Math.min(meta, remainingInCurrentLot || 0) : 0;
+            const leftoverMetaForNext = Math.max(0, meta - plannedForCurrentLot);
+            const manualNextProduced = manualNextLotItem ? manualNextLotItem.produced || 0 : 0;
+            const nextMetaPieces = manualNextLotItem && manualNextProduced > 0
+                ? manualNextProduced
+                : Math.min(leftoverMetaForNext, nextLotRemaining > 0 ? nextLotRemaining : leftoverMetaForNext);
+
+            const shouldShowNextLot = Boolean(nextLotCandidate)
+                && (manualNextLotItem || leftoverMetaForNext > 0)
+                && (nextMetaPieces > 0);
+
+            const machineSuffix = emp.machineType?.replace('Travete ', '') || '';
+            const currentLotLabel = currentLotName
+                ? `${currentLotName}${machineSuffix ? ` - ${machineSuffix}` : ''}`
+                : '';
+            const nextLotName = shouldShowNextLot ? rawNextLotName : '';
+            const lotDisplay = currentLotLabel
+                ? (shouldShowNextLot && nextLotName ? `${currentLotLabel} / ${nextLotName}` : currentLotLabel)
+                : (shouldShowNextLot && nextLotName ? nextLotName : '-');
+
+            const currentMetaValue = currentLot ? remainingInCurrentLot : (meta > 0 ? meta : 0);
+            const currentMetaLabel = currentMetaValue > 0
+                ? currentMetaValue.toLocaleString('pt-BR')
+                : (currentLot ? '0' : (meta > 0 ? meta.toLocaleString('pt-BR') : '0'));
+            const nextMetaLabel = shouldShowNextLot
+                ? (nextMetaPieces > 0 ? nextMetaPieces.toLocaleString('pt-BR') : '0')
+                : '';
+            const metaDisplay = nextMetaLabel ? `${currentMetaLabel}/${nextMetaLabel}` : currentMetaLabel;
+
+            const producedDisplay = productSummaries.length > 0
+                ? productSummaries.map(item => (item.produced || 0).toLocaleString('pt-BR')).join(' / ')
+                : produced.toLocaleString('pt-BR');
+
+            return {
+                ...emp,
+                produced,
+                meta,
+                efficiency,
+                standardTimeValue,
+                productionDetails,
+                productsForSave,
+                productSummaries,
+                valid,
+                metaDisplay,
+                lotDisplay,
+                producedDisplay,
+                currentLotName,
+                nextLotName,
+                shouldShowNextLot,
+                metaSegments: {
+                    current: currentMetaValue,
+                    next: shouldShowNextLot ? nextMetaPieces : null,
+                    showNext: shouldShowNextLot,
+                },
+                lotSegments: {
+                    current: currentLotName,
+                    next: shouldShowNextLot ? nextLotName : '',
+                    machineType: emp.machineType || '',
+                },
+            };
+        });
+
+        if (employeeSummaries.length === 0) {
+            return defaultResult;
+        }
+
+        const goalBlocks = employeeSummaries.map(emp => emp.metaSegments);
+        const lotBlocks = employeeSummaries.map(emp => emp.lotSegments);
+
+        const goalDisplay = employeeSummaries
+            .map(emp => emp.metaDisplay || '-')
+            .join(' // ');
+
+        const lotDisplay = employeeSummaries
+            .map(emp => emp.lotDisplay || '-')
+            .join(' // ');
+
+        const productionDetails = employeeSummaries.flatMap(emp => emp.productionDetails);
+        const totalMeta = employeeSummaries.reduce((sum, emp) => sum + (emp.meta || 0), 0);
+        const totalProduced = employeeSummaries.reduce((sum, emp) => sum + (emp.produced || 0), 0);
+
+        const isValid = Boolean(
+            period &&
+            availableTime > 0 &&
+            employeeSummaries.every(emp => emp.valid)
+        );
+
+        return {
+            employeeSummaries,
+            goalDisplay,
+            lotDisplay,
+            isValid,
+            productionDetails,
+            totalMeta,
+            totalProduced,
+            goalBlocks,
+            lotBlocks,
+        };
+    }, [lots, productsForSelectedDate, traveteVariationLookup, products]);
+
+    const traveteComputedEntry = useMemo(() => {
+        if (!isTraveteDashboard) {
+            return {
+                employeeSummaries: [],
+                goalDisplay: '- // -',
+                lotDisplay: '- // -',
+                isValid: false,
+                productionDetails: [],
+                totalMeta: 0,
+                totalProduced: 0,
+                goalBlocks: [],
+                lotBlocks: [],
+            };
+        }
+
+        return summarizeTraveteEntry(traveteEntry);
+    }, [isTraveteDashboard, summarizeTraveteEntry, traveteEntry]);
+
+    const travetePreviewPending = useMemo(() => {
+        if (!isTraveteDashboard) return false;
+        if (!traveteEntry.period || !(parseFloat(traveteEntry.availableTime) > 0)) return false;
+        return traveteEntry.employeeEntries.some(emp => (emp.products || []).some(item => item.lotId));
+    }, [isTraveteDashboard, traveteEntry]);
+
     const isEntryFormValid = useMemo(() => {
-    const allFieldsFilled = newEntry.productions.every(p => p !== '' && p !== null);
+        if (isTraveteDashboard) {
+            return traveteComputedEntry.isValid;
+        }
 
-    const atLeastOneIsPositive = newEntry.productions.some(p => parseInt(p, 10) > 0);
+        const allFieldsFilled = newEntry.productions.every(p => p !== '' && p !== null);
 
-    const hasProduction = allFieldsFilled && atLeastOneIsPositive;
+        const atLeastOneIsPositive = newEntry.productions.some(p => parseInt(p, 10) > 0);
 
-    const hasUrgentProduction = showUrgent && urgentProduction.productId && (parseInt(urgentProduction.produced, 10) || 0) > 0;
-    
-    return (
-        newEntry.period &&
-        (parseFloat(newEntry.people) > 0) &&
-        (parseFloat(newEntry.availableTime) > 0) &&
-        newEntry.productId &&
-        (hasProduction || hasUrgentProduction)
-    );
-}, [newEntry, showUrgent, urgentProduction]);
+        const hasProduction = allFieldsFilled && atLeastOneIsPositive;
+
+        const hasUrgentProduction = showUrgent && urgentProduction.productId && (parseInt(urgentProduction.produced, 10) || 0) > 0;
+
+        return (
+            newEntry.period &&
+            (parseFloat(newEntry.people) > 0) &&
+            (parseFloat(newEntry.availableTime) > 0) &&
+            newEntry.productId &&
+            (hasProduction || hasUrgentProduction)
+        );
+    }, [isTraveteDashboard, traveteComputedEntry, newEntry, showUrgent, urgentProduction]);
     
     useEffect(() => {
         if (!user || !currentDashboard) return;
@@ -2073,15 +2802,68 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     
     useEffect(() => { setLotCounter(lots.length > 0 ? Math.max(0, ...lots.map(l => l.sequentialId || 0)) + 1 : 1); }, [lots]);
 
+    useEffect(() => {
+        if (!isTraveteDashboard) {
+            setTraveteProductForm(createTraveteDefaultProductForm());
+            setTraveteEntry({
+                period: '',
+                availableTime: 60,
+                employeeEntries: [createDefaultTraveteEmployee(1), createDefaultTraveteEmployee(2)],
+            });
+        }
+    }, [isTraveteDashboard]);
+
     const closeModal = () => setModalState({ type: null, data: null });
     
     useEffect(() => {
-        if (newEntry.period && newEntry.people > 0 && newEntry.availableTime > 0 && newEntry.productId && currentDashboard?.id) {
-            
+        if (!currentDashboard?.id) return;
+
+        const previewRef = doc(db, `dashboards/${currentDashboard.id}/previews/live`);
+
+        if (isTraveteDashboard) {
+            const hasBasicInfo = traveteEntry.period && parseFloat(traveteEntry.availableTime) > 0;
+            const hasAnyProduct = traveteEntry.employeeEntries.some(emp => (emp.products || []).some(item => item.lotId));
+            if (hasBasicInfo && hasAnyProduct) {
+                const handler = setTimeout(async () => {
+                    const employeePreview = traveteComputedEntry.employeeSummaries.map(emp => ({
+                        employeeId: emp.employeeId,
+                        machineType: emp.machineType,
+                        products: (emp.productsForSave || []).map(item => ({
+                            lotName: item.lotName || '',
+                            produced: item.produced,
+                        })),
+                    }));
+
+                    const lotNames = Array.from(new Set(employeePreview.flatMap(emp => (emp.products || []).map(p => p.lotName).filter(Boolean))));
+                    const lotDisplayValue = traveteComputedEntry.lotDisplay && traveteComputedEntry.lotDisplay.trim().length > 0
+                        ? traveteComputedEntry.lotDisplay
+                        : lotNames.join(' | ');
+
+                    await setDoc(previewRef, {
+                        period: traveteEntry.period,
+                        goalDisplay: traveteComputedEntry.goalDisplay,
+                        availableTime: traveteEntry.availableTime,
+                        people: traveteEntry.employeeEntries.length,
+                        employeeEntries: employeePreview,
+                        lotDisplayName: lotDisplayValue || '',
+                        timestamp: Timestamp.now(),
+                    });
+                }, 500);
+
+                return () => {
+                    clearTimeout(handler);
+                };
+            }
+
+            deleteDoc(previewRef);
+            return;
+        }
+
+        if (newEntry.period && newEntry.people > 0 && newEntry.availableTime > 0 && newEntry.productId) {
+
             const handler = setTimeout(async () => {
-                const previewRef = doc(db, `dashboards/${currentDashboard.id}/previews/live`);
                 const product = productsForSelectedDate.find(p => p.id === newEntry.productId);
-                
+
                 await setDoc(previewRef, {
                     period: newEntry.period,
                     goalDisplay: goalPreview,
@@ -2093,16 +2875,94 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             return () => {
                 clearTimeout(handler);
             };
-        } else if (currentDashboard?.id) {
-            const previewRef = doc(db, `dashboards/${currentDashboard.id}/previews/live`);
-            deleteDoc(previewRef);
         }
-    }, [goalPreview, newEntry, currentDashboard, productsForSelectedDate]);
+
+        deleteDoc(previewRef);
+    }, [isTraveteDashboard, goalPreview, newEntry, traveteEntry, traveteComputedEntry, currentDashboard, productsForSelectedDate, products]);
 
 
     const handleAddEntry = useCallback(async (e) => {
         e.preventDefault();
-        if (!isEntryFormValid || !currentDashboard) return;
+        if (!currentDashboard) return;
+
+        if (isTraveteDashboard) {
+            if (!traveteComputedEntry.isValid) return;
+
+            const entryId = Date.now().toString();
+            const batch = writeBatch(db);
+            const prodDataRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, "data");
+            const employeeEntries = traveteComputedEntry.employeeSummaries.map(emp => ({
+                employeeId: emp.employeeId,
+                machineType: emp.machineType,
+                produced: emp.produced || 0,
+                standardTime: emp.standardTimeValue || 0,
+                products: (emp.productsForSave || []).map(product => ({
+                    lotId: product.lotId,
+                    productId: product.productId,
+                    produced: product.produced,
+                    standardTime: product.standardTime,
+                    ...(product.productBaseId ? { productBaseId: product.productBaseId } : {}),
+                })),
+            }));
+
+            const newEntryData = {
+                id: entryId,
+                period: traveteEntry.period,
+                people: traveteEntry.employeeEntries.length,
+                availableTime: traveteEntry.availableTime,
+                goalDisplay: traveteComputedEntry.goalDisplay,
+                lotDisplay: traveteComputedEntry.lotDisplay,
+                traveteGoalBlocks: traveteComputedEntry.goalBlocks || [],
+                traveteLotBlocks: traveteComputedEntry.lotBlocks || [],
+                employeeEntries,
+                productionDetails: traveteComputedEntry.productionDetails,
+                observation: '',
+                createdBy: { uid: user.uid, email: user.email },
+            };
+
+            const updatedDayData = [...(allProductionData[dateKey] || []), newEntryData];
+            batch.set(prodDataRef, { [dateKey]: updatedDayData }, { merge: true });
+
+            for (const detail of traveteComputedEntry.productionDetails) {
+                const lotToUpdate = detail.lotId
+                    ? lots.find(l => l.id === detail.lotId)
+                    : detail.productBaseId
+                        ? lots.find(l => resolveTraveteLotBaseId(l, productsForSelectedDate) === detail.productBaseId)
+                        : lots.find(l => l.productId === detail.productId);
+                if (lotToUpdate) {
+                    const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id);
+                    const newProduced = (lotToUpdate.produced || 0) + detail.produced;
+                    const updatePayload = {
+                        produced: newProduced,
+                        lastEditedBy: { uid: user.uid, email: user.email },
+                        lastEditedAt: Timestamp.now(),
+                    };
+                    if (lotToUpdate.status === 'future' && newProduced > 0) {
+                        updatePayload.status = 'ongoing';
+                        updatePayload.startDate = new Date().toISOString();
+                    }
+                    if (newProduced >= lotToUpdate.target && !lotToUpdate.status.startsWith('completed')) {
+                        updatePayload.status = 'completed';
+                        updatePayload.endDate = new Date().toISOString();
+                    }
+                    batch.update(lotRef, updatePayload);
+                }
+            }
+
+            const previewRef = doc(db, `dashboards/${currentDashboard.id}/previews/live`);
+            batch.delete(previewRef);
+
+            await batch.commit();
+
+            setTraveteEntry({
+                period: '',
+                availableTime: 60,
+                employeeEntries: [createDefaultTraveteEmployee(1), createDefaultTraveteEmployee(2)],
+            });
+            return;
+        }
+
+        if (!isEntryFormValid) return;
 
         const productionDetails = [];
         if (showUrgent && urgentProduction.productId && urgentProduction.produced > 0) {
@@ -2114,19 +2974,19 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 productionDetails.push({ productId: lot.productId, produced: producedAmount });
             }
         });
-        
-        const newEntryData = { 
-            id: Date.now().toString(), 
-            period: newEntry.period, 
-            people: newEntry.people, 
-            availableTime: newEntry.availableTime, 
-            productionDetails, 
-            observation: '', 
-            goalDisplay: goalPreview, 
+
+        const newEntryData = {
+            id: Date.now().toString(),
+            period: newEntry.period,
+            people: newEntry.people,
+            availableTime: newEntry.availableTime,
+            productionDetails,
+            observation: '',
+            goalDisplay: goalPreview,
             primaryProductId: newEntry.productId,
             createdBy: { uid: user.uid, email: user.email },
         };
-        
+
         const batch = writeBatch(db);
         const prodDataRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, "data");
 
@@ -2138,7 +2998,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             if(lotToUpdate){
                 const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id);
                 const newProduced = (lotToUpdate.produced || 0) + detail.produced;
-                const updatePayload = { 
+                const updatePayload = {
                     produced: newProduced,
                     lastEditedBy: { uid: user.uid, email: user.email },
                     lastEditedAt: Timestamp.now(),
@@ -2154,19 +3014,120 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 batch.update(lotRef, updatePayload);
             }
         }
-        
+
         const previewRef = doc(db, `dashboards/${currentDashboard.id}/previews/live`);
         batch.delete(previewRef);
 
         await batch.commit();
-        
+
         setNewEntry({ period: '', people: '', availableTime: 60, productId: newEntry.productId, productions: [] });
         setUrgentProduction({productId: '', produced: ''});
         setShowUrgent(false);
-    }, [isEntryFormValid, showUrgent, urgentProduction, predictedLots, newEntry, allProductionData, dateKey, lots, currentDashboard, goalPreview, user]);
+    }, [currentDashboard, isTraveteDashboard, traveteComputedEntry, traveteEntry, allProductionData, dateKey, lots, user, isEntryFormValid, showUrgent, urgentProduction, predictedLots, newEntry, goalPreview, productsForSelectedDate]);
     
     
+    const handleSaveTraveteEntry = async (entryId, updatedData) => {
+        const originalEntry = productionData.find(e => e.id === entryId);
+        if (!originalEntry) {
+            console.error('Lançamento do Travete não encontrado para editar.');
+            return;
+        }
+
+        const entryDraft = {
+            period: originalEntry.period,
+            availableTime: updatedData.availableTime,
+            employeeEntries: (updatedData.employeeEntries || []).map((emp, index) => ({
+                employeeId: emp.employeeId || index + 1,
+                machineType: emp.machineType,
+                standardTime: emp.standardTime,
+                products: (emp.products || []).map(product => ({
+                    lotId: product.lotId || '',
+                    produced: product.produced || 0,
+                })),
+            })),
+        };
+
+        const computed = summarizeTraveteEntry(entryDraft);
+        if (!computed.isValid || computed.employeeSummaries.length === 0) {
+            console.error('Dados do Travete inválidos para salvar edição.');
+            return;
+        }
+
+        const batch = writeBatch(db);
+        const prodDataRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, 'data');
+
+        const productionDeltas = new Map();
+        const accumulateDetail = (detail, sign) => {
+            const lotTarget = detail.lotId
+                ? lots.find(l => l.id === detail.lotId)
+                : detail.productBaseId
+                    ? lots.find(l => resolveTraveteLotBaseId(l, productsForSelectedDate) === detail.productBaseId)
+                    : lots.find(l => l.productId === detail.productId);
+            if (!lotTarget) return;
+            productionDeltas.set(lotTarget.id, (productionDeltas.get(lotTarget.id) || 0) + sign * detail.produced);
+        };
+
+        (originalEntry.productionDetails || []).forEach(detail => accumulateDetail(detail, -1));
+        computed.productionDetails.forEach(detail => accumulateDetail(detail, 1));
+
+        for (const [lotId, delta] of productionDeltas.entries()) {
+            if (delta === 0) continue;
+            const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotId);
+            batch.update(lotRef, {
+                produced: increment(delta),
+                lastEditedBy: { uid: user.uid, email: user.email },
+                lastEditedAt: Timestamp.now(),
+            });
+        }
+
+        const updatedDayData = productionData.map(entry => {
+            if (entry.id !== entryId) return entry;
+
+            const employeeEntries = computed.employeeSummaries.map(emp => ({
+                employeeId: emp.employeeId,
+                machineType: emp.machineType,
+                produced: emp.produced || 0,
+                standardTime: emp.standardTimeValue || 0,
+                products: (emp.productsForSave || []).map(product => ({
+                    lotId: product.lotId,
+                    productId: product.productId,
+                    produced: product.produced,
+                    standardTime: product.standardTime,
+                    ...(product.productBaseId ? { productBaseId: product.productBaseId } : {}),
+                })),
+            }));
+
+            return {
+                ...entry,
+                people: employeeEntries.length,
+                availableTime: entryDraft.availableTime,
+                goalDisplay: computed.goalDisplay,
+                lotDisplay: computed.lotDisplay,
+                traveteGoalBlocks: computed.goalBlocks || [],
+                traveteLotBlocks: computed.lotBlocks || [],
+                employeeEntries,
+                productionDetails: computed.productionDetails,
+                observation: updatedData.observation || entry.observation || '',
+                lastEditedBy: { uid: user.uid, email: user.email },
+                lastEditedAt: Timestamp.now(),
+            };
+        });
+
+        batch.set(prodDataRef, { [dateKey]: updatedDayData }, { merge: true });
+
+        try {
+            await batch.commit();
+        } catch (error) {
+            console.error('Erro ao salvar edição do Travete:', error);
+        }
+    };
+
     const handleSaveEntry = async (entryId, updatedData) => {
+      if (isTraveteDashboard || updatedData?.type === 'travete') {
+          await handleSaveTraveteEntry(entryId, updatedData);
+          return;
+      }
+
       const originalEntry = productionData.find(e => e.id === entryId);
       if (!originalEntry) {
           console.error("Lançamento original não encontrado para editar.");
@@ -2374,6 +3335,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
     }, [newEntry.productId, productsForSelectedDate]);
 
 const calculatePredictions = useCallback(() => {
+    if (isTraveteDashboard) {
+        return { allPredictions: [], currentGoalPreview: traveteComputedEntry.goalDisplay || '- // -' };
+    }
+
     const people = parseFloat(newEntry.people) || 0;
     const availableTime = parseFloat(newEntry.availableTime) || 0;
     let timeConsumedByUrgent = 0;
@@ -2460,32 +3425,38 @@ const calculatePredictions = useCallback(() => {
 
     const allPredictions = urgentPrediction ? [urgentPrediction, ...normalPredictions] : normalPredictions;
     return { allPredictions, currentGoalPreview: allPredictions.map(p => p.producible || 0).join(' / ') || '0' };
-}, [newEntry.people, newEntry.availableTime, newEntry.productId, productsForSelectedDate, lots, urgentProduction, showUrgent]);
+}, [isTraveteDashboard, traveteComputedEntry.goalDisplay, newEntry.people, newEntry.availableTime, newEntry.productId, productsForSelectedDate, lots, urgentProduction, showUrgent]);
 
   
     useEffect(() => {
+        if (isTraveteDashboard) {
+            setPredictedLots([]);
+            setGoalPreview(traveteComputedEntry.goalDisplay || '- // -');
+            return;
+        }
+
         const { allPredictions, currentGoalPreview } = calculatePredictions();
         setPredictedLots(allPredictions);
         setGoalPreview(currentGoalPreview);
-    
+
         const expectedCount = allPredictions.filter(p => !p.isUrgent).length;
         if (newEntry.productions.length !== expectedCount) {
             setNewEntry(prev => ({ ...prev, productions: Array(expectedCount).fill('') }));
         }
-    }, [calculatePredictions, newEntry.productions.length]);
+    }, [isTraveteDashboard, traveteComputedEntry.goalDisplay, calculatePredictions, newEntry.productions.length]);
 
     const productMapForSelectedDate = useMemo(() => 
         new Map(productsForSelectedDate.map(p => [p.id, p])), 
     [productsForSelectedDate]);
     
     const processedData = useMemo(() => {
-        if (!productionData || productionData.length === 0) return [];
+        if (isTraveteDashboard || !productionData || productionData.length === 0) return [];
         let cumulativeProduction = 0, cumulativeGoal = 0, cumulativeEfficiencySum = 0;
         return [...productionData].sort((a, b) => (a.period || "").localeCompare(b.period || "")).map((item, index) => {
             let totalTimeValue = 0, totalProducedInPeriod = 0;
             const producedForDisplay = (item.productionDetails || []).map(d => `${d.produced || 0}`).join(' / ');
             (item.productionDetails || []).forEach(detail => {
-                const product = productMapForSelectedDate.get(detail.productId); 
+                const product = productMapForSelectedDate.get(detail.productId);
                 if (product?.standardTime) { totalTimeValue += (detail.produced || 0) * product.standardTime; totalProducedInPeriod += (detail.produced || 0); }
             });
             const totalAvailableTime = (item.people || 0) * (item.availableTime || 0);
@@ -2497,15 +3468,179 @@ const calculatePredictions = useCallback(() => {
             const cumulativeEfficiency = parseFloat((cumulativeEfficiencySum / (index + 1)).toFixed(2));
             return { ...item, produced: totalProducedInPeriod, goal: numericGoal, producedForDisplay, efficiency, cumulativeProduction, cumulativeGoal, cumulativeEfficiency };
         });
-    }, [productionData, productMapForSelectedDate]);
+    }, [isTraveteDashboard, productionData, productMapForSelectedDate]);
+
+    const traveteProcessedData = useMemo(() => {
+        if (!isTraveteDashboard || !productionData || productionData.length === 0) return [];
+        let cumulativeMeta = [];
+        let cumulativeProduction = [];
+        let cumulativeEfficiencySum = [];
+        let cumulativeEntryCounts = [];
+
+        return [...productionData]
+            .sort((a, b) => (a.period || "").localeCompare(b.period || ""))
+            .map((entry) => {
+                const employees = (entry.employeeEntries || []).map((emp, empIndex) => {
+                    const productsArray = Array.isArray(emp.products) && emp.products.length > 0
+                        ? emp.products
+                        : (emp.productionDetails || []);
+                    const producedFromProducts = productsArray.reduce((sum, detail) => sum + (parseInt(detail.produced, 10) || 0), 0);
+                    const producedValue = producedFromProducts || (emp.produced !== undefined ? parseInt(emp.produced, 10) || 0 : 0);
+                    const firstProduct = productsArray.find(detail => detail.productId) || (emp.productionDetails || [])[0] || null;
+                    const productId = firstProduct?.productId || emp.productId || '';
+                    const product = productMapForSelectedDate.get(productId);
+                    const parsedStandardTime = parseFloat(emp.standardTime);
+                    const fallbackStandardTimeRaw = firstProduct?.standardTime !== undefined
+                        ? parseFloat(firstProduct.standardTime)
+                        : (product?.standardTime || 0);
+                    const fallbackStandardTime = (!Number.isNaN(fallbackStandardTimeRaw) && fallbackStandardTimeRaw > 0)
+                        ? fallbackStandardTimeRaw
+                        : 0;
+                    const standardTime = (!Number.isNaN(parsedStandardTime) && parsedStandardTime > 0)
+                        ? parsedStandardTime
+                        : fallbackStandardTime;
+                    const availableTime = entry.availableTime || 0;
+                    const meta = (standardTime > 0 && availableTime > 0) ? Math.round(availableTime / standardTime) : 0;
+                    const efficiency = (standardTime > 0 && availableTime > 0 && producedValue > 0)
+                        ? parseFloat((((producedValue * standardTime) / availableTime) * 100).toFixed(2))
+                        : 0;
+
+                    cumulativeMeta[empIndex] = (cumulativeMeta[empIndex] || 0) + meta;
+                    cumulativeProduction[empIndex] = (cumulativeProduction[empIndex] || 0) + producedValue;
+                    cumulativeEfficiencySum[empIndex] = (cumulativeEfficiencySum[empIndex] || 0) + efficiency;
+                    cumulativeEntryCounts[empIndex] = (cumulativeEntryCounts[empIndex] || 0) + 1;
+                    const entriesCount = cumulativeEntryCounts[empIndex] || 1;
+                    const cumulativeEfficiency = parseFloat(((cumulativeEfficiencySum[empIndex] || 0) / entriesCount).toFixed(2));
+                    const productNames = productsArray
+                        .map(detail => {
+                            const detailProduct = productMapForSelectedDate.get(detail.productId);
+                            return detailProduct?.name || null;
+                        })
+                        .filter(Boolean)
+                        .join(' / ');
+
+                    return {
+                        ...emp,
+                        produced: producedValue,
+                        meta,
+                        efficiency,
+                        standardTime,
+                        cumulativeMeta: cumulativeMeta[empIndex] || 0,
+                        cumulativeProduced: cumulativeProduction[empIndex] || 0,
+                        cumulativeEfficiency,
+                        productName: productNames || product?.name || '',
+                    };
+                });
+
+                return {
+                    ...entry,
+                    employees,
+                };
+            });
+    }, [isTraveteDashboard, productionData, productMapForSelectedDate]);
 
     const summary = useMemo(() => {
+        if (isTraveteDashboard) {
+            if (traveteProcessedData.length === 0) {
+                return { totalProduced: 0, totalGoal: 0, lastHourEfficiency: 0, averageEfficiency: 0 };
+            }
+            const lastEntry = traveteProcessedData[traveteProcessedData.length - 1];
+            const employees = lastEntry.employees || [];
+            const totalProduced = employees.reduce((sum, emp) => sum + (emp.cumulativeProduced || 0), 0);
+            const totalGoal = employees.reduce((sum, emp) => sum + (emp.cumulativeMeta || 0), 0);
+            const lastHourEfficiency = employees.length > 0
+                ? parseFloat((employees.reduce((sum, emp) => sum + (emp.efficiency || 0), 0) / employees.length).toFixed(2))
+                : 0;
+            const averageEfficiency = employees.length > 0
+                ? parseFloat((employees.reduce((sum, emp) => sum + (emp.cumulativeEfficiency || 0), 0) / employees.length).toFixed(2))
+                : 0;
+            return { totalProduced, totalGoal, lastHourEfficiency, averageEfficiency };
+        }
+
         if (processedData.length === 0) return { totalProduced: 0, totalGoal: 0, lastHourEfficiency: 0, averageEfficiency: 0 };
         const lastEntry = processedData.slice(-1)[0];
         return { totalProduced: lastEntry.cumulativeProduction, totalGoal: lastEntry.cumulativeGoal, lastHourEfficiency: lastEntry.efficiency, averageEfficiency: lastEntry.cumulativeEfficiency };
-    }, [processedData]);
+    }, [isTraveteDashboard, processedData, traveteProcessedData]);
 
     const monthlySummary = useMemo(() => {
+        if (isTraveteDashboard) {
+            const year = currentMonth.getFullYear();
+            const month = currentMonth.getMonth();
+            let totalMonthlyProduction = 0;
+            let totalMonthlyGoal = 0;
+            let totalDailyEfficiency = 0;
+            let productiveDaysCount = 0;
+
+            Object.keys(allProductionData).forEach(dateStr => {
+                try {
+                    const date = new Date(dateStr + "T00:00:00");
+                    if (date.getFullYear() !== year || date.getMonth() !== month) return;
+
+                    const productsForDateMap = new Map(products
+                        .map(p => {
+                            const validTimeEntry = p.standardTimeHistory?.filter(h => new Date(h.effectiveDate) <= date).pop();
+                            if (!validTimeEntry) return null;
+                            return [p.id, { ...p, standardTime: validTimeEntry.time }];
+                        })
+                        .filter(Boolean));
+
+                    const dayData = allProductionData[dateStr];
+                    if (!dayData || dayData.length === 0) return;
+
+                    let dayMetaPerEmployee = [];
+                    let dayProductionPerEmployee = [];
+                    let dayEfficiencyPerEmployee = [];
+
+                    dayData.forEach(entry => {
+                        (entry.employeeEntries || []).forEach((emp, index) => {
+                            const productsArray = Array.isArray(emp.products) && emp.products.length > 0
+                                ? emp.products
+                                : (emp.productionDetails || []);
+                            const producedFromProducts = productsArray.reduce((sum, detail) => sum + (parseInt(detail.produced, 10) || 0), 0);
+                            const produced = producedFromProducts || (emp.produced !== undefined ? parseInt(emp.produced, 10) || 0 : 0);
+                            const firstProduct = productsArray.find(detail => detail.productId) || (emp.productionDetails || [])[0] || null;
+                            const productId = firstProduct?.productId || emp.productId || '';
+                            const product = productsForDateMap.get(productId);
+                            const parsedStandardTime = parseFloat(emp.standardTime);
+                            const fallbackStandardTimeRaw = firstProduct?.standardTime !== undefined
+                                ? parseFloat(firstProduct.standardTime)
+                                : (product?.standardTime || 0);
+                            const standardTime = (!Number.isNaN(parsedStandardTime) && parsedStandardTime > 0)
+                                ? parsedStandardTime
+                                : ((!Number.isNaN(fallbackStandardTimeRaw) && fallbackStandardTimeRaw > 0) ? fallbackStandardTimeRaw : 0);
+                            const availableTime = entry.availableTime || 0;
+                            const meta = (standardTime > 0 && availableTime > 0) ? Math.round(availableTime / standardTime) : 0;
+                            const efficiency = (standardTime > 0 && availableTime > 0 && produced > 0)
+                                ? (produced * standardTime) / availableTime * 100
+                                : 0;
+
+                            dayMetaPerEmployee[index] = (dayMetaPerEmployee[index] || 0) + meta;
+                            dayProductionPerEmployee[index] = (dayProductionPerEmployee[index] || 0) + produced;
+                            dayEfficiencyPerEmployee[index] = (dayEfficiencyPerEmployee[index] || 0) + efficiency;
+                        });
+                    });
+
+                    const employeesCount = Math.max(dayMetaPerEmployee.length, dayEfficiencyPerEmployee.length);
+                    if (employeesCount > 0) {
+                        productiveDaysCount++;
+                        totalMonthlyGoal += dayMetaPerEmployee.reduce((sum, value) => sum + (value || 0), 0);
+                        totalMonthlyProduction += dayProductionPerEmployee.reduce((sum, value) => sum + (value || 0), 0);
+                        const dailyAverageEfficiency = dayEfficiencyPerEmployee.reduce((sum, value) => sum + (value || 0), 0) /
+                            (employeesCount * (dayData.length || 1));
+                        totalDailyEfficiency += dailyAverageEfficiency || 0;
+                    }
+                } catch (e) {
+                    console.error("Data inválida no sumário mensal:", dateStr);
+                }
+            });
+
+            const averageMonthlyEfficiency = productiveDaysCount > 0
+                ? parseFloat((totalDailyEfficiency / productiveDaysCount).toFixed(2))
+                : 0;
+
+            return { totalProduction: totalMonthlyProduction, totalGoal: totalMonthlyGoal, averageEfficiency: averageMonthlyEfficiency };
+        }
+
         const year = currentMonth.getFullYear();
         const month = currentMonth.getMonth();
         let totalMonthlyProduction = 0, totalMonthlyGoal = 0, totalDailyAverageEfficiencies = 0, productiveDaysCount = 0;
@@ -2547,7 +3682,34 @@ const calculatePredictions = useCallback(() => {
         });
         const averageMonthlyEfficiency = productiveDaysCount > 0 ? parseFloat((totalDailyAverageEfficiencies / productiveDaysCount).toFixed(2)) : 0;
         return { totalProduction: totalMonthlyProduction, totalGoal: totalMonthlyGoal, averageEfficiency: averageMonthlyEfficiency };
-    }, [allProductionData, currentMonth, products]);
+    }, [isTraveteDashboard, allProductionData, currentMonth, products]);
+
+    const traveteGroupedProducts = useMemo(() => {
+        if (!isTraveteDashboard) return [];
+        const groups = new Map();
+
+        products.forEach(product => {
+            const baseName = getTraveteBaseProductName(product);
+            const baseId = product.baseProductId || product.baseProductName || baseName || product.id;
+            if (!groups.has(baseId)) {
+                groups.set(baseId, { baseId, baseName, variations: [] });
+            }
+            groups.get(baseId).variations.push(product);
+        });
+
+        return Array.from(groups.values()).map(group => ({
+            ...group,
+            variations: group.variations.sort((a, b) => (a.variationMultiplier || 0) - (b.variationMultiplier || 0)),
+        })).sort((a, b) => a.baseName.localeCompare(b.baseName));
+    }, [isTraveteDashboard, products]);
+
+    const traveteLotOptions = useMemo(() => {
+        if (!isTraveteDashboard) return [];
+        return lots
+            .filter(lot => lot.status !== 'completed')
+            .slice()
+            .sort((a, b) => (a.order || 0) - (b.order || 0));
+    }, [isTraveteDashboard, lots]);
 
     const availablePeriods = useMemo(() => FIXED_PERIODS.filter(p => !productionData.some(e => e.period === p)), [productionData]);
     const filteredLots = useMemo(() => [...lots].filter(l => lotFilter === 'ongoing' ? (l.status === 'ongoing' || l.status === 'future') : l.status.startsWith('completed')), [lots, lotFilter]);
@@ -2556,14 +3718,235 @@ const calculatePredictions = useCallback(() => {
     const handleInputChange = (e) => { const { name, value } = e.target; setNewEntry(prev => ({ ...prev, [name]: value, ...(name === 'productId' && { productions: [] }) })); };
     const handleUrgentChange = (e) => setUrgentProduction(prev => ({...prev, [e.target.name]: e.target.value}));
     const handleProductionChange = (index, value) => { const newProductions = [...newEntry.productions]; newProductions[index] = value; setNewEntry(prev => ({ ...prev, productions: newProductions })); };
+    const handleTraveteBaseTimeChange = (value) => {
+        setTraveteProductForm(prev => {
+            const numericValue = parseFloat(value);
+            const isValid = !Number.isNaN(numericValue) && numericValue > 0;
+            const nextState = { ...prev, baseTime: value };
+            if (!prev.oneNeedleManual) {
+                nextState.oneNeedleTime = isValid ? (numericValue * 2).toFixed(2) : '';
+            }
+            if (!prev.conventionalManual) {
+                nextState.conventionalTime = isValid ? (numericValue * 3).toFixed(2) : '';
+            }
+            return nextState;
+        });
+    };
+    const handleTraveteVariationToggle = (field, checked) => {
+        setTraveteProductForm(prev => {
+            const nextState = { ...prev, [field]: checked };
+            if (checked) {
+                if (field === 'createOneNeedle' && !prev.oneNeedleManual && !prev.oneNeedleTime) {
+                    const numericValue = parseFloat(prev.baseTime);
+                    nextState.oneNeedleTime = (!Number.isNaN(numericValue) && numericValue > 0) ? (numericValue * 2).toFixed(2) : '';
+                }
+                if (field === 'createConventional' && !prev.conventionalManual && !prev.conventionalTime) {
+                    const numericValue = parseFloat(prev.baseTime);
+                    nextState.conventionalTime = (!Number.isNaN(numericValue) && numericValue > 0) ? (numericValue * 3).toFixed(2) : '';
+                }
+            }
+            return nextState;
+        });
+    };
+    const handleTraveteVariationTimeChange = (field, value) => {
+        const manualField = field === 'oneNeedleTime' ? 'oneNeedleManual' : 'conventionalManual';
+        setTraveteProductForm(prev => ({
+            ...prev,
+            [field]: value,
+            [manualField]: value !== '',
+        }));
+    };
+    const handleTraveteVariationTimeBlur = (field) => {
+        const manualField = field === 'oneNeedleTime' ? 'oneNeedleManual' : 'conventionalManual';
+        const multiplier = field === 'oneNeedleTime' ? 2 : 3;
+        setTraveteProductForm(prev => {
+            if (prev[field]) {
+                return prev;
+            }
+            const numericValue = parseFloat(prev.baseTime);
+            const isValid = !Number.isNaN(numericValue) && numericValue > 0;
+            return {
+                ...prev,
+                [manualField]: false,
+                [field]: isValid ? (numericValue * multiplier).toFixed(2) : '',
+            };
+        });
+    };
+    const handleTraveteFieldChange = (field, value) => {
+        setTraveteEntry(prev => ({ ...prev, [field]: value }));
+    };
+    const handleTraveteEmployeeChange = (index, field, value) => {
+        setTraveteEntry(prev => ({
+            ...prev,
+            employeeEntries: prev.employeeEntries.map((emp, empIndex) => {
+                if (empIndex !== index) return emp;
+                const updated = { ...emp };
+
+                switch (field) {
+                    case 'machineType': {
+                        updated.machineType = value;
+                        updated.standardTimeManual = false;
+                        if (!updated.standardTimeManual) {
+                            const firstLotId = (updated.products || []).find(item => item.lotId)?.lotId;
+                            if (firstLotId) {
+                                const lot = lots.find(l => l.id === firstLotId) || null;
+                                const variation = findTraveteVariationForLot(lot, value, productsForSelectedDate, traveteVariationLookup);
+                                const derivedTime = formatTraveteStandardTimeValue(parseFloat(variation?.standardTime));
+                                updated.standardTime = derivedTime;
+                            } else {
+                                updated.standardTime = '';
+                            }
+                        }
+                        break;
+                    }
+                    case 'standardTime': {
+                        updated.standardTime = value;
+                        updated.standardTimeManual = value !== '';
+                        break;
+                    }
+                    default: {
+                        updated[field] = value;
+                    }
+                }
+                return updated;
+            }),
+        }));
+    };
+    const handleTraveteStandardTimeBlur = (index) => {
+        setTraveteEntry(prev => ({
+            ...prev,
+            employeeEntries: prev.employeeEntries.map((emp, empIndex) => {
+                if (empIndex !== index) return emp;
+                if (emp.standardTime) return emp;
+                const firstLotId = (emp.products || []).find(item => item.lotId)?.lotId;
+                if (!firstLotId) return emp;
+                const lot = lots.find(l => l.id === firstLotId) || null;
+                if (!lot) return emp;
+                const variation = findTraveteVariationForLot(lot, emp.machineType, productsForSelectedDate, traveteVariationLookup);
+                const derivedTime = formatTraveteStandardTimeValue(parseFloat(variation?.standardTime));
+                if (!derivedTime) return emp;
+                return { ...emp, standardTime: derivedTime, standardTimeManual: false };
+            }),
+        }));
+    };
+    const handleTraveteProductChange = (employeeIndex, productIndex, field, value) => {
+        setTraveteEntry(prev => ({
+            ...prev,
+            employeeEntries: prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                const updatedProducts = (emp.products || []).map((product, prodIdx) => {
+                    if (prodIdx !== productIndex) return product;
+                    return { ...product, [field]: value };
+                });
+                const updatedEmployee = { ...emp, products: updatedProducts };
+                if (field === 'lotId' && !emp.standardTimeManual) {
+                    const lot = lots.find(l => l.id === value) || null;
+                    if (lot) {
+                        const variation = findTraveteVariationForLot(lot, emp.machineType, productsForSelectedDate, traveteVariationLookup);
+                        const derivedTime = formatTraveteStandardTimeValue(parseFloat(variation?.standardTime));
+                        if (derivedTime) {
+                            updatedEmployee.standardTime = derivedTime;
+                        }
+                    }
+                }
+                return updatedEmployee;
+            }),
+        }));
+    };
+    const handleTraveteAddProduct = (employeeIndex) => {
+        setTraveteEntry(prev => ({
+            ...prev,
+            employeeEntries: prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                return { ...emp, products: [...(emp.products || []), createDefaultTraveteProductItem()] };
+            }),
+        }));
+    };
+    const handleTraveteRemoveProduct = (employeeIndex, productIndex) => {
+        setTraveteEntry(prev => ({
+            ...prev,
+            employeeEntries: prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                const remaining = (emp.products || []).filter((_, idx) => idx !== productIndex);
+                return { ...emp, products: remaining.length > 0 ? remaining : [createDefaultTraveteProductItem()] };
+            }),
+        }));
+    };
     
-    const handleAddProduct = async (e) => { 
-        e.preventDefault(); 
-        if (!newProduct.name || !newProduct.standardTime || !currentDashboard) return; 
+    const handleAddProduct = async (e) => {
+        e.preventDefault();
+        if (!currentDashboard) return;
+
+        if (isTraveteDashboard) {
+            const trimmedName = traveteProductForm.baseName.trim();
+            if (!trimmedName) return;
+
+            const variationConfigs = [
+                { key: 'createTwoNeedle', suffix: '2 Agulhas', machineType: 'Travete 2 Agulhas', timeField: 'baseTime', defaultMultiplier: 1 },
+                { key: 'createOneNeedle', suffix: '1 Agulha', machineType: 'Travete 1 Agulha', timeField: 'oneNeedleTime', defaultMultiplier: 2 },
+                { key: 'createConventional', suffix: 'Convencional', machineType: 'Travete Convencional', timeField: 'conventionalTime', defaultMultiplier: 3 },
+            ];
+
+            const baseTimeNumeric = parseFloat(traveteProductForm.baseTime);
+            let hasInvalid = false;
+            const variationsToCreate = variationConfigs.reduce((acc, config) => {
+                if (!traveteProductForm[config.key]) {
+                    return acc;
+                }
+                const rawTime = traveteProductForm[config.timeField];
+                const parsedTime = parseFloat(rawTime);
+                if (Number.isNaN(parsedTime) || parsedTime <= 0) {
+                    hasInvalid = true;
+                    return acc;
+                }
+                acc.push({
+                    suffix: config.suffix,
+                    machineType: config.machineType,
+                    timeValue: parseFloat(parsedTime.toFixed(2)),
+                    defaultMultiplier: config.defaultMultiplier,
+                });
+                return acc;
+            }, []);
+
+            if (hasInvalid || variationsToCreate.length === 0) return;
+
+            const baseId = generateId('traveteBase');
+            const creationIso = new Date().toISOString();
+            const batch = writeBatch(db);
+
+            variationsToCreate.forEach((variation) => {
+                const id = `${baseId}_${variation.suffix.replace(/\s+/g, '').toLowerCase()}`;
+                const referenceBase = (!Number.isNaN(baseTimeNumeric) && baseTimeNumeric > 0) ? baseTimeNumeric : null;
+                const multiplier = referenceBase
+                    ? parseFloat((variation.timeValue / referenceBase).toFixed(4))
+                    : variation.defaultMultiplier;
+                const productData = {
+                    id,
+                    name: `${trimmedName} - ${variation.suffix}`,
+                    baseProductId: baseId,
+                    baseProductName: trimmedName,
+                    machineType: variation.machineType,
+                    variationMultiplier: multiplier,
+                    standardTimeHistory: [{
+                        time: variation.timeValue,
+                        effectiveDate: creationIso,
+                        changedBy: { uid: user.uid, email: user.email },
+                    }],
+                    createdBy: { uid: user.uid, email: user.email },
+                };
+                batch.set(doc(db, `dashboards/${currentDashboard.id}/products`, id), productData);
+            });
+
+            await batch.commit();
+            resetTraveteProductForm();
+            return;
+        }
+
+        if (!newProduct.name || !newProduct.standardTime) return;
         const id = Date.now().toString();
-        const newProductData = { 
-            id, 
-            name: newProduct.name, 
+        const newProductData = {
+            id,
+            name: newProduct.name,
             standardTimeHistory: [{
                 time: parseFloat(newProduct.standardTime),
                 effectiveDate: new Date().toISOString(),
@@ -2572,7 +3955,7 @@ const calculatePredictions = useCallback(() => {
             createdBy: { uid: user.uid, email: user.email },
         };
         await setDoc(doc(db, `dashboards/${currentDashboard.id}/products`, id), newProductData);
-        setNewProduct({ name: '', standardTime: '' }); 
+        setNewProduct({ name: '', standardTime: '' });
     };
 
     const handleStartEditProduct = (p) => { 
@@ -2624,7 +4007,33 @@ const calculatePredictions = useCallback(() => {
     const handleAddLot = async (e) => {
         e.preventDefault();
         if (!newLot.productId || !newLot.target || !currentDashboard) return;
-        const product = products.find(p => p.id === newLot.productId);
+
+        let product = null;
+        let lotBaseMetadata = {};
+
+        if (isTraveteDashboard) {
+            const selectedGroup = traveteGroupedProducts.find(group => group.baseId === newLot.productId);
+            if (!selectedGroup) return;
+
+            product = selectedGroup.variations.find(variation => variation.machineType === 'Travete 2 Agulhas')
+                || selectedGroup.variations[0]
+                || null;
+
+            lotBaseMetadata = {
+                productBaseId: selectedGroup.baseId,
+                productBaseName: selectedGroup.baseName,
+            };
+
+            if (!product) {
+                product = {
+                    id: selectedGroup.baseId,
+                    name: selectedGroup.baseName,
+                };
+            }
+        } else {
+            product = products.find(p => p.id === newLot.productId);
+        }
+
         if (!product) return;
         const id = Date.now().toString();
         const newLotData = {
@@ -2632,7 +4041,7 @@ const calculatePredictions = useCallback(() => {
             sequentialId: lotCounter,
             ...newLot,
             productId: product.id,
-            productName: product.name,
+            productName: isTraveteDashboard ? (lotBaseMetadata.productBaseName || product.name) : product.name,
             target: parseInt(newLot.target, 10),
             produced: 0,
             status: 'future',
@@ -2641,6 +4050,7 @@ const calculatePredictions = useCallback(() => {
             startDate: null,
             endDate: null,
             createdBy: { uid: user.uid, email: user.email },
+            ...(isTraveteDashboard ? lotBaseMetadata : { machineType: product.machineType }),
         };
         await setDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, id), newLotData);
         setNewLot({ productId: '', target: '', customName: '' });
@@ -2712,14 +4122,17 @@ const calculatePredictions = useCallback(() => {
     }
 
     return (
-        <div className="min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans">
+        <div className="responsive-root min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans">
             <GlobalStyles/>
-            <EditEntryModal 
-                isOpen={modalState.type === 'editEntry'} 
-                onClose={closeModal} 
-                entry={modalState.data} 
+            <EditEntryModal
+                isOpen={modalState.type === 'editEntry'}
+                onClose={closeModal}
+                entry={modalState.data}
                 onSave={handleSaveEntry}
                 products={products}
+                lots={lots}
+                traveteMachines={TRAVETE_MACHINES}
+                traveteVariationLookup={traveteVariationLookup}
             />
             
             <DashboardActionModal isOpen={modalState.type === 'dashboardAction'} onClose={closeModal} onConfirm={modalState.data?.onConfirm} mode={modalState.data?.mode} initialName={modalState.data?.initialName}/>
@@ -2731,11 +4144,11 @@ const calculatePredictions = useCallback(() => {
             <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={roles} />
             <TvSelectorModal isOpen={modalState.type === 'tvSelector'} onClose={closeModal} onSelect={startTvMode} onStartCarousel={startTvMode} dashboards={dashboards} />
 
-            <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex justify-between items-center sticky top-0 z-20">
-                <div className="flex items-center gap-4">
+            <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between sticky top-0 z-20">
+                <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
                     <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
-                    <div ref={navRef} className="relative">
-                        <button onClick={() => setIsNavOpen(!isNavOpen)} title="Mudar Quadro" className="flex items-center gap-2 p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
+                    <div ref={navRef} className="relative w-full md:w-auto">
+                        <button onClick={() => setIsNavOpen(!isNavOpen)} title="Mudar Quadro" className="flex w-full items-center justify-between gap-2 p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
                             <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white tracking-wider text-center">{currentDashboard.name}</h1>
                             <ChevronDownIcon size={20} className={`transition-transform ${isNavOpen ? 'rotate-180' : ''}`} />
                         </button>
@@ -2764,8 +4177,8 @@ const calculatePredictions = useCallback(() => {
                         )}
                     </div>
                 </div>
-                <div className="flex items-center space-x-2 sm:space-x-4">
-                    <button onClick={onNavigateToStock} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full md:w-auto md:justify-end">
+                    <button onClick={onNavigateToStock} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center">
                         <Warehouse size={20} />
                         <span className="hidden sm:inline">Gerenciamento de Estoque</span>
                     </button>
@@ -2777,142 +4190,408 @@ const calculatePredictions = useCallback(() => {
                 </div>
             </header>
             
-            <main className="p-4 md:p-8 grid grid-cols-1 gap-8">
+            <main className="p-4 md:p-8 grid grid-cols-1 gap-8 responsive-main">
                  <section className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                      <div className="lg:col-span-1">
                          <CalendarView selectedDate={selectedDate} setSelectedDate={setSelectedDate} currentMonth={currentMonth} setCurrentMonth={setCurrentMonth} calendarView={calendarView} setCalendarView={setCalendarView} allProductionData={allProductionData} />
                      </div>
-                     <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 content-start">
-                         <div className="bg-white dark:bg-gray-900 p-4 rounded-2xl shadow-lg text-center"><h3 className="font-semibold">Resumo Mensal</h3><p>Produção: {monthlySummary.totalProduction.toLocaleString('pt-BR')} un.</p><p>Meta: {monthlySummary.totalGoal.toLocaleString('pt-BR')} un.</p><p>Eficiência Média: {monthlySummary.averageEfficiency}%</p></div>
-                         <div className="bg-white dark:bg-gray-900 p-4 rounded-2xl shadow-lg text-center"><h3 className="font-semibold">Resumo do Dia</h3><p>Produção: {summary.totalProduced.toLocaleString('pt-BR')} un.</p><p>Meta: {summary.totalGoal.toLocaleString('pt-BR')} un.</p><p>Eficiência Média: {summary.averageEfficiency}%</p></div>
-                     </div>
+                    <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 content-start">
+                        <div className="bg-white dark:bg-gray-900 p-4 rounded-2xl shadow-lg text-center">
+                            <h3 className="font-semibold">Resumo Mensal</h3>
+                            {isTraveteDashboard ? (
+                                <>
+                                    <p>Produção Total: {monthlySummary.totalProduction.toLocaleString('pt-BR')} un.</p>
+                                    <p>Meta Total: {monthlySummary.totalGoal.toLocaleString('pt-BR')} un.</p>
+                                    <p>Eficiência Média Mensal: {monthlySummary.averageEfficiency}%</p>
+                                </>
+                            ) : (
+                                <>
+                                    <p>Produção: {monthlySummary.totalProduction.toLocaleString('pt-BR')} un.</p>
+                                    <p>Meta: {monthlySummary.totalGoal.toLocaleString('pt-BR')} un.</p>
+                                    <p>Eficiência Média: {monthlySummary.averageEfficiency}%</p>
+                                </>
+                            )}
+                        </div>
+                        <div className="bg-white dark:bg-gray-900 p-4 rounded-2xl shadow-lg text-center">
+                            <h3 className="font-semibold">Resumo do Dia</h3>
+                            {isTraveteDashboard ? (
+                                <>
+                                    <p>Produção Combinada: {summary.totalProduced.toLocaleString('pt-BR')} un.</p>
+                                    <p>Meta Combinada: {summary.totalGoal.toLocaleString('pt-BR')} un.</p>
+                                    <p>Média de Eficiência Geral: {summary.averageEfficiency}%</p>
+                                </>
+                            ) : (
+                                <>
+                                    <p>Produção: {summary.totalProduced.toLocaleString('pt-BR')} un.</p>
+                                    <p>Meta: {summary.totalGoal.toLocaleString('pt-BR')} un.</p>
+                                    <p>Eficiência Média: {summary.averageEfficiency}%</p>
+                                </>
+                            )}
+                        </div>
+                    </div>
                  </section>
                  <h2 className="text-2xl font-bold border-b-2 border-blue-500 pb-2">Resultados de: {selectedDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })}</h2>
                  <LotReport lots={lots} products={productsForSelectedDate}/>
-                 <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                     <StatCard title="Produção Acumulada (Dia)" value={summary.totalProduced.toLocaleString('pt-BR')} unit="un." />
-                     <StatCard title="Meta Acumulada (Dia)" value={summary.totalGoal.toLocaleString('pt-BR')} unit="un." />
-                     <StatCard title="Eficiência da Última Hora" value={summary.lastHourEfficiency} unit="%" isEfficiency />
-                     <StatCard title="Média de Eficiência (Dia)" value={summary.averageEfficiency} unit="%" isEfficiency />
-                 </section>
+                <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <StatCard title="Produção Acumulada (Dia)" value={summary.totalProduced.toLocaleString('pt-BR')} unit="un." />
+                    <StatCard title="Meta Acumulada (Dia)" value={summary.totalGoal.toLocaleString('pt-BR')} unit="un." />
+                    <StatCard title="Eficiência da Última Hora" value={summary.lastHourEfficiency} unit="%" isEfficiency />
+                    <StatCard title="Média de Eficiência (Dia)" value={summary.averageEfficiency} unit="%" isEfficiency />
+                </section>
                  
-                  <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
-                      <h2 className="text-xl font-semibold mb-4 flex items-center"><List className="mr-2 text-blue-500"/> Detalhamento por Período</h2>
-                      <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
-                              <thead className="bg-gray-50 dark:bg-gray-800">
-                                  <tr>
-                                      <th className="p-3 text-left border-r dark:border-gray-600">Período</th>
-                                      <th className="p-3 text-center border-r dark:border-gray-600">Pessoas / Tempo</th>
-                                      <th className="p-3 text-center border-r dark:border-gray-600">Meta</th>
-                                      <th className="p-3 text-center border-r dark:border-gray-600">Produção</th>
-                                      <th className="p-3 text-center border-r dark:border-gray-600">Eficiência</th>
-                                      <th className="p-3 text-center border-r dark:border-gray-600">Meta Acum.</th>
-                                      <th className="p-3 text-center border-r dark:border-gray-600">Prod. Acum.</th>
-                                      <th className="p-3 text-center border-r dark:border-gray-600">Efic. Acum.</th>
-                                      <th className="p-3 text-left border-r dark:border-gray-600">Lançado por</th>
-                                      <th className="p-3 text-center border-r dark:border-gray-600">Obs.</th>
-                                      <th className="p-3 text-center">Ações</th>
-                                  </tr>
-                              </thead>
-                              <tbody className="divide-y divide-x divide-gray-200 dark:divide-gray-600">
-                                  {processedData.map((d) => (
-                                      <tr key={d.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                                          <td className="p-3 text-left">{d.period}</td>
-                                        <td className="p-3 text-center">{`${d.people} / ${d.availableTime} min`}</td>
-                                          <td className="p-3 text-center">{d.goalDisplay}</td> 
-                                          <td className="p-3 text-center">{d.producedForDisplay}</td> 
-                                          <td className={`p-3 text-center font-semibold ${d.efficiency < 65 ? 'text-red-500' : 'text-green-600'}`}>{d.efficiency}%</td>
-                                          <td className="p-3 text-center">{d.cumulativeGoal}</td>
-                                          <td className="p-3 text-center">{d.cumulativeProduction}</td>
-                                          <td className={`p-3 text-center font-semibold ${d.cumulativeEfficiency < 65 ? 'text-red-500' : 'text-green-600'}`}>{d.cumulativeEfficiency}%</td>
-                                          <td className="p-3 text-left text-xs truncate">{d.createdBy?.email}</td>
-                                          <td className="p-3 text-center">
-                                              <button onClick={() => setModalState({ type: 'observation', data: d })} title="Observação">
-                                                  <MessageSquare size={18} className={d.observation ? 'text-blue-500 hover:text-blue-400' : 'text-gray-500 hover:text-blue-400'}/>
-                                              </button>
-                                          </td>
-                                          <td className="p-3">
-                                              <div className="flex gap-2 justify-center">
-                                                  {permissions.EDIT_ENTRIES && 
-                                                      <button 
-                                                          onClick={() => setModalState({ type: 'editEntry', data: d })} 
-                                                          title="Editar Lançamento"
-                                                          className="text-yellow-500 hover:text-yellow-400"
-                                                      >
-                                                          <Edit size={18} />
-                                                      </button>
-                                                  }
-                                                  {permissions.DELETE_ENTRIES && <button onClick={() => handleDeleteEntry(d.id)} title="Excluir Lançamento"><Trash2 size={18} className="text-red-500 hover:text-red-400"/></button>}
-                                              </div>
-                                          </td>
-                                      </tr>
-                                  ))}
-                              </tbody>
-                          </table>
-                      </div>
-                  </section>
-                 
-                 {permissions.ADD_ENTRIES && <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
-                     <h2 className="text-xl font-semibold mb-4 flex items-center"><PlusCircle className="mr-2 text-blue-500"/> Adicionar Novo Lançamento</h2>
-                     <form onSubmit={handleAddEntry} className="grid grid-cols-1 gap-4 items-end">
-                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                             <div className="flex flex-col">
-                                 <label htmlFor="entry-period">Período</label>
-                                 <select id="entry-period" name="period" value={newEntry.period} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
-                                     <option value="" disabled>Selecione...</option>
-                                     {availablePeriods.map(time => (<option key={time} value={time}>{time}</option>))}
-                                 </select>
-                             </div>
-                             <div className="flex flex-col"><label htmlFor="entry-people">Nº Pessoas</label><input id="entry-people" type="number" name="people" value={newEntry.people} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700" /></div>
-                             <div className="flex flex-col"><label htmlFor="entry-available-time">Tempo Disp.</label><input id="entry-available-time" type="number" name="availableTime" value={newEntry.availableTime} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                             <div className="flex flex-col">
-                                 <label htmlFor="entry-product">Produto (Prioridade)</label>
-                                 <select id="entry-product" name="productId" value={newEntry.productId} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
-                                     <option value="">Selecione...</option>
-                                     {[...productsForSelectedDate].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
-                                 </select>
-                             </div>
-                         </div>
-                         <div className="flex flex-col space-y-4">
-                             <div className="flex flex-wrap gap-4 items-end">
-                                 <div className='flex flex-wrap gap-4 items-end'>
-                                     {predictedLots.filter(p => !p.isUrgent).map((lot, index) => (
-                                         <div key={lot.id || index} className="flex flex-col min-w-[100px]">
-                                             <label className="text-sm truncate" htmlFor={`prod-input-${index}`}>Prod. ({lot.productName})</label>
-                                             <input id={`prod-input-${index}`} type="number" value={newEntry.productions[index] || ''} onChange={(e) => handleProductionChange(index, e.target.value)} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700" />
-                                         </div>
+ 
+                 <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
+                     <h2 className="text-xl font-semibold mb-4 flex items-center"><List className="mr-2 text-blue-500"/> Detalhamento por Período</h2>
+                     <div className="overflow-x-auto">
+                         {isTraveteDashboard ? (
+                             <table className="w-full text-sm">
+                                 <thead className="bg-gray-50 dark:bg-gray-800">
+                                     <tr>
+                                         <th className="p-3 text-left border-r dark:border-gray-600">Período</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Meta F1</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Produção F1</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Eficiência F1</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Meta Acum. F1</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Prod. Acum. F1</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Eficiência Média F1</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600 font-bold">{'//'}</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Meta F2</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Produção F2</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Eficiência F2</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Meta Acum. F2</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Prod. Acum. F2</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Eficiência Média F2</th>
+                                         <th className="p-3 text-left border-r dark:border-gray-600">Lançado por</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Obs.</th>
+                                         <th className="p-3 text-center">Ações</th>
+                                     </tr>
+                                 </thead>
+                                 <tbody className="divide-y divide-x divide-gray-200 dark:divide-gray-600">
+                                     {traveteProcessedData.map((entry) => {
+                                         const employeeOne = entry.employees?.[0] || {};
+                                         const employeeTwo = entry.employees?.[1] || {};
+                                         const formatNumber = (value) => Number(value || 0).toLocaleString('pt-BR');
+                                         const formatEfficiency = (value) => `${Number(value || 0).toFixed(2)}%`;
+                                         const machinesLabel = [employeeOne.machineType, employeeTwo.machineType].filter(Boolean).join(' & ');
+                                         return (
+                                             <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                                 <td className="p-3 border-r dark:border-gray-600 align-top">
+                                                 <div className="font-semibold">{entry.period}</div>
+                                                 <div className="text-xs text-gray-500">Tempo: {formatNumber(entry.availableTime)} min</div>
+                                                 {machinesLabel && <div className="text-xs text-gray-500">Máquinas: {machinesLabel}</div>}
+                                                 {entry.lotDisplay && <div className="text-xs text-gray-500">Lotes: {entry.lotDisplay}</div>}
+                                                </td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600">{employeeOne.metaDisplay || formatNumber(employeeOne.meta)}</td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600">{employeeOne.producedDisplay || formatNumber(employeeOne.produced)}</td>
+                                                 <td className={`p-3 text-center border-r dark:border-gray-600 ${Number(employeeOne.efficiency || 0) < 65 ? 'text-red-500' : 'text-green-600'}`}>{formatEfficiency(employeeOne.efficiency)}</td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600">{formatNumber(employeeOne.cumulativeMeta)}</td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600">{formatNumber(employeeOne.cumulativeProduced)}</td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600">{formatEfficiency(employeeOne.cumulativeEfficiency)}</td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600 font-bold">{'//'}</td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600">{employeeTwo.metaDisplay || formatNumber(employeeTwo.meta)}</td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600">{employeeTwo.producedDisplay || formatNumber(employeeTwo.produced)}</td>
+                                                 <td className={`p-3 text-center border-r dark:border-gray-600 ${Number(employeeTwo.efficiency || 0) < 65 ? 'text-red-500' : 'text-green-600'}`}>{formatEfficiency(employeeTwo.efficiency)}</td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600">{formatNumber(employeeTwo.cumulativeMeta)}</td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600">{formatNumber(employeeTwo.cumulativeProduced)}</td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600">{formatEfficiency(employeeTwo.cumulativeEfficiency)}</td>
+                                                 <td className="p-3 text-left text-xs truncate border-r dark:border-gray-600">{entry.createdBy?.email}</td>
+                                                 <td className="p-3 text-center border-r dark:border-gray-600">
+                                                     <button onClick={() => setModalState({ type: 'observation', data: entry })} title="Observação">
+                                                         <MessageSquare size={18} className={entry.observation ? 'text-blue-500 hover:text-blue-400' : 'text-gray-500 hover:text-blue-400'}/>
+                                                     </button>
+                                                 </td>
+                                                 <td className="p-3">
+                                                     <div className="flex gap-2 justify-center">
+                                                         {permissions.EDIT_ENTRIES && (
+                                                             <button
+                                                                 onClick={() => setModalState({ type: 'editEntry', data: entry })}
+                                                                 title="Editar Lançamento"
+                                                                 className="text-yellow-500 hover:text-yellow-400"
+                                                             >
+                                                                 <Edit size={18} />
+                                                             </button>
+                                                         )}
+                                                         {permissions.DELETE_ENTRIES && <button onClick={() => handleDeleteEntry(entry.id)} title="Excluir Lançamento"><Trash2 size={18} className="text-red-500 hover:text-red-400"/></button>}
+                                                     </div>
+                                                 </td>
+                                             </tr>
+                                         );
+                                     })}
+                                 </tbody>
+                             </table>
+                         ) : (
+                             <table className="w-full text-sm">
+                                 <thead className="bg-gray-50 dark:bg-gray-800">
+                                     <tr>
+                                         <th className="p-3 text-left border-r dark:border-gray-600">Período</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Pessoas / Tempo</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Meta</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Produção</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Eficiência</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Meta Acum.</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Prod. Acum.</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Efic. Acum.</th>
+                                         <th className="p-3 text-left border-r dark:border-gray-600">Lançado por</th>
+                                         <th className="p-3 text-center border-r dark:border-gray-600">Obs.</th>
+                                         <th className="p-3 text-center">Ações</th>
+                                     </tr>
+                                 </thead>
+                                 <tbody className="divide-y divide-x divide-gray-200 dark:divide-gray-600">
+                                     {processedData.map((d) => (
+                                         <tr key={d.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                             <td className="p-3 font-semibold border-r dark:border-gray-600">{d.period}</td>
+                                             <td className="p-3 text-center border-r dark:border-gray-600">{d.people} / {d.availableTime} min</td>
+                                             <td className="p-3 text-center border-r dark:border-gray-600">{d.goalForDisplay || d.goal}</td>
+                                             <td className="p-3 text-center border-r dark:border-gray-600">{d.producedForDisplay || d.produced}</td>
+                                             <td className={`p-3 text-center font-semibold border-r dark:border-gray-600 ${d.efficiency < 65 ? 'text-red-500' : 'text-green-600'}`}>{d.efficiency}%</td>
+                                             <td className="p-3 text-center border-r dark:border-gray-600">{d.cumulativeGoal}</td>
+                                             <td className="p-3 text-center border-r dark:border-gray-600">{d.cumulativeProduction}</td>
+                                             <td className={`p-3 text-center font-semibold border-r dark:border-gray-600 ${d.cumulativeEfficiency < 65 ? 'text-red-500' : 'text-green-600'}`}>{d.cumulativeEfficiency}%</td>
+                                             <td className="p-3 text-left text-xs truncate border-r dark:border-gray-600">{d.createdBy?.email}</td>
+                                             <td className="p-3 text-center border-r dark:border-gray-600">
+                                                 <button onClick={() => setModalState({ type: 'observation', data: d })} title="Observação">
+                                                     <MessageSquare size={18} className={d.observation ? 'text-blue-500 hover:text-blue-400' : 'text-gray-500 hover:text-blue-400'}/>
+                                                 </button>
+                                             </td>
+                                             <td className="p-3">
+                                                 <div className="flex gap-2 justify-center">
+                                                     {permissions.EDIT_ENTRIES &&
+                                                         <button
+                                                             onClick={() => setModalState({ type: 'editEntry', data: d })}
+                                                             title="Editar Lançamento"
+                                                             className="text-yellow-500 hover:text-yellow-400"
+                                                         >
+                                                             <Edit size={18} />
+                                                         </button>
+                                                     }
+                                                     {permissions.DELETE_ENTRIES && <button onClick={() => handleDeleteEntry(d.id)} title="Excluir Lançamento"><Trash2 size={18} className="text-red-500 hover:text-red-400"/></button>}
+                                                 </div>
+                                             </td>
+                                         </tr>
                                      ))}
+                                 </tbody>
+                             </table>
+                         )}
+                     </div>
+                 </section>
+
+                 {permissions.ADD_ENTRIES && (
+                     <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
+                         <h2 className="text-xl font-semibold mb-4 flex items-center"><PlusCircle className="mr-2 text-blue-500"/> Adicionar Novo Lançamento</h2>
+                         {isTraveteDashboard ? (
+                             <form onSubmit={handleAddEntry} className="space-y-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="flex flex-col">
+                                        <label htmlFor="travete-period">Período</label>
+                                        <select
+                                            id="travete-period"
+                                            value={traveteEntry.period}
+                                             onChange={(e) => handleTraveteFieldChange('period', e.target.value)}
+                                             required
+                                             className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                         >
+                                             <option value="" disabled>Selecione...</option>
+                                             {availablePeriods.map(time => (<option key={time} value={time}>{time}</option>))}
+                                         </select>
+                                     </div>
+                                    <div className="flex flex-col">
+                                        <label htmlFor="travete-time">Tempo Disponível (min)</label>
+                                        <input
+                                            id="travete-time"
+                                            type="number"
+                                             min="1"
+                                             value={traveteEntry.availableTime}
+                                             onChange={(e) => handleTraveteFieldChange('availableTime', e.target.value)}
+                                             required
+                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                   {traveteEntry.employeeEntries.map((employee, index) => {
+                                        const metaInfo = traveteComputedEntry.employeeSummaries[index] || {};
+                                        const formatTime = (value) => {
+                                            if (!value || Number.isNaN(Number(value))) return '--';
+                                            return `${Number(value).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} min`;
+                                        };
+                                        return (
+                                             <div key={employee.employeeId} className="p-4 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/50 space-y-4">
+                                                 <div className="flex items-center justify-between">
+                                                     <h3 className="text-lg font-semibold">Funcionário {employee.employeeId}</h3>
+                                                     <span className="text-xs uppercase tracking-wide text-gray-500">{employee.machineType}</span>
+                                                 </div>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div className="flex flex-col">
+                                                        <label>Máquina</label>
+                                                        <select
+                                                            value={employee.machineType}
+                                                            onChange={(e) => handleTraveteEmployeeChange(index, 'machineType', e.target.value)}
+                                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                        >
+                                                            {traveteMachines.map(machine => (<option key={machine} value={machine}>{machine}</option>))}
+                                                        </select>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <label>Tempo por Peça (min)</label>
+                                                        <input
+                                                            type="number"
+                                                            step="0.01"
+                                                            min="0"
+                                                            value={employee.standardTime ?? ''}
+                                                            onChange={(e) => handleTraveteEmployeeChange(index, 'standardTime', e.target.value)}
+                                                            onBlur={() => handleTraveteStandardTimeBlur(index)}
+                                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                            required
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-4">
+                                                    {(employee.products || []).map((productItem, productIdx) => {
+                                                        const lot = productItem.lotId ? traveteLotOptions.find(option => option.id === productItem.lotId) || null : null;
+                                                        const lotName = lot ? formatTraveteLotDisplayName(lot, products) : '--';
+                                                        return (
+                                                            <div key={`${employee.employeeId}-${productIdx}`} className="p-3 rounded-lg bg-white/60 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 space-y-3">
+                                                                <div className="flex items-center justify-between">
+                                                                    <label className="text-sm font-semibold">Produto / Lote</label>
+                                                                    {employee.products.length > 1 && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleTraveteRemoveProduct(index, productIdx)}
+                                                                            className="text-red-500 hover:text-red-400"
+                                                                            title="Remover este item"
+                                                                        >
+                                                                            <Trash size={16} />
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                                <select
+                                                                    value={productItem.lotId}
+                                                                    onChange={(e) => handleTraveteProductChange(index, productIdx, 'lotId', e.target.value)}
+                                                                    className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                                >
+                                                                    <option value="">Selecione...</option>
+                                                                    {traveteLotOptions.map(lotOption => (
+                                                                        <option key={lotOption.id} value={lotOption.id}>
+                                                                            {formatTraveteLotDisplayName(lotOption, products)}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                                    <div className="flex flex-col">
+                                                                        <label className="text-sm">Quantidade Produzida</label>
+                                                                        <input
+                                                                            type="number"
+                                                                            min="0"
+                                                                            value={productItem.produced}
+                                                                            onChange={(e) => handleTraveteProductChange(index, productIdx, 'produced', e.target.value)}
+                                                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                                        />
+                                                                    </div>
+                                                                    <div className="flex flex-col text-xs text-gray-600 dark:text-gray-300 bg-blue-50 dark:bg-blue-900/30 p-3 rounded-md">
+                                                                        <span className="font-semibold text-sm">Tempo Padrão Atual</span>
+                                                                        <span>{formatTime(metaInfo.standardTimeValue || employee.standardTime)}</span>
+                                                                        <span className="mt-1 text-[11px]">Lote Selecionado: {lotName}</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleTraveteAddProduct(index)}
+                                                        className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-500"
+                                                    >
+                                                        <PlusCircle size={16} /> Adicionar item fora de ordem
+                                                    </button>
+                                                </div>
+                                                <div className="text-xs text-gray-500">
+                                                    <span className="block">Meta Individual: {metaInfo.meta || 0}</span>
+                                                    <span className="block">Eficiência Prevista: {metaInfo.efficiency ? `${Number(metaInfo.efficiency).toFixed(2)}%` : '0%'}</span>
+                                                </div>
+                                            </div>
+                                         );
+                                     })}
                                  </div>
-                                 <div className="min-w-[150px] ml-auto">
-                                     <button type="button" onClick={() => setShowUrgent(p => !p)} className="text-sm text-blue-500 hover:underline mb-2 flex items-center gap-1">
-                                         <PlusCircle size={14} />{showUrgent ? 'Remover item fora de ordem' : 'Adicionar item fora de ordem'}
-                                     </button>
-                                     {showUrgent && (
-                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-blue-50 dark:bg-gray-800 rounded-lg">
-                                             <div className="flex flex-col">
-                                                 <label htmlFor="urgent-lot">Lote Urgente</label>
-                                                 <select id="urgent-lot" name="productId" value={urgentProduction.productId} onChange={handleUrgentChange} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
-                                                     <option value="">Selecione...</option>
-                                                     {lots.filter(l=>l.status!=='completed').map(l=>(<option key={l.id} value={l.productId}>{l.productName}{l.customName?` - ${l.customName}`:''}</option>))}
-                                                 </select>
-                                             </div>
-                                             <div className="flex flex-col"><label htmlFor="urgent-produced">Produzido (Urgente)</label><input id="urgent-produced" type="number" name="produced" value={urgentProduction.produced} onChange={handleUrgentChange} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
+                                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-t pt-4 dark:border-gray-700">
+                                     <div className="flex flex-col justify-center items-center bg-blue-50 dark:bg-blue-900/40 p-3 rounded-md shadow-inner w-full md:w-64">
+                                         <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Lotes Previstos</label>
+                                         <span className="font-bold text-base text-blue-700 dark:text-blue-200 text-center">{traveteComputedEntry.lotDisplay || '- // -'}</span>
+                                     </div>
+                                    <div className="flex flex-col justify-center items-center bg-blue-100 dark:bg-blue-900/50 p-3 rounded-md shadow-inner w-full md:w-64">
+                                        <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Meta Prevista</label>
+                                        <span className={`font-bold text-xl ${travetePreviewPending ? 'text-yellow-500 dark:text-yellow-300' : 'text-blue-600 dark:text-blue-300'}`}>
+                                            {traveteComputedEntry.goalDisplay || '- // -'}
+                                        </span>
+                                    </div>
+                                    <button
+                                        type="submit"
+                                        disabled={!isEntryFormValid}
+                                        className="h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
+                                    >
+                                        Adicionar
+                                    </button>
+                                </div>
+                            </form>
+                         ) : (
+                             <form onSubmit={handleAddEntry} className="grid grid-cols-1 gap-4 items-end">
+                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                                     <div className="flex flex-col">
+                                         <label htmlFor="entry-period">Período</label>
+                                         <select id="entry-period" name="period" value={newEntry.period} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
+                                             <option value="" disabled>Selecione...</option>
+                                             {availablePeriods.map(time => (<option key={time} value={time}>{time}</option>))}
+                                         </select>
+                                     </div>
+                                     <div className="flex flex-col"><label htmlFor="entry-people">Nº Pessoas</label><input id="entry-people" type="number" name="people" value={newEntry.people} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700" /></div>
+                                     <div className="flex flex-col"><label htmlFor="entry-available-time">Tempo Disp.</label><input id="entry-available-time" type="number" name="availableTime" value={newEntry.availableTime} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
+                                     <div className="flex flex-col">
+                                         <label htmlFor="entry-product">Produto (Prioridade)</label>
+                                         <select id="entry-product" name="productId" value={newEntry.productId} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
+                                             <option value="">Selecione...</option>
+                                             {[...productsForSelectedDate].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
+                                         </select>
+                                     </div>
+                                 </div>
+                                 <div className="flex flex-col space-y-4">
+                                     <div className="flex flex-wrap gap-4 items-end">
+                                         <div className='flex flex-wrap gap-4 items-end'>
+                                             {predictedLots.filter(p => !p.isUrgent).map((lot, index) => (
+                                                 <div key={lot.id || index} className="flex flex-col min-w-[100px]">
+                                                     <label className="text-sm truncate" htmlFor={`prod-input-${index}`}>Prod. ({lot.productName})</label>
+                                                     <input id={`prod-input-${index}`} type="number" value={newEntry.productions[index] || ''} onChange={(e) => handleProductionChange(index, e.target.value)} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700" />
+                                                 </div>
+                                             ))}
                                          </div>
-                                     )}
-                                 </div>
-                             </div>
-                             <div className="flex justify-end gap-4 items-center pt-4 border-t dark:border-gray-700">
-                                 <div className="flex flex-col justify-center items-center bg-blue-100 dark:bg-blue-900/50 p-2 rounded-md shadow-inner h-full min-h-[60px] w-48">
-                                     <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Meta Prevista</label>
-                                     <span className="font-bold text-xl text-blue-600 dark:text-blue-400">{goalPreview || '0'}</span>
-                                 </div>
-                                 <button type="submit" disabled={!isEntryFormValid} className="h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Adicionar</button>
-                             </div>
-                         </div>
-                     </form>
-                 </section>}
-                 
+                                         <div className="min-w-[150px] ml-auto">
+                                             <button type="button" onClick={() => setShowUrgent(p => !p)} className="text-sm text-blue-500 hover:underline mb-2 flex items-center gap-1">
+                                                 <PlusCircle size={14} />{showUrgent ? 'Remover item fora de ordem' : 'Adicionar item fora de ordem'}
+                                             </button>
+                                             {showUrgent && (
+                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-blue-50 dark:bg-gray-800 rounded-lg">
+                                                     <div className="flex flex-col">
+                                                         <label htmlFor="urgent-lot">Lote Urgente</label>
+                                                         <select id="urgent-lot" name="productId" value={urgentProduction.productId} onChange={handleUrgentChange} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
+                                                             <option value="">Selecione...</option>
+                                                             {lots.filter(l=>l.status!=='completed').map(l=>(<option key={l.id} value={l.productId}>{l.productName}{l.customName?` - ${l.customName}`:''}</option>))}
+                                                         </select>
+                                                     </div>
+                                                     <div className="flex flex-col"><label htmlFor="urgent-produced">Produzido (Urgente)</label><input id="urgent-produced" type="number" name="produced" value={urgentProduction.produced} onChange={handleUrgentChange} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
+                                                 </div>
+                                             )}
+                                         </div>
+                                     </div>
+                                     <div className="flex justify-end gap-4 items-center pt-4 border-t dark:border-gray-700">
+                                         <div className="flex flex-col justify-center items-center bg-blue-100 dark:bg-blue-900/50 p-2 rounded-md shadow-inner h-full min-h-[60px] w-48">
+                                             <label className="text-sm font-medium text-gray-800 dark:text-gray-200">Meta Prevista</label>
+                                             <span className="font-bold text-xl text-blue-600 dark:text-blue-400">{goalPreview || '0'}</span>
+                                         </div>
+                                        <button type="submit" disabled={!isEntryFormValid} className="h-10 px-6 font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto">Adicionar</button>
+                                    </div>
+                                </div>
+                            </form>
+                        )}
+                     </section>
+                 )}
                   <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
                       <h2 className="text-xl font-semibold mb-4 flex items-center"><Layers className="mr-2 text-blue-500"/> Controle de Lotes de Produção</h2>
                       {permissions.MANAGE_LOTS && <div className="mb-6 border-b pb-6 dark:border-gray-700">
@@ -2920,14 +4599,28 @@ const calculatePredictions = useCallback(() => {
                           <form onSubmit={handleAddLot} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                                <div className="flex flex-col">
                                    <label htmlFor="newLotProduct">Produto</label>
-                                   <select id="newLotProduct" name="productId" value={newLot.productId} onChange={e => setNewLot({...newLot, productId: e.target.value})} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
-                                       <option value="">Selecione...</option>
-                                       {[...products].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
-                                   </select>
+                                  <select id="newLotProduct" name="productId" value={newLot.productId} onChange={e => setNewLot({...newLot, productId: e.target.value})} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
+                                      <option value="">Selecione...</option>
+                                      {isTraveteDashboard ? (
+                                          traveteGroupedProducts.map(group => (
+                                              <option key={group.baseId} value={group.baseId}>
+                                                  {group.baseName}
+                                              </option>
+                                          ))
+                                      ) : (
+                                          [...products]
+                                              .sort((a,b)=>a.name.localeCompare(b.name))
+                                              .map(p => (
+                                                  <option key={p.id} value={p.id}>
+                                                      {p.name}
+                                                  </option>
+                                              ))
+                                      )}
+                                  </select>
                                </div>
                                <div className="flex flex-col"><label htmlFor="newLotTarget">Quantidade</label><input type="number" id="newLotTarget" name="target" value={newLot.target} onChange={e => setNewLot({...newLot, target: e.target.value})} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
                                <div className="flex flex-col"><label htmlFor="newLotCustomName">Nome (Opcional)</label><input type="text" id="newLotCustomName" name="customName" value={newLot.customName} onChange={e => setNewLot({...newLot, customName: e.target.value})} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                               <button type="submit" className="h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600">Criar Lote</button>
+                               <button type="submit" className="h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600 w-full sm:w-auto">Criar Lote</button>
                           </form>
                       </div>}
                       <div className="flex gap-2 mb-4 border-b pb-2 dark:border-gray-700 flex-wrap">
@@ -2950,7 +4643,11 @@ const calculatePredictions = useCallback(() => {
                                               <div className="flex flex-col"><button onClick={() => handleMoveLot(lot.id, 'up')} disabled={index===0} className="disabled:opacity-20"><ChevronUp size={16}/></button><button onClick={() => handleMoveLot(lot.id, 'down')} disabled={index===arr.length-1} className="disabled:opacity-20"><ChevronDown size={16}/></button></div>
                                           )}
                                           <div>
-                                              <h4 className="font-bold text-lg">{lot.productName}{lot.customName?` - ${lot.customName}`:''}</h4>
+                                              <h4 className="font-bold text-lg">
+                                                  {isTraveteDashboard
+                                                      ? formatTraveteLotDisplayName(lot, products)
+                                                      : `${lot.productName}${lot.customName ? ' - ' + lot.customName : ''}`}
+                                              </h4>
                                               <div className="text-xs text-gray-500 dark:text-gray-400">
                                                   <p>Lote #{lot.sequentialId} | Prioridade: {index+1}</p>
                                                   <p>Criado por: {lot.createdBy?.email || 'N/A'}</p>
@@ -3016,9 +4713,192 @@ const calculatePredictions = useCallback(() => {
                       </div>
                   </section>
 
-                   <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
-                       <h2 className="text-xl font-semibold mb-4 flex items-center"><Package className="mr-2 text-blue-500"/> Gerenciamento de Produtos</h2>
-                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+ 
+                  <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
+                      <h2 className="text-xl font-semibold mb-4 flex items-center"><Package className="mr-2 text-blue-500"/> Gerenciamento de Produtos</h2>
+                      {isTraveteDashboard ? (
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                              {permissions.MANAGE_PRODUCTS && (
+                                  <div className="space-y-4">
+                                      <h3 className="text-lg font-medium">Cadastrar Produto Base</h3>
+                                      <form onSubmit={handleAddProduct} className="space-y-4">
+                                          <div>
+                                              <label htmlFor="travete-base-name">Nome do Produto Base</label>
+                                              <input
+                                                  id="travete-base-name"
+                                                  type="text"
+                                                  value={traveteProductForm.baseName}
+                                                  onChange={(e) => setTraveteProductForm(prev => ({ ...prev, baseName: e.target.value }))}
+                                                  required
+                                                  className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                              />
+                                          </div>
+                                          <div className="space-y-3">
+                                              <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Variações e Tempos</span>
+                                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                  <div className="space-y-2">
+                                                      <label className="flex items-center gap-2 text-sm font-medium">
+                                                          <input
+                                                              type="checkbox"
+                                                              checked={traveteProductForm.createTwoNeedle}
+                                                              onChange={(e) => handleTraveteVariationToggle('createTwoNeedle', e.target.checked)}
+                                                          />
+                                                          Travete 2 Agulhas
+                                                      </label>
+                                                      <input
+                                                          type="number"
+                                                          step="0.01"
+                                                          min="0"
+                                                          value={traveteProductForm.baseTime}
+                                                          onChange={(e) => handleTraveteBaseTimeChange(e.target.value)}
+                                                          className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                          placeholder="Tempo (min)"
+                                                          required={traveteProductForm.createTwoNeedle}
+                                                      />
+                                                  </div>
+                                                  <div className="space-y-2">
+                                                      <label className="flex items-center gap-2 text-sm font-medium">
+                                                          <input
+                                                              type="checkbox"
+                                                              checked={traveteProductForm.createOneNeedle}
+                                                              onChange={(e) => handleTraveteVariationToggle('createOneNeedle', e.target.checked)}
+                                                          />
+                                                          Travete 1 Agulha
+                                                      </label>
+                                                      <input
+                                                          type="number"
+                                                          step="0.01"
+                                                          min="0"
+                                                          value={traveteProductForm.oneNeedleTime}
+                                                          onChange={(e) => handleTraveteVariationTimeChange('oneNeedleTime', e.target.value)}
+                                                          onBlur={() => handleTraveteVariationTimeBlur('oneNeedleTime')}
+                                                          className={`w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 ${!traveteProductForm.createOneNeedle ? 'opacity-60' : ''}`}
+                                                          placeholder="Tempo (min)"
+                                                          required={traveteProductForm.createOneNeedle}
+                                                          disabled={!traveteProductForm.createOneNeedle}
+                                                      />
+                                                  </div>
+                                                  <div className="space-y-2">
+                                                      <label className="flex items-center gap-2 text-sm font-medium">
+                                                          <input
+                                                              type="checkbox"
+                                                              checked={traveteProductForm.createConventional}
+                                                              onChange={(e) => handleTraveteVariationToggle('createConventional', e.target.checked)}
+                                                          />
+                                                          Travete Convencional
+                                                      </label>
+                                                      <input
+                                                          type="number"
+                                                          step="0.01"
+                                                          min="0"
+                                                          value={traveteProductForm.conventionalTime}
+                                                          onChange={(e) => handleTraveteVariationTimeChange('conventionalTime', e.target.value)}
+                                                          onBlur={() => handleTraveteVariationTimeBlur('conventionalTime')}
+                                                          className={`w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 ${!traveteProductForm.createConventional ? 'opacity-60' : ''}`}
+                                                          placeholder="Tempo (min)"
+                                                          required={traveteProductForm.createConventional}
+                                                          disabled={!traveteProductForm.createConventional}
+                                                      />
+                                                  </div>
+                                              </div>
+                                          </div>
+                                          <button type="submit" className="w-full h-10 bg-green-600 text-white rounded-md hover:bg-green-700">Salvar</button>
+                                      </form>
+                                      <p className="text-xs text-gray-500 dark:text-gray-400">Escolha quais variações criar e ajuste os tempos caso precise personalizar algum cenário específico.</p>
+                                  </div>
+                              )}
+                              <div className={!permissions.MANAGE_PRODUCTS ? 'lg:col-span-2' : ''}>
+                                  <h3 className="text-lg font-medium mb-4">Produtos Base e Variações ({traveteGroupedProducts.length})</h3>
+                                  <div className="space-y-4 max-h-72 overflow-y-auto pr-2">
+                                      {traveteGroupedProducts.length > 0 ? (
+                                          traveteGroupedProducts.map(group => (
+                                              <div key={group.baseId} className="border border-gray-200 dark:border-gray-700 rounded-xl p-4 bg-gray-50 dark:bg-gray-800/40 space-y-3">
+                                                  <div className="flex items-center justify-between">
+                                                      <h4 className="text-lg font-semibold">{group.baseName}</h4>
+                                                      <span className="text-xs uppercase tracking-wide text-gray-500">{group.variations.length} variações</span>
+                                                  </div>
+                                                  <table className="w-full text-sm">
+                                                      <thead className="text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                                          <tr>
+                                                              <th className="pb-1">Máquina</th>
+                                                              <th className="pb-1">Produto</th>
+                                                              <th className="pb-1">Tempo Atual</th>
+                                                              <th className="pb-1">Criado Por</th>
+                                                              <th className="pb-1">Última Edição</th>
+                                                              {permissions.MANAGE_PRODUCTS && <th className="pb-1 text-center">Ações</th>}
+                                                          </tr>
+                                                      </thead>
+                                                      <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                                                          {group.variations.map(variation => {
+                                                              const history = variation.standardTimeHistory || [];
+                                                              const latest = history[history.length - 1] || {};
+                                                              const createdBy = variation.createdBy?.email || '--';
+                                                              const editedBy = variation.lastEditedBy?.email || createdBy;
+                                                              const isEditing = editingProductId === variation.id;
+                                                              return (
+                                                                  <tr key={variation.id} className="text-sm">
+                                                                      <td className="py-2">{variation.machineType || '-'}</td>
+                                                                      {isEditing ? (
+                                                                          <>
+                                                                              <td className="py-2">
+                                                                                  <input
+                                                                                      type="text"
+                                                                                      value={editingProductData.name}
+                                                                                      onChange={(e) => setEditingProductData(prev => ({ ...prev, name: e.target.value }))}
+                                                                                      className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600"
+                                                                                  />
+                                                                              </td>
+                                                                              <td className="py-2">
+                                                                                  <input
+                                                                                      type="number"
+                                                                                      step="0.01"
+                                                                                      value={editingProductData.standardTime}
+                                                                                      onChange={(e) => setEditingProductData(prev => ({ ...prev, standardTime: e.target.value }))}
+                                                                                      className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600"
+                                                                                  />
+                                                                              </td>
+                                                                              <td className="py-2" colSpan={2}></td>
+                                                                          </>
+                                                                      ) : (
+                                                                          <>
+                                                                              <td className="py-2">{variation.name}</td>
+                                                                              <td className="py-2">{latest.time ? `${latest.time} min` : 'N/A'}</td>
+                                                                              <td className="py-2 text-xs truncate">{createdBy}</td>
+                                                                              <td className="py-2 text-xs truncate">{editedBy}</td>
+                                                                          </>
+                                                                      )}
+                                                                      {permissions.MANAGE_PRODUCTS && (
+                                                                          <td className="py-2">
+                                                                              <div className="flex gap-2 justify-center">
+                                                                                  {isEditing ? (
+                                                                                      <>
+                                                                                          <button onClick={() => handleSaveProduct(variation.id)} title="Salvar"><Save size={18} className="text-green-500" /></button>
+                                                                                          <button onClick={() => setEditingProductId(null)} title="Cancelar"><XCircle size={18} className="text-gray-500" /></button>
+                                                                                      </>
+                                                                                  ) : (
+                                                                                      <>
+                                                                                          <button onClick={() => handleStartEditProduct(variation)} title="Editar"><Edit size={18} className="text-yellow-500 hover:text-yellow-400" /></button>
+                                                                                          <button onClick={() => handleDeleteProduct(variation.id)} title="Excluir"><Trash2 size={18} className="text-red-500 hover:text-red-400" /></button>
+                                                                                      </>
+                                                                                  )}
+                                                                              </div>
+                                                                          </td>
+                                                                      )}
+                                                                  </tr>
+                                                              );
+                                                          })}
+                                                      </tbody>
+                                                  </table>
+                                              </div>
+                                          ))
+                                      ) : (
+                                          <p>Nenhum produto cadastrado.</p>
+                                      )}
+                                  </div>
+                              </div>
+                          </div>
+                      ) : (
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                            {permissions.MANAGE_PRODUCTS && <div>
                                <h3 className="text-lg font-medium mb-4">Cadastrar Novo Produto</h3>
                                <form onSubmit={handleAddProduct} className="space-y-3">
@@ -3039,56 +4919,58 @@ const calculatePredictions = useCallback(() => {
                                           {permissions.MANAGE_PRODUCTS && <th className="p-3 text-center">Ações</th>}
                                        </tr></thead>
                                        <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
-    {[...products].sort((a, b) => a.name.localeCompare(b.name)).map(p => {
-        const history = p.standardTimeHistory || [];
-        const currentTime = history.length > 0 ? history[history.length - 1].time : 'N/A';
-        
-        const targetDateEnd = new Date(selectedDate);
-        targetDateEnd.setHours(23, 59, 59, 999);
-        const historicalEntry = history.filter(h => new Date(h.effectiveDate) <= targetDateEnd).pop();
-        
-        const didExistOnDate = !!historicalEntry;
-        const historicalTime = historicalEntry ? historicalEntry.time : 'N/A';
+{[...products].sort((a, b) => a.name.localeCompare(b.name)).map(p => {
+    const history = p.standardTimeHistory || [];
+    const currentTime = history.length > 0 ? history[history.length - 1].time : 'N/A';
 
-        return (
-        <tr key={p.id} className={!didExistOnDate ? 'bg-red-50 dark:bg-red-900/20' : ''}>
-            {editingProductId === p.id ? (
-                <>
-                    <td className="p-2"><input type="text" value={editingProductData.name} onChange={e => setEditingProductData({ ...editingProductData, name: e.target.value })} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
-                    <td className="p-2"><input type="number" step="0.01" value={editingProductData.standardTime} onChange={e => setEditingProductData({ ...editingProductData, standardTime: e.target.value })} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
-                    <td colSpan="2"></td>
-                    {permissions.MANAGE_PRODUCTS && <td className="p-3">
-                        <div className="flex gap-2 justify-center">
-                            <button onClick={() => handleSaveProduct(p.id)} title="Salvar"><Save size={18} className="text-green-500" /></button>
-                            <button onClick={() => setEditingProductId(null)} title="Cancelar"><XCircle size={18} className="text-gray-500" /></button>
-                        </div>
-                    </td>}
-                </>
-            ) : (
-                <>
-                    <td className={`p-3 font-semibold ${!didExistOnDate ? 'text-red-500' : ''}`}>{p.name}{!didExistOnDate && ' (Não existia)'}</td>
-                    <td className="p-3">
-                        {historicalTime} min
-                        {didExistOnDate && currentTime !== historicalTime && <span className="text-xs text-gray-500 ml-2">(Atual: {currentTime} min)</span>}
-                    </td>
-                    <td className="p-3 text-xs truncate">{p.createdBy?.email}</td>
-                    <td className="p-3 text-xs truncate">{p.lastEditedBy?.email}</td>
-                    {permissions.MANAGE_PRODUCTS && <td className="p-3">
-                        <div className="flex gap-2 justify-center">
-                            <button onClick={() => handleStartEditProduct(p)} title="Editar"><Edit size={18} className="text-yellow-500 hover:text-yellow-400" /></button>
-                            <button onClick={() => handleDeleteProduct(p.id)} title="Excluir"><Trash2 size={18} className="text-red-500 hover:text-red-400" /></button>
-                        </div>
-                    </td>}
-                </>
-            )}
-        </tr>
-    )})}
+    const targetDateEnd = new Date(selectedDate);
+    targetDateEnd.setHours(23, 59, 59, 999);
+    const historicalEntry = history.filter(h => new Date(h.effectiveDate) <= targetDateEnd).pop();
+
+    const didExistOnDate = !!historicalEntry;
+    const historicalTime = historicalEntry ? historicalEntry.time : 'N/A';
+
+    return (
+    <tr key={p.id} className={!didExistOnDate ? 'bg-red-50 dark:bg-red-900/20' : ''}>
+        {editingProductId === p.id ? (
+            <>
+                <td className="p-2"><input type="text" value={editingProductData.name} onChange={e => setEditingProductData({ ...editingProductData, name: e.target.value })} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
+                <td className="p-2"><input type="number" step="0.01" value={editingProductData.standardTime} onChange={e => setEditingProductData({ ...editingProductData, standardTime: e.target.value })} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
+                <td colSpan="2"></td>
+                {permissions.MANAGE_PRODUCTS && <td className="p-3">
+                    <div className="flex gap-2 justify-center">
+                        <button onClick={() => handleSaveProduct(p.id)} title="Salvar"><Save size={18} className="text-green-500" /></button>
+                        <button onClick={() => setEditingProductId(null)} title="Cancelar"><XCircle size={18} className="text-gray-500" /></button>
+                    </div>
+                </td>}
+            </>
+        ) : (
+            <>
+                <td className={`p-3 font-semibold ${!didExistOnDate ? 'text-red-500' : ''}`}>{p.name}{!didExistOnDate && ' (Não existia)'}</td>
+                <td className="p-3">
+                    {historicalTime} min
+                    {didExistOnDate && currentTime !== historicalTime && <span className="text-xs text-gray-500 ml-2">(Atual: {currentTime} min)</span>}
+                </td>
+                <td className="p-3 text-xs truncate">{p.createdBy?.email}</td>
+                <td className="p-3 text-xs truncate">{p.lastEditedBy?.email}</td>
+                {permissions.MANAGE_PRODUCTS && <td className="p-3">
+                    <div className="flex gap-2 justify-center">
+                        <button onClick={() => handleStartEditProduct(p)} title="Editar"><Edit size={18} className="text-yellow-500 hover:text-yellow-400" /></button>
+                        <button onClick={() => handleDeleteProduct(p.id)} title="Excluir"><Trash2 size={18} className="text-red-500 hover:text-red-400" /></button>
+                    </div>
+                </td>}
+            </>
+        )}
+    </tr>
+)})}
 </tbody>
                                    </table>
                                </div>
                            </div>
                        </div>
-                   </section>
+                   )}
+                  </section>
+
                    
                  {permissions.VIEW_TRASH && <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg mt-8">
                      <h2 className="text-xl font-semibold mb-4 flex items-center"><Trash2 className="mr-2 text-red-500"/> Lixeira</h2>
@@ -3158,6 +5040,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     }, [tvOptions, isCarousel, currentDashboardId, changeDashboard]);
 
     const currentDashboard = useMemo(() => dashboards.find(d => d.id === currentDashboardId), [currentDashboardId, dashboards]);
+    const isTraveteDashboard = currentDashboard?.id === 'travete';
     
     const [products, setProducts] = useState([]);
     const [allProductionData, setAllProductionData] = useState({});
@@ -3191,10 +5074,38 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     }, [currentDashboard]);
 
     
-    const today = useMemo(() => new Date(), []);
-    
-    const productsForToday = useMemo(() => {
-        const targetDate = new Date(today);
+    const [selectedDate, setSelectedDate] = useState(() => {
+        const initial = new Date();
+        initial.setHours(0, 0, 0, 0);
+        return initial;
+    });
+
+    const handlePrevDay = useCallback(() => {
+        setSelectedDate(prev => {
+            const next = new Date(prev);
+            next.setDate(prev.getDate() - 1);
+            return next;
+        });
+    }, []);
+
+    const handleNextDay = useCallback(() => {
+        setSelectedDate(prev => {
+            const next = new Date(prev);
+            next.setDate(prev.getDate() + 1);
+            return next;
+        });
+    }, []);
+
+    const selectedDateLabel = useMemo(() => selectedDate.toLocaleDateString('pt-BR'), [selectedDate]);
+
+    const isTodaySelected = useMemo(() => {
+        const todayReference = new Date();
+        todayReference.setHours(0, 0, 0, 0);
+        return selectedDate.toDateString() === todayReference.toDateString();
+    }, [selectedDate]);
+
+    const productsForSelectedDate = useMemo(() => {
+        const targetDate = new Date(selectedDate);
         targetDate.setHours(23, 59, 59, 999);
 
         return products
@@ -3205,22 +5116,21 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                 return { ...p, standardTime: validTimeEntry.time };
             })
             .filter(Boolean);
-    }, [products, today]);
+    }, [products, selectedDate]);
 
-
-    const dateKey = today.toISOString().slice(0, 10);
+    const dateKey = selectedDate.toISOString().slice(0, 10);
     const productionData = useMemo(() => allProductionData[dateKey] || [], [allProductionData, dateKey]);
-    
-    const productMapForToday = useMemo(() => new Map(productsForToday.map(p => [p.id, p])), [productsForToday]);
+
+    const productMapForSelectedDate = useMemo(() => new Map(productsForSelectedDate.map(p => [p.id, p])), [productsForSelectedDate]);
 
     const processedData = useMemo(() => {
-        if (!productionData || productionData.length === 0) return [];
+        if (isTraveteDashboard || !productionData || productionData.length === 0) return [];
         let cumulativeProduction = 0, cumulativeGoal = 0, cumulativeEfficiencySum = 0;
         return [...productionData].sort((a,b)=>(a.period||"").localeCompare(b.period||"")).map((item, index) => {
             let totalTimeValue = 0, totalProducedInPeriod = 0;
             const producedForDisplay = (item.productionDetails || []).map(d => `${d.produced || 0}`).join(' / ');
             (item.productionDetails || []).forEach(detail => {
-                const product = productMapForToday.get(detail.productId);
+                const product = productMapForSelectedDate.get(detail.productId);
                 if (product?.standardTime) {
                     totalTimeValue += (detail.produced || 0) * product.standardTime;
                     totalProducedInPeriod += (detail.produced || 0);
@@ -3235,18 +5145,305 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             const cumulativeEfficiency = parseFloat((cumulativeEfficiencySum / (index + 1)).toFixed(2));
             return { ...item, produced:totalProducedInPeriod, goal:numericGoal, goalForDisplay: item.goalDisplay, producedForDisplay, efficiency, cumulativeProduction, cumulativeGoal, cumulativeEfficiency };
         });
-    }, [productionData, productMapForToday]);
+    }, [isTraveteDashboard, productionData, productMapForSelectedDate]);
+
+    const traveteProcessedData = useMemo(() => {
+        if (!isTraveteDashboard || !productionData || productionData.length === 0) return [];
+
+        let cumulativeMeta = [];
+        let cumulativeProduction = [];
+        let cumulativeEfficiencySum = [];
+        let cumulativeEntryCounts = [];
+
+        return [...productionData]
+            .sort((a, b) => (a.period || "").localeCompare(b.period || ""))
+            .map((entry) => {
+                const availableTime = parseFloat(entry.availableTime) || 0;
+
+                const storedGoalBlocks = Array.isArray(entry.traveteGoalBlocks) ? entry.traveteGoalBlocks : null;
+                const storedLotBlocks = Array.isArray(entry.traveteLotBlocks) ? entry.traveteLotBlocks : null;
+
+                const employees = (entry.employeeEntries || []).map((emp, empIndex) => {
+                    const productsArray = Array.isArray(emp.products) && emp.products.length > 0
+                        ? emp.products
+                        : (emp.productionDetails || []);
+                    const producedFromProducts = productsArray.reduce((sum, detail) => sum + (parseInt(detail.produced, 10) || 0), 0);
+                    const producedValue = producedFromProducts || (emp.produced !== undefined ? parseInt(emp.produced, 10) || 0 : 0);
+                    const firstProduct = productsArray.find(detail => detail.productId) || (emp.productionDetails || [])[0] || null;
+                    const productId = firstProduct?.productId || emp.productId || '';
+                    const product = productMapForSelectedDate.get(productId);
+                    const parsedStandardTime = parseFloat(emp.standardTime);
+                    const fallbackStandardTimeRaw = firstProduct?.standardTime !== undefined
+                        ? parseFloat(firstProduct.standardTime)
+                        : (product?.standardTime || 0);
+                    const fallbackStandardTime = (!Number.isNaN(fallbackStandardTimeRaw) && fallbackStandardTimeRaw > 0)
+                        ? fallbackStandardTimeRaw
+                        : 0;
+                    const standardTime = (!Number.isNaN(parsedStandardTime) && parsedStandardTime > 0)
+                        ? parsedStandardTime
+                        : fallbackStandardTime;
+                    const meta = (standardTime > 0 && availableTime > 0) ? Math.round(availableTime / standardTime) : 0;
+                    const efficiency = (standardTime > 0 && availableTime > 0 && producedValue > 0)
+                        ? parseFloat((((producedValue * standardTime) / availableTime) * 100).toFixed(2))
+                        : 0;
+
+                    cumulativeMeta[empIndex] = (cumulativeMeta[empIndex] || 0) + meta;
+                    cumulativeProduction[empIndex] = (cumulativeProduction[empIndex] || 0) + producedValue;
+                    cumulativeEfficiencySum[empIndex] = (cumulativeEfficiencySum[empIndex] || 0) + efficiency;
+                    cumulativeEntryCounts[empIndex] = (cumulativeEntryCounts[empIndex] || 0) + 1;
+
+                    const entriesCount = cumulativeEntryCounts[empIndex] || 1;
+                    const cumulativeEfficiency = parseFloat(((cumulativeEfficiencySum[empIndex] || 0) / entriesCount).toFixed(2));
+                    const productNames = productsArray
+                        .map(detail => {
+                            const detailProduct = productMapForSelectedDate.get(detail.productId);
+                            return detailProduct?.name || null;
+                        })
+                        .filter(Boolean)
+                        .join(' / ');
+
+                    const goalBlock = storedGoalBlocks?.[empIndex] || null;
+                    const lotBlock = storedLotBlocks?.[empIndex] || null;
+                    const goalBlockCurrent = goalBlock ? Number(goalBlock.current || 0) : meta;
+                    const goalBlockNext = goalBlock ? Number(goalBlock.next || 0) : 0;
+                    const goalBlockShowNext = goalBlock ? Boolean(goalBlock.showNext) && (goalBlock.next !== undefined && goalBlock.next !== null) : false;
+                    const goalDisplayForEmployee = goalBlock
+                        ? (() => {
+                            const currentLabel = goalBlockCurrent > 0 ? goalBlockCurrent.toLocaleString('pt-BR') : '0';
+                            const nextLabel = goalBlockShowNext
+                                ? (goalBlockNext > 0 ? goalBlockNext.toLocaleString('pt-BR') : currentLabel)
+                                : '';
+                            if (goalBlockShowNext && nextLabel) return `${currentLabel} / ${nextLabel}`;
+                            if (goalBlockCurrent > 0) return currentLabel;
+                            return '-';
+                        })()
+                        : (meta > 0 ? meta.toLocaleString('pt-BR') : '-');
+
+                    const lotDisplayForEmployee = lotBlock
+                        ? (() => {
+                            const suffix = (lotBlock.machineType || '').replace(/^Travete\s*/i, '').trim();
+                            const currentLabel = lotBlock.current
+                                ? `${lotBlock.current}${suffix ? ` - ${suffix}` : ''}`
+                                : '';
+                            const nextLabel = lotBlock.next || '';
+                            if (currentLabel) {
+                                return nextLabel ? `${currentLabel} / ${nextLabel}` : currentLabel;
+                            }
+                            return nextLabel || '-';
+                        })()
+                        : ((productNames || product?.name) ? (productNames || product?.name) : '-');
+
+                    return {
+                        ...emp,
+                        produced: producedValue,
+                        standardTime,
+                        meta,
+                        efficiency,
+                        cumulativeMeta: cumulativeMeta[empIndex] || 0,
+                        cumulativeProduced: cumulativeProduction[empIndex] || 0,
+                        cumulativeEfficiency,
+                        productName: productNames || product?.name || '',
+                        metaDisplay: goalDisplayForEmployee,
+                        lotDisplay: lotDisplayForEmployee,
+                    };
+                });
+
+                return {
+                    ...entry,
+                    employees,
+                };
+            });
+    }, [isTraveteDashboard, productionData, productMapForSelectedDate]);
+ useMemo(() => {
+        if (!isTraveteDashboard || !productionData || productionData.length === 0) return [];
+
+        let cumulativeMeta = [];
+        let cumulativeProduction = [];
+        let cumulativeEfficiencySum = [];
+        let cumulativeEntryCounts = [];
+
+        return [...productionData]
+            .sort((a, b) => (a.period || "").localeCompare(b.period || ""))
+            .map((entry) => {
+                const availableTime = parseFloat(entry.availableTime) || 0;
+
+                const storedGoalBlocks = Array.isArray(entry.traveteGoalBlocks) ? entry.traveteGoalBlocks : null;
+                const storedLotBlocks = Array.isArray(entry.traveteLotBlocks) ? entry.traveteLotBlocks : null;
+
+                const employees = (entry.employeeEntries || []).map((emp, empIndex) => {
+                    const productsArray = Array.isArray(emp.products) && emp.products.length > 0
+                        ? emp.products
+                        : (emp.productionDetails || []);
+                    const producedFromProducts = productsArray.reduce((sum, detail) => sum + (parseInt(detail.produced, 10) || 0), 0);
+                    const producedValue = producedFromProducts || (emp.produced !== undefined ? parseInt(emp.produced, 10) || 0 : 0);
+                    const firstProduct = productsArray.find(detail => detail.productId) || (emp.productionDetails || [])[0] || null;
+                    const productId = firstProduct?.productId || emp.productId || '';
+                    const product = productMapForSelectedDate.get(productId);
+                    const parsedStandardTime = parseFloat(emp.standardTime);
+                    const fallbackStandardTimeRaw = firstProduct?.standardTime !== undefined
+                        ? parseFloat(firstProduct.standardTime)
+                        : (product?.standardTime || 0);
+                    const fallbackStandardTime = (!Number.isNaN(fallbackStandardTimeRaw) && fallbackStandardTimeRaw > 0)
+                        ? fallbackStandardTimeRaw
+                        : 0;
+                    const standardTime = (!Number.isNaN(parsedStandardTime) && parsedStandardTime > 0)
+                        ? parsedStandardTime
+                        : fallbackStandardTime;
+                    const meta = (standardTime > 0 && availableTime > 0) ? Math.round(availableTime / standardTime) : 0;
+                    const efficiency = (standardTime > 0 && availableTime > 0 && producedValue > 0)
+                        ? parseFloat((((producedValue * standardTime) / availableTime) * 100).toFixed(2))
+                        : 0;
+
+                    cumulativeMeta[empIndex] = (cumulativeMeta[empIndex] || 0) + meta;
+                    cumulativeProduction[empIndex] = (cumulativeProduction[empIndex] || 0) + producedValue;
+                    cumulativeEfficiencySum[empIndex] = (cumulativeEfficiencySum[empIndex] || 0) + efficiency;
+                    cumulativeEntryCounts[empIndex] = (cumulativeEntryCounts[empIndex] || 0) + 1;
+
+                    const entriesCount = cumulativeEntryCounts[empIndex] || 1;
+                    const cumulativeEfficiency = parseFloat(((cumulativeEfficiencySum[empIndex] || 0) / entriesCount).toFixed(2));
+                    const productNames = productsArray
+                        .map(detail => {
+                            const detailProduct = productMapForSelectedDate.get(detail.productId);
+                            return detailProduct?.name || null;
+                        })
+                        .filter(Boolean)
+                        .join(' / ');
+
+                    const goalBlock = storedGoalBlocks?.[empIndex] || null;
+                    const lotBlock = storedLotBlocks?.[empIndex] || null;
+                    const goalBlockCurrent = goalBlock ? Number(goalBlock.current || 0) : meta;
+                    const goalBlockNext = goalBlock ? Number(goalBlock.next || 0) : 0;
+                    const goalBlockShowNext = goalBlock ? Boolean(goalBlock.showNext) && (goalBlock.next !== undefined && goalBlock.next !== null) : false;
+                    const goalDisplayForEmployee = goalBlock
+                        ? (() => {
+                            const currentLabel = goalBlockCurrent > 0 ? goalBlockCurrent.toLocaleString('pt-BR') : '0';
+                            const nextLabel = goalBlockShowNext
+                                ? (goalBlockNext > 0 ? goalBlockNext.toLocaleString('pt-BR') : currentLabel)
+                                : '';
+                            if (goalBlockShowNext && nextLabel) return `${currentLabel} / ${nextLabel}`;
+                            if (goalBlockCurrent > 0) return currentLabel;
+                            return '-';
+                        })()
+                        : (meta > 0 ? meta.toLocaleString('pt-BR') : '-');
+
+                    const lotDisplayForEmployee = lotBlock
+                        ? (() => {
+                            const suffix = (lotBlock.machineType || '').replace(/^Travete\s*/i, '').trim();
+                            const currentLabel = lotBlock.current
+                                ? `${lotBlock.current}${suffix ? ` - ${suffix}` : ''}`
+                                : '';
+                            const nextLabel = lotBlock.next || '';
+                            if (currentLabel) {
+                                return nextLabel ? `${currentLabel} / ${nextLabel}` : currentLabel;
+                            }
+                            return nextLabel || '-';
+                        })()
+                        : ((productNames || product?.name) ? (productNames || product?.name) : '-');
+
+                    return {
+                        ...emp,
+                        produced: producedValue,
+                        standardTime,
+                        meta,
+                        efficiency,
+                        cumulativeMeta: cumulativeMeta[empIndex] || 0,
+                        cumulativeProduced: cumulativeProduction[empIndex] || 0,
+                        cumulativeEfficiency,
+                        productName: productNames || product?.name || '',
+                        metaDisplay: goalDisplayForEmployee,
+                        lotDisplay: lotDisplayForEmployee,
+                    };
+                });
+
+                const metaBlockStrings = employees.length > 0
+                    ? employees.map(emp => emp.metaDisplay || '-')
+                    : [];
+                const goalDisplay = entry.goalDisplay || (metaBlockStrings.length > 0 ? metaBlockStrings.join(' // ') : '- // -');
+                const lotBlockStrings = employees.length > 0
+                    ? employees.map(emp => emp.lotDisplay || '-')
+                    : [];
+                const lotDisplay = entry.lotDisplay || (lotBlockStrings.length > 0 ? lotBlockStrings.join(' // ') : '- // -');
+
+                const producedDisplay = employees.length > 0
+                    ? employees.map(emp => (emp.produced || 0).toLocaleString('pt-BR')).join(' // ')
+                    : '0 // 0';
+
+                const efficiencyDisplay = employees.length > 0
+                    ? employees.map(emp => `${Number(emp.efficiency || 0).toFixed(2)}%`).join(' // ')
+                    : '0% // 0%';
+
+                const cumulativeMetaDisplay = employees.length > 0
+                    ? employees.map(emp => (emp.cumulativeMeta || 0).toLocaleString('pt-BR')).join(' // ')
+                    : '0 // 0';
+
+                const cumulativeProducedDisplay = employees.length > 0
+                    ? employees.map(emp => (emp.cumulativeProduced || 0).toLocaleString('pt-BR')).join(' // ')
+                    : '0 // 0';
+
+                const cumulativeEfficiencyDisplay = employees.length > 0
+                    ? employees.map(emp => `${Number(emp.cumulativeEfficiency || 0).toFixed(2)}%`).join(' // ')
+                    : '0% // 0%';
+
+                const totalMeta = employees.reduce((sum, emp) => sum + (emp.meta || 0), 0);
+                const totalProduced = employees.reduce((sum, emp) => sum + (emp.produced || 0), 0);
+                const totalEfficiency = employees.length > 0
+                    ? parseFloat((employees.reduce((sum, emp) => sum + (emp.efficiency || 0), 0) / employees.length).toFixed(2))
+                    : 0;
+                const totalCumulativeMeta = employees.reduce((sum, emp) => sum + (emp.cumulativeMeta || 0), 0);
+                const totalCumulativeProduced = employees.reduce((sum, emp) => sum + (emp.cumulativeProduced || 0), 0);
+                const totalCumulativeEfficiency = employees.length > 0
+                    ? parseFloat((employees.reduce((sum, emp) => sum + (emp.cumulativeEfficiency || 0), 0) / employees.length).toFixed(2))
+                    : 0;
+
+                return {
+                    ...entry,
+                    employees,
+                    goalDisplay,
+                    producedDisplay,
+                    efficiencyDisplay,
+                    cumulativeMetaDisplay,
+                    cumulativeProducedDisplay,
+                    cumulativeEfficiencyDisplay,
+                    lotDisplay,
+                    totalMeta,
+                    totalProduced,
+                    totalEfficiency,
+                    totalCumulativeMeta,
+                    totalCumulativeProduced,
+                    totalCumulativeEfficiency,
+                    goalForDisplay: goalDisplay,
+                };
+            });
+    }, [isTraveteDashboard, productionData, productMapForSelectedDate]);
+
+    const traveteDataByPeriod = useMemo(() => {
+        if (!isTraveteDashboard) return {};
+        return traveteProcessedData.reduce((acc, entry) => {
+            if (entry?.period) {
+                acc[entry.period] = entry;
+            }
+            return acc;
+        }, {});
+    }, [isTraveteDashboard, traveteProcessedData]);
     
     const prevProductionData = usePrevious(productionData);
     
     useEffect(() => {
         if (prevProductionData && productionData.length > prevProductionData.length) {
-            const newEntry = processedData[processedData.length - 1];
-            if (newEntry && newEntry.efficiency < 65) {
-                setShowFullScreenAlert(true);
+            if (isTraveteDashboard) {
+                const newTraveteEntry = traveteProcessedData[traveteProcessedData.length - 1];
+                const efficiencyToCheck = newTraveteEntry?.totalEfficiency ?? 0;
+                if (newTraveteEntry && efficiencyToCheck < 65) {
+                    setShowFullScreenAlert(true);
+                }
+            } else {
+                const newEntry = processedData[processedData.length - 1];
+                if (newEntry && newEntry.efficiency < 65) {
+                    setShowFullScreenAlert(true);
+                }
             }
         }
-    }, [productionData, prevProductionData, processedData]);
+    }, [productionData, prevProductionData, processedData, traveteProcessedData, isTraveteDashboard]);
 
     useEffect(() => {
         if (showFullScreenAlert) {
@@ -3259,10 +5456,77 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
 
 
     const monthlySummary = useMemo(() => {
-        const year = today.getFullYear();
-        const month = today.getMonth();
+        const referenceDate = new Date(selectedDate);
+        const year = referenceDate.getFullYear();
+        const month = referenceDate.getMonth();
+
+        if (isTraveteDashboard) {
+            let totalMonthlyProduction = 0;
+            let totalMonthlyGoal = 0;
+            let totalDailyEfficiency = 0;
+            let productiveDaysCount = 0;
+
+            Object.keys(allProductionData).forEach(dateStr => {
+                try {
+                    const date = new Date(dateStr + "T00:00:00");
+                    if (date.getFullYear() !== year || date.getMonth() !== month) return;
+
+                    const productsForDateMap = new Map(products
+                        .map(p => {
+                            const validTimeEntry = p.standardTimeHistory?.filter(h => new Date(h.effectiveDate) <= date).pop();
+                            if (!validTimeEntry) return null;
+                            return [p.id, { ...p, standardTime: validTimeEntry.time }];
+                        })
+                        .filter(Boolean));
+
+                    const dayData = allProductionData[dateStr];
+                    if (!dayData || dayData.length === 0) return;
+
+                    let dayMetaPerEmployee = [];
+                    let dayProductionPerEmployee = [];
+                    let dayEfficiencyPerEmployee = [];
+
+                    dayData.forEach(entry => {
+                        (entry.employeeEntries || []).forEach((emp, index) => {
+                            const producedFromDetails = (emp.productionDetails || []).reduce((sum, detail) => sum + (detail.produced || 0), 0);
+                            const produced = emp.produced !== undefined ? parseInt(emp.produced, 10) || 0 : producedFromDetails;
+                            const product = productsForDateMap.get(emp.productId);
+                            const standardTime = product?.standardTime || 0;
+                            const availableTime = entry.availableTime || 0;
+                            const meta = (standardTime > 0 && availableTime > 0) ? Math.round(availableTime / standardTime) : 0;
+                            const efficiency = (standardTime > 0 && availableTime > 0 && produced > 0)
+                                ? (produced * standardTime) / availableTime * 100
+                                : 0;
+
+                            dayMetaPerEmployee[index] = (dayMetaPerEmployee[index] || 0) + meta;
+                            dayProductionPerEmployee[index] = (dayProductionPerEmployee[index] || 0) + produced;
+                            dayEfficiencyPerEmployee[index] = (dayEfficiencyPerEmployee[index] || 0) + efficiency;
+                        });
+                    });
+
+                    const employeesCount = Math.max(dayMetaPerEmployee.length, dayEfficiencyPerEmployee.length);
+                    if (employeesCount > 0) {
+                        productiveDaysCount++;
+                        totalMonthlyGoal += dayMetaPerEmployee.reduce((sum, value) => sum + (value || 0), 0);
+                        totalMonthlyProduction += dayProductionPerEmployee.reduce((sum, value) => sum + (value || 0), 0);
+                        const dailyAverageEfficiency = dayEfficiencyPerEmployee.reduce((sum, value) => sum + (value || 0), 0) /
+                            (employeesCount * (dayData.length || 1));
+                        totalDailyEfficiency += dailyAverageEfficiency || 0;
+                    }
+                } catch (e) {
+                    console.error("Data inválida no sumário mensal:", dateStr);
+                }
+            });
+
+            const averageMonthlyEfficiency = productiveDaysCount > 0
+                ? parseFloat((totalDailyEfficiency / productiveDaysCount).toFixed(2))
+                : 0;
+
+            return { totalProduction: totalMonthlyProduction, totalGoal: totalMonthlyGoal, averageEfficiency: averageMonthlyEfficiency };
+        }
+
         let totalMonthlyProduction = 0, totalMonthlyGoal = 0, totalDailyAverageEfficiencies = 0, productiveDaysCount = 0;
-        
+
         Object.keys(allProductionData).forEach(dateStr => {
             try {
                 const date = new Date(dateStr + "T00:00:00");
@@ -3299,7 +5563,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         });
         const averageMonthlyEfficiency = productiveDaysCount > 0 ? parseFloat((totalDailyAverageEfficiencies / productiveDaysCount).toFixed(2)) : 0;
         return { totalProduction: totalMonthlyProduction, totalGoal: totalMonthlyGoal, averageEfficiency: averageMonthlyEfficiency };
-    }, [allProductionData, today, products]);
+    }, [isTraveteDashboard, allProductionData, selectedDate, products]);
 
     const handleNextDash = () => {
         const i = dashboards.findIndex(d=>d.id===currentDashboardId);
@@ -3313,23 +5577,217 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     };
     
     const renderTvTable = () => {
+        if (isTraveteDashboard) {
+            const getPeopleTimeValue = (period) => {
+                const entry = traveteDataByPeriod[period];
+                if (entry) {
+                    const peopleCount = entry.employeeEntries?.length || entry.people || entry.employees?.length || 0;
+                    const availableTime = entry.availableTime || 0;
+                    return `${peopleCount} / ${availableTime} min`;
+                }
+                if (isTodaySelected && previewData && previewData.period === period) {
+                    const peopleCount = previewData.people || (previewData.employeeEntries?.length || 0);
+                    const availableTime = previewData.availableTime || 0;
+                    return `${peopleCount} / ${availableTime} min`;
+                }
+                return '- / -';
+            };
+
+            const getAlteracaoValue = (period) => {
+                const entry = traveteDataByPeriod[period];
+                if (entry) {
+                    if (entry.lotDisplay) {
+                        return entry.lotDisplay;
+                    }
+                    if (entry.employees?.length) {
+                        const names = entry.employees
+                            .map(emp => emp.lotDisplay || emp.productName || '')
+                            .filter(Boolean);
+                        if (names.length) {
+                            return names.join(' // ');
+                        }
+                    }
+                }
+                if (isTodaySelected && previewData && previewData.period === period) {
+                    if (previewData.lotDisplayName) {
+                        return previewData.lotDisplayName;
+                    }
+                    const previewNames = (previewData.employeeEntries || [])
+                        .map(emp => {
+                            const productLots = (emp.products || [])
+                                .map(item => item.lotName || '')
+                                .filter(Boolean)
+                                .join(' / ');
+                            if (productLots) return productLots;
+                            return emp.machineType;
+                        })
+                        .filter(Boolean);
+                    if (previewNames.length) {
+                        return previewNames.join(' // ');
+                    }
+                }
+                return '-';
+            };
+
+            const getTraveteCellContent = (period, rowKey) => {
+                const entry = traveteDataByPeriod[period];
+                if (entry) {
+                    switch (rowKey) {
+                        case 'goalDisplay':
+                            return entry.goalDisplay || '-';
+                        case 'producedDisplay':
+                            return entry.producedDisplay || '-';
+                        case 'efficiencyDisplay':
+                            return entry.efficiencyDisplay || '-';
+                        case 'cumulativeMetaDisplay':
+                            return entry.cumulativeMetaDisplay || '-';
+                        case 'cumulativeProducedDisplay':
+                            return entry.cumulativeProducedDisplay || '-';
+                        case 'cumulativeEfficiencyDisplay':
+                            return entry.cumulativeEfficiencyDisplay || '-';
+                        default:
+                            return '-';
+                    }
+                }
+                if (rowKey === 'goalDisplay' && isTodaySelected && previewData && previewData.period === period) {
+                    return previewData.goalDisplay || '-';
+                }
+                return '-';
+            };
+
+            const traveteRows = [
+                { key: 'goalDisplay', label: 'Meta', highlight: 'text-blue-600', previewHighlight: 'text-yellow-500' },
+                { key: 'producedDisplay', label: 'Produção' },
+                { key: 'efficiencyDisplay', label: 'Eficiência', isColor: true, getValues: (entry) => entry.employees?.map(emp => emp.efficiency || 0) || [] },
+                { key: 'cumulativeMetaDisplay', label: 'Meta Acum.' },
+                { key: 'cumulativeProducedDisplay', label: 'Prod. Acum.' },
+                { key: 'cumulativeEfficiencyDisplay', label: 'Efic. Acum.', isColor: true, getValues: (entry) => entry.employees?.map(emp => emp.cumulativeEfficiency || 0) || [] },
+                { key: 'monthlyGoal', label: 'Meta Mês', isMonthly: true, value: monthlySummary.totalGoal.toLocaleString('pt-BR') },
+                { key: 'monthlyProduction', label: 'Prod. Mês', isMonthly: true, value: monthlySummary.totalProduction.toLocaleString('pt-BR') },
+                { key: 'monthlyEfficiency', label: 'Efic. Mês', isMonthly: true, isColor: true, value: `${monthlySummary.averageEfficiency}%` },
+            ];
+
+            const shouldWarnLowEfficiency = (entry) => entry?.employees?.some(emp => (emp.efficiency || 0) < 70);
+
+            return (
+                <div className="overflow-x-auto w-full text-center p-6 border-4 border-blue-900 rounded-xl shadow-2xl bg-white text-gray-900 responsive-tv">
+                    <table className="min-w-full table-fixed">
+                        <thead className="text-white bg-blue-500">
+                            <tr>
+                                <th colSpan={FIXED_PERIODS.length + 1} className="p-4 text-5xl relative">
+                                    <div className="absolute top-2 left-2 flex items-center gap-2">
+                                        <button onClick={stopTvMode} className="p-2 bg-red-600 text-white rounded-full flex items-center gap-1 text-sm"><XCircle size={18} /> SAIR</button>
+                                        {!isCarousel && (
+                                            <>
+                                                <button onClick={handlePrevDash} className="p-2 bg-blue-700 text-white rounded-full"><ArrowLeft size={18} /></button>
+                                                <button onClick={handleNextDash} className="p-2 bg-blue-700 text-white rounded-full"><ArrowRight size={18} /></button>
+                                            </>
+                                        )}
+                                    </div>
+                                    {!isCarousel && (
+                                        <div className="absolute top-2 right-2 flex items-center gap-2">
+                                            <button onClick={handlePrevDay} className="px-3 py-1 bg-blue-700 text-white rounded-full text-sm">⬅ Dia anterior</button>
+                                            <button onClick={handleNextDay} className="px-3 py-1 bg-blue-700 text-white rounded-full text-sm">Dia seguinte ➡</button>
+                                        </div>
+                                    )}
+                                    {currentDashboard.name.toUpperCase()} - {selectedDateLabel}
+                                </th>
+                            </tr>
+                            <tr>
+                                <th className="p-2 text-left">Resumo</th>
+                                {FIXED_PERIODS.map(period => {
+                                    const entry = traveteDataByPeriod[period];
+                                    const isPreviewSlot = !entry && previewData && previewData.period === period;
+                                    return (
+                                        <th key={period} className={`p-2 text-sm ${isPreviewSlot ? 'text-yellow-300' : ''}`}>
+                                            {getPeopleTimeValue(period)}
+                                        </th>
+                                    );
+                                })}
+                            </tr>
+                            <tr>
+                                <th className="p-2 text-left">Alteração</th>
+                                {FIXED_PERIODS.map(period => {
+                                    const entry = traveteDataByPeriod[period];
+                                    const isPreviewSlot = !entry && previewData && previewData.period === period;
+                                    return (
+                                        <th key={period} className={`p-2 text-base ${isPreviewSlot ? 'text-yellow-300' : ''}`}>
+                                            {getAlteracaoValue(period)}
+                                        </th>
+                                    );
+                                })}
+                            </tr>
+                            <tr>
+                                <th className="p-3 text-left">Hora</th>
+                                {FIXED_PERIODS.map(period => (
+                                    <th key={period} className="p-3 text-3xl">{period}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody className="text-2xl divide-y divide-gray-200">
+                            {traveteRows.map(row => (
+                                <tr key={row.key} className={row.isMonthly ? 'bg-gray-100' : ''}>
+                                    <td className="p-3 font-bold text-left sticky left-0 bg-gray-200">{row.label}</td>
+                                    {row.isMonthly ? (
+                                        <td colSpan={FIXED_PERIODS.length} className={`p-3 font-extrabold ${row.isColor ? (parseFloat(row.value) < 65 ? 'text-red-500' : 'text-green-600') : ''}`}>
+                                            {row.value}
+                                        </td>
+                                    ) : (
+                                        FIXED_PERIODS.map(period => {
+                                            const entry = traveteDataByPeriod[period];
+                                            const isPreviewSlot = !entry && isTodaySelected && previewData && previewData.period === period;
+                                            let cellClass = 'p-3 font-extrabold';
+                                            let cellContent = getTraveteCellContent(period, row.key);
+
+                                            if (row.key === 'goalDisplay') {
+                                                if (entry) {
+                                                    cellClass += ` ${row.highlight}`;
+                                                } else if (isPreviewSlot) {
+                                                    cellClass += ` ${row.previewHighlight || 'text-yellow-500'}`;
+                                                }
+                                            } else if (row.isColor && entry && cellContent !== '-') {
+                                                const values = row.getValues ? row.getValues(entry) : [];
+                                                const hasLow = values.some(value => Number(value) < 65);
+                                                cellClass += hasLow ? ' text-red-500' : ' text-green-600';
+                                            }
+
+                                            const warningNeeded = row.key === 'producedDisplay' && entry && shouldWarnLowEfficiency(entry);
+
+                                            return (
+                                                <td key={period} className={cellClass}>
+                                                    {warningNeeded && (
+                                                        <span role="img" aria-label="Alerta" className="text-yellow-400 text-3xl">⚠️ </span>
+                                                    )}
+                                                    {cellContent}
+                                                </td>
+                                            );
+                                        })
+                                    )}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            );
+        }
+
         const dataByPeriod = processedData.reduce((acc, curr) => ({ ...acc, [curr.period]: curr }), {});
-        
+
         const getPeopleTimeValue = (p) => dataByPeriod[p] ? `${dataByPeriod[p].people} / ${dataByPeriod[p].availableTime} min` : '- / -';
         const getProductionValue = (p) => dataByPeriod[p]?.producedForDisplay || '-';
         const getAlteracaoValue = (p) => {
             const launched = dataByPeriod[p];
             if (launched && launched.productionDetails?.length > 0) {
-                return launched.productionDetails.map(d => productMapForToday.get(d.productId)?.name).filter(Boolean).join(' / ');
+                return launched.productionDetails.map(d => productMapForSelectedDate.get(d.productId)?.name).filter(Boolean).join(' / ');
             }
-            if (previewData && previewData.period === p) {
+            if (isTodaySelected && previewData && previewData.period === p) {
                 return previewData.productName;
             }
             return '-';
         };
 
         const TV_ROWS = [
-            { key: 'meta', label: 'Meta'},
+            { key: 'meta', label: 'Meta', formatter: (p) => dataByPeriod[p]?.goalForDisplay || dataByPeriod[p]?.goal || '-' },
             { key: 'producedForDisplay', label: 'Produção', formatter: getProductionValue },
             { key: 'efficiency', label: 'Eficiência', isColor: true, formatter: (p) => dataByPeriod[p] ? `${dataByPeriod[p].efficiency}%` : '-' },
             { key: 'cumulativeGoal', label: 'Meta Acum.', formatter: (p) => dataByPeriod[p]?.cumulativeGoal.toLocaleString('pt-BR') || '-' },
@@ -3339,7 +5797,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             { key: 'monthlyProduction', label: 'Prod. Mês', isMonthly: true, value: monthlySummary.totalProduction.toLocaleString('pt-BR') },
             { key: 'monthlyEfficiency', label: 'Efic. Mês', isMonthly: true, isColor: true, value: `${monthlySummary.averageEfficiency}%` },
         ];
-        
+
         return (
             <div className="overflow-x-auto w-full text-center p-6 border-4 border-blue-900 rounded-xl shadow-2xl bg-white text-gray-900">
                 <table className="min-w-full table-fixed">
@@ -3354,12 +5812,18 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                                     </>
                                 )}
                             </div>
-                            {currentDashboard.name.toUpperCase()} - {today.toLocaleDateString('pt-BR')}
+                            {!isCarousel && (
+                                <div className="absolute top-2 right-2 flex items-center gap-2">
+                                    <button onClick={handlePrevDay} className="px-3 py-1 bg-blue-700 text-white rounded-full text-sm">⬅ Dia anterior</button>
+                                    <button onClick={handleNextDay} className="px-3 py-1 bg-blue-700 text-white rounded-full text-sm">Dia seguinte ➡</button>
+                                </div>
+                            )}
+                            {currentDashboard.name.toUpperCase()} - {selectedDateLabel}
                         </th></tr>
                         <tr><th className="p-2 text-left">Resumo</th>{FIXED_PERIODS.map(p => <th key={p} className="p-2 text-sm">{getPeopleTimeValue(p)}</th>)}</tr>
                         <tr><th className="p-2 text-left">Alteração</th>{FIXED_PERIODS.map(p => {
                             const launched = dataByPeriod[p];
-                            const isPreviewSlot = previewData && previewData.period === p && !launched;
+                            const isPreviewSlot = isTodaySelected && previewData && previewData.period === p && !launched;
                             return <th key={p} className={`p-2 text-base ${isPreviewSlot ? 'text-yellow-300' : ''}`}>{getAlteracaoValue(p)}</th>
                         })}</tr>
                         <tr><th className="p-3 text-left">Hora</th>{FIXED_PERIODS.map(p => <th key={p} className="p-3 text-3xl">{p}</th>)}</tr>
@@ -3374,7 +5838,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                                     FIXED_PERIODS.map(p => {
                                         const launched = dataByPeriod[p];
                                         let cellContent, cellClass = 'p-3 font-extrabold';
-                                        
+
                                         if (row.key === 'meta') {
                                             if (launched) {
                                                 cellContent = launched.goalForDisplay;
@@ -3394,7 +5858,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                                         }
 
                                         const efficiency = dataByPeriod[p]?.efficiency;
-                                        
+
                                         return <td key={p} className={cellClass}>
                                             {row.key === 'producedForDisplay' && launched && efficiency != null && efficiency < 70 && (
                                               <span role="img" aria-label="Alerta" className="text-yellow-400 text-3xl">⚠️ </span>
