@@ -3061,8 +3061,8 @@ const calculatePredictions = useCallback(() => {
         const groups = new Map();
 
         products.forEach(product => {
-            const baseId = product.baseProductId || product.baseProductName || product.id;
-            const baseName = product.baseProductName || product.name.replace(/\s-\s.*$/, '');
+            const baseName = getTraveteBaseProductName(product);
+            const baseId = product.baseProductId || product.baseProductName || baseName || product.id;
             if (!groups.has(baseId)) {
                 groups.set(baseId, { baseId, baseName, variations: [] });
             }
@@ -3354,7 +3354,33 @@ const calculatePredictions = useCallback(() => {
     const handleAddLot = async (e) => {
         e.preventDefault();
         if (!newLot.productId || !newLot.target || !currentDashboard) return;
-        const product = products.find(p => p.id === newLot.productId);
+
+        let product = null;
+        let lotBaseMetadata = {};
+
+        if (isTraveteDashboard) {
+            const selectedGroup = traveteGroupedProducts.find(group => group.baseId === newLot.productId);
+            if (!selectedGroup) return;
+
+            product = selectedGroup.variations.find(variation => variation.machineType === 'Travete 2 Agulhas')
+                || selectedGroup.variations[0]
+                || null;
+
+            lotBaseMetadata = {
+                productBaseId: selectedGroup.baseId,
+                productBaseName: selectedGroup.baseName,
+            };
+
+            if (!product) {
+                product = {
+                    id: selectedGroup.baseId,
+                    name: selectedGroup.baseName,
+                };
+            }
+        } else {
+            product = products.find(p => p.id === newLot.productId);
+        }
+
         if (!product) return;
         const id = Date.now().toString();
         const newLotData = {
@@ -3362,7 +3388,7 @@ const calculatePredictions = useCallback(() => {
             sequentialId: lotCounter,
             ...newLot,
             productId: product.id,
-            productName: product.name,
+            productName: isTraveteDashboard ? (lotBaseMetadata.productBaseName || product.name) : product.name,
             target: parseInt(newLot.target, 10),
             produced: 0,
             status: 'future',
@@ -3371,7 +3397,7 @@ const calculatePredictions = useCallback(() => {
             startDate: null,
             endDate: null,
             createdBy: { uid: user.uid, email: user.email },
-            ...(isTraveteDashboard ? { machineType: product.machineType } : {}),
+            ...(isTraveteDashboard ? lotBaseMetadata : { machineType: product.machineType }),
         };
         await setDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, id), newLotData);
         setNewLot({ productId: '', target: '', customName: '' });
@@ -3881,16 +3907,24 @@ const calculatePredictions = useCallback(() => {
                           <form onSubmit={handleAddLot} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                                <div className="flex flex-col">
                                    <label htmlFor="newLotProduct">Produto</label>
-                                   <select id="newLotProduct" name="productId" value={newLot.productId} onChange={e => setNewLot({...newLot, productId: e.target.value})} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
-                                       <option value="">Selecione...</option>
-                                       {[...products]
-                                           .sort((a,b)=>a.name.localeCompare(b.name))
-                                           .map(p => (
-                                               <option key={p.id} value={p.id}>
-                                                   {isTraveteDashboard ? getTraveteBaseProductName(p) : p.name}
-                                               </option>
-                                           ))}
-                                   </select>
+                                  <select id="newLotProduct" name="productId" value={newLot.productId} onChange={e => setNewLot({...newLot, productId: e.target.value})} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
+                                      <option value="">Selecione...</option>
+                                      {isTraveteDashboard ? (
+                                          traveteGroupedProducts.map(group => (
+                                              <option key={group.baseId} value={group.baseId}>
+                                                  {group.baseName}
+                                              </option>
+                                          ))
+                                      ) : (
+                                          [...products]
+                                              .sort((a,b)=>a.name.localeCompare(b.name))
+                                              .map(p => (
+                                                  <option key={p.id} value={p.id}>
+                                                      {p.name}
+                                                  </option>
+                                              ))
+                                      )}
+                                  </select>
                                </div>
                                <div className="flex flex-col"><label htmlFor="newLotTarget">Quantidade</label><input type="number" id="newLotTarget" name="target" value={newLot.target} onChange={e => setNewLot({...newLot, target: e.target.value})} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
                                <div className="flex flex-col"><label htmlFor="newLotCustomName">Nome (Opcional)</label><input type="text" id="newLotCustomName" name="customName" value={newLot.customName} onChange={e => setNewLot({...newLot, customName: e.target.value})} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
