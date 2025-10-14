@@ -2030,6 +2030,512 @@ const EditEntryModal = ({
             goalDisplay: goalDisplayValue,
             primaryProductId,
         });
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-40 modal-backdrop">
+            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-3xl modal-content max-h-[90vh] overflow-y-auto">
+                <h2 className="text-xl font-bold mb-4">Editar Lançamento: {entry.period}</h2>
+                {isTraveteEntry ? (
+                    <div className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="flex flex-col">
+                                <label htmlFor="travete-edit-time" className="text-sm font-medium">Tempo Disp. (min)</label>
+                                <input
+                                    id="travete-edit-time"
+                                    type="number"
+                                    value={entryData.availableTime}
+                                    onChange={(e) => setEntryData(prev => ({ ...prev, availableTime: e.target.value }))}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                            <div className="md:col-span-2 flex flex-col">
+                                <label htmlFor="travete-edit-observation" className="text-sm font-medium">Observação</label>
+                                <textarea
+                                    id="travete-edit-observation"
+                                    value={entryData.observation}
+                                    onChange={(e) => setEntryData(prev => ({ ...prev, observation: e.target.value }))}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                    rows={2}
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            {entryData.employeeEntries.map((employee, index) => (
+                                <div key={employee.employeeId || index} className="p-4 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/60 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-lg font-semibold">Funcionário {employee.employeeId}</h3>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div className="flex flex-col">
+                                            <label className="text-sm font-medium">Máquina</label>
+                                            <select
+                                                value={employee.machineType}
+                                                onChange={(e) => handleTraveteEmployeeChange(index, 'machineType', e.target.value)}
+                                                className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                            >
+                                                {traveteMachines.map(machine => (
+                                                    <option key={machine} value={machine}>{machine}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <label className="text-sm font-medium">Tempo por Peça (min)</label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                value={employee.standardTime}
+                                                onChange={(e) => handleTraveteEmployeeChange(index, 'standardTime', e.target.value)}
+                                                className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-3">
+                                        {employee.products.map((productItem, productIdx) => (
+                                            <div key={`${employee.employeeId}-${productIdx}`} className="p-3 rounded-lg bg-white dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 space-y-3">
+                                                        <div className="flex items-center justify-between">
+                                                            <label className="text-sm font-semibold">
+                                                                {productIdx === 0
+                                                                    ? 'Produto / Lote (Prioridade)'
+                                                                    : productItem.isAutoSuggested
+                                                                        ? 'Próximo Lote (Automático)'
+                                                                        : 'Produto / Lote'}
+                                                            </label>
+                                                            {employee.products.length > 1 && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleTraveteRemoveProduct(index, productIdx)}
+                                                                    className="text-red-500 hover:text-red-400"
+                                                        >
+                                                            <Trash size={16} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <select
+                                                    value={productItem.lotId}
+                                                    onChange={(e) => handleTraveteProductChange(index, productIdx, 'lotId', e.target.value)}
+                                                    className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                >
+                                                    <option value="">Selecione...</option>
+                                                    {traveteLotOptions.map(lotOption => (
+                                                        <option key={lotOption.id} value={lotOption.id}>
+                                                            {formatTraveteLotDisplayName(lotOption, products)}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <div className="flex flex-col">
+                                                    <label className="text-sm">Quantidade Produzida</label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        value={productItem.produced}
+                                                        onChange={(e) => handleTraveteProductChange(index, productIdx, 'produced', e.target.value)}
+                                                        className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
+                                        <button
+                                            type="button"
+                                            onClick={() => handleTraveteAddProduct(index)}
+                                            className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-500"
+                                        >
+                                            <PlusCircle size={16} /> Adicionar item fora de ordem
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="flex flex-col justify-center items-center bg-blue-100 dark:bg-blue-900/50 p-3 rounded-md shadow-inner">
+                                <span className="text-sm font-medium text-gray-700 dark:text-gray-200">Meta Prevista</span>
+                                <span className="font-bold text-lg text-blue-600 dark:text-blue-300 text-center">
+                                    {traveteMetaDisplay || '- // -'}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label htmlFor="edit-people" className="block text-sm font-medium">Nº Pessoas</label>
+                                <input
+                                    id="edit-people"
+                                    type="number"
+                                    value={entryData.people}
+                                    onChange={(e) => setEntryData({ ...entryData, people: e.target.value })}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="edit-time" className="block text-sm font-medium">Tempo Disp. (min)</label>
+                                <input
+                                    id="edit-time"
+                                    type="number"
+                                    value={entryData.availableTime}
+                                    onChange={(e) => setEntryData({ ...entryData, availableTime: e.target.value })}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <h3 className="text-sm font-semibold mb-2">Produções</h3>
+                            <div className="space-y-2 max-h-64 overflow-y-auto">
+                                {(entryData.productionRows || []).map((row, index) => (
+                                    <div key={row.key || `${row.productId}-${index}`} className="flex items-center justify-between gap-4">
+                                        <span className="text-sm font-medium truncate">{row.productName || row.productId || 'Produto'}</span>
+                                        <input
+                                            type="number"
+                                            value={row.produced || ''}
+                                            onChange={(e) => handleProductionRowChange(index, e.target.value)}
+                                            className="w-24 p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                        />
+                                    </div>
+                                ))}
+                                {(!entryData.productionRows || entryData.productionRows.length === 0) && (
+                                    <p className="text-sm text-gray-500">Nenhum lote previsto para este horário.</p>
+                                )}
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                                {defaultPredictedLotLabel && (
+                                    <div className="flex flex-col justify-center items-center bg-blue-50 dark:bg-blue-900/40 p-3 rounded-md shadow-inner">
+                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-200">Lotes Previstos</span>
+                                        <span className="font-semibold text-base text-blue-700 dark:text-blue-200 text-center">{defaultPredictedLotLabel}</span>
+                                    </div>
+                                )}
+                                <div className="flex flex-col justify-center items-center bg-blue-100 dark:bg-blue-900/50 p-3 rounded-md shadow-inner">
+                                    <span className="text-sm font-medium text-gray-700 dark:text-gray-200">Meta Prevista</span>
+                                    <span className="font-bold text-lg text-blue-600 dark:text-blue-400">{defaultGoalPreview}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                <div className="mt-6 flex justify-end gap-3">
+                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-md">Cancelar</button>
+                    <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Salvar</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+
+const DashboardActionModal = ({ isOpen, onClose, onConfirm, mode, initialName }) => {
+    const [name, setName] = useState('');
+    const modalRef = useRef();
+    useClickOutside(modalRef, onClose);
+
+    const defaultPredictions = useMemo(() => {
+        if (isTraveteEntry) {
+            return [];
+        }
+
+        return computeDefaultPredictionsForEdit({
+            peopleValue: entryData?.people,
+            availableTimeValue: entryData?.availableTime,
+            lots,
+            productMap,
+            fallbackProductId,
+        });
+    }, [isTraveteEntry, entryData?.people, entryData?.availableTime, lots, productMap, fallbackProductId]);
+
+    useEffect(() => {
+        if (!isOpen || isTraveteEntry) return;
+
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'default') return prev;
+            const existingRows = prev.productionRows || [];
+            const nextRows = buildRowsFromPredictions(existingRows, defaultPredictions, lots, productMap);
+            if (areProductionRowsEqual(existingRows, nextRows)) {
+                return prev;
+            }
+            return { ...prev, productionRows: nextRows };
+        });
+    }, [isOpen, isTraveteEntry, defaultPredictions, lots, productMap]);
+
+    const defaultGoalPreview = useMemo(() => {
+        if (isTraveteEntry) {
+            return '';
+        }
+
+        if (!defaultPredictions || defaultPredictions.length === 0) {
+            const fallbackDisplay = entryData?.previousGoalDisplay || entry?.goalDisplay || '';
+            return fallbackDisplay && fallbackDisplay.trim().length > 0 ? fallbackDisplay : '0';
+        }
+
+        const segments = defaultPredictions
+            .map(prediction => Math.max(0, prediction.remainingPieces ?? prediction.plannedPieces ?? 0))
+            .filter((value, index) => value > 0 || index === 0);
+
+        return segments.length > 0
+            ? segments.map(value => value.toLocaleString('pt-BR')).join(' / ')
+            : '0';
+    }, [isTraveteEntry, defaultPredictions, entryData?.previousGoalDisplay, entry?.goalDisplay]);
+
+    const defaultPredictedLotLabel = useMemo(() => {
+        if (isTraveteEntry || !defaultPredictions || defaultPredictions.length === 0) {
+            return '';
+        }
+
+        return defaultPredictions
+            .map(prediction => prediction.productName)
+            .filter(Boolean)
+            .join(' / ');
+    }, [isTraveteEntry, defaultPredictions]);
+
+    const traveteMetaPreview = useMemo(() => {
+        if (!isTraveteEntry) return null;
+        const availableTime = parseFloat(entryData?.availableTime) || 0;
+        return (entryData?.employeeEntries || []).map(emp => {
+            const standardTime = parseFloat(emp.standardTime) || 0;
+            if (availableTime <= 0 || standardTime <= 0) return 0;
+            return Math.round(availableTime / standardTime);
+        });
+    }, [isTraveteEntry, entryData]);
+
+    const traveteMetaDisplay = useMemo(() => {
+        if (!Array.isArray(traveteMetaPreview)) return '';
+        return traveteMetaPreview
+            .map(value => value.toLocaleString('pt-BR'))
+            .join(' // ');
+    }, [traveteMetaPreview]);
+
+    if (!isOpen || !entryData) return null;
+
+    const deriveTraveteStandardTime = (lotId, machineType) => {
+        const lot = lots.find(l => l.id === lotId) || null;
+        if (!lot || !machineType) return '';
+        const variation = findTraveteVariationForLot(lot, machineType, products, traveteVariationLookup);
+        const numeric = variation?.standardTime ? parseFloat(variation.standardTime) : NaN;
+        if (!Number.isFinite(numeric) || numeric <= 0) return '';
+        return formatTraveteStandardTimeValue(numeric);
+    };
+
+    const handleTraveteEmployeeChange = (index, field, value) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== index) return emp;
+                const updated = { ...emp };
+                switch (field) {
+                    case 'machineType': {
+                        updated.machineType = value;
+                        if (!updated.standardTimeManual) {
+                            const firstLotId = updated.products.find(item => item.lotId)?.lotId;
+                            if (firstLotId) {
+                                const derived = deriveTraveteStandardTime(firstLotId, value);
+                                updated.standardTime = derived;
+                            }
+                        }
+                        break;
+                    }
+                    case 'standardTime': {
+                        updated.standardTime = value;
+                        updated.standardTimeManual = value !== '';
+                        break;
+                    }
+                    default: {
+                        updated[field] = value;
+                    }
+                }
+                return updated;
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteProductChange = (employeeIndex, productIndex, field, value) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                const updatedProducts = emp.products.map((product, prodIdx) => {
+                    if (prodIdx !== productIndex) return product;
+                    const nextProduct = { ...product, [field]: value };
+                    if (field === 'lotId') {
+                        nextProduct.isAutoSuggested = false;
+                    }
+                    return nextProduct;
+                });
+                const updatedEmployee = { ...emp, products: updatedProducts };
+                if (field === 'lotId' && !emp.standardTimeManual) {
+                    const derived = deriveTraveteStandardTime(value, emp.machineType);
+                    if (derived) {
+                        updatedEmployee.standardTime = derived;
+                    }
+                }
+                return updatedEmployee;
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteAddProduct = (employeeIndex) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                return { ...emp, products: [...emp.products, createDefaultTraveteProductItem()] };
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteRemoveProduct = (employeeIndex, productIndex) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                const remaining = emp.products.filter((_, idx) => idx !== productIndex);
+                return { ...emp, products: remaining.length > 0 ? remaining : [createDefaultTraveteProductItem()] };
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const deriveTraveteStandardTime = (lotId, machineType) => {
+        const lot = lots.find(l => l.id === lotId) || null;
+        if (!lot || !machineType) return '';
+        const variation = findTraveteVariationForLot(lot, machineType, products, traveteVariationLookup);
+        const numeric = variation?.standardTime ? parseFloat(variation.standardTime) : NaN;
+        if (!Number.isFinite(numeric) || numeric <= 0) return '';
+        return formatTraveteStandardTimeValue(numeric);
+    };
+
+    const handleTraveteEmployeeChange = (index, field, value) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== index) return emp;
+                const updated = { ...emp };
+                switch (field) {
+                    case 'machineType': {
+                        updated.machineType = value;
+                        if (!updated.standardTimeManual) {
+                            const firstLotId = updated.products.find(item => item.lotId)?.lotId;
+                            if (firstLotId) {
+                                const derived = deriveTraveteStandardTime(firstLotId, value);
+                                updated.standardTime = derived;
+                            }
+                        }
+                        break;
+                    }
+                    case 'standardTime': {
+                        updated.standardTime = value;
+                        updated.standardTimeManual = value !== '';
+                        break;
+                    }
+                    default: {
+                        updated[field] = value;
+                    }
+                }
+                return updated;
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteProductChange = (employeeIndex, productIndex, field, value) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                const updatedProducts = emp.products.map((product, prodIdx) => {
+                    if (prodIdx !== productIndex) return product;
+                    const nextProduct = { ...product, [field]: value };
+                    if (field === 'lotId') {
+                        nextProduct.isAutoSuggested = false;
+                    }
+                    return nextProduct;
+                });
+                const updatedEmployee = { ...emp, products: updatedProducts };
+                if (field === 'lotId' && !emp.standardTimeManual) {
+                    const derived = deriveTraveteStandardTime(value, emp.machineType);
+                    if (derived) {
+                        updatedEmployee.standardTime = derived;
+                    }
+                }
+                return updatedEmployee;
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteAddProduct = (employeeIndex) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                return { ...emp, products: [...emp.products, createDefaultTraveteProductItem()] };
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteRemoveProduct = (employeeIndex, productIndex) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                const remaining = emp.products.filter((_, idx) => idx !== productIndex);
+                return { ...emp, products: remaining.length > 0 ? remaining : [createDefaultTraveteProductItem()] };
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleSave = () => {
+        if (isTraveteEntry) {
+            const normalizedEmployees = entryData.employeeEntries.map(emp => ({
+                employeeId: emp.employeeId,
+                machineType: emp.machineType,
+                standardTime: emp.standardTime,
+                products: emp.products.map(product => ({
+                    ...product,
+                    produced: parseInt(product.produced, 10) || 0,
+                })),
+            }));
+
+            onSave(entry.id, {
+                type: 'travete',
+                availableTime: parseFloat(entryData.availableTime) || 0,
+                employeeEntries: normalizedEmployees,
+                observation: entryData.observation || '',
+            });
+            onClose();
+            return;
+        }
+
+        const numericPeople = parseFloat(entryData.people) || 0;
+        const numericAvailableTime = parseFloat(entryData.availableTime) || 0;
+        const updatedProductions = (entryData.productionRows || [])
+            .filter(row => row.productId)
+            .map(row => ({
+                productId: row.productId,
+                produced: parseInt(row.produced, 10) || 0,
+            }))
+            .filter(detail => detail.produced > 0);
+
+        const primaryProductId = updatedProductions[0]?.productId
+            || entry?.primaryProductId
+            || entry?.productionDetails?.[0]?.productId
+            || '';
+
+        const goalDisplayValue = defaultGoalPreview && defaultGoalPreview.trim().length > 0
+            ? defaultGoalPreview
+            : entry?.goalDisplay || '0';
+
+        onSave(entry.id, {
+            type: 'default',
+            people: numericPeople,
+            availableTime: numericAvailableTime,
+            productions: updatedProductions,
+            goalDisplay: goalDisplayValue,
+            primaryProductId,
+        });
         onClose();
     };
 
