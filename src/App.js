@@ -67,6 +67,8 @@ async function sha256Hex(message) {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+const ADMIN_PASSWORD_HASH = process.env.REACT_APP_ADMIN_PASSWORD_HASH || '';
+
 
 // --- ESTILOS GLOBAIS E ANIMAÇÕES ---
 const GlobalStyles = () => (
@@ -443,7 +445,7 @@ const findTraveteVariationForLot = (lot, machineType, products, variationLookup)
     return products.find(p => p.machineType === machineType && (p.baseProductId === baseId || p.id === baseId)) || null;
 };
 
-const deriveTraveteStandardTime = (
+const deriveTraveteStandardTimeShared = (
     lotId,
     machineType,
     lots = [],
@@ -541,7 +543,7 @@ const applyTraveteAutoSuggestions = (employeeEntries = [], lotOptions = [], prod
         if (!employee.standardTimeManual) {
             const firstLotId = productsList[0]?.lotId;
             if (firstLotId) {
-                const derived = deriveTraveteStandardTime(firstLotId, employee.machineType, lotOptions, products, variationLookup);
+                const derived = deriveTraveteStandardTimeShared(firstLotId, employee.machineType, lotOptions, products, variationLookup);
                 if (derived && derived !== (employee.standardTime || '')) {
                     employee.standardTime = derived;
                     employeeChanged = true;
@@ -1897,7 +1899,7 @@ const EditEntryModal = ({
                         if (!updated.standardTimeManual) {
                             const firstLotId = updated.products.find(item => item.lotId)?.lotId;
                             if (firstLotId) {
-                                const derived = deriveTraveteStandardTime(
+                                const derived = deriveTraveteStandardTimeShared(
                                     firstLotId,
                                     value,
                                     lots,
@@ -1939,7 +1941,7 @@ const EditEntryModal = ({
                 });
                 const updatedEmployee = { ...emp, products: updatedProducts };
                 if (field === 'lotId' && !emp.standardTimeManual) {
-                    const derived = deriveTraveteStandardTime(
+                    const derived = deriveTraveteStandardTimeShared(
                         value,
                         emp.machineType,
                         lots,
@@ -2891,10 +2893,14 @@ const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
 
     const handleConfirm = async () => {
         setError('');
-        const correctPasswordHash = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"; // "admin123"
-        const inputHash = await sha256Hex(password);
+        if (!ADMIN_PASSWORD_HASH) {
+            setError('Configuração de segurança ausente. Contate o administrador.');
+            return;
+        }
 
-        if (inputHash === correctPasswordHash) {
+        const inputHash = await sha256Hex(password.trim());
+
+        if (inputHash === ADMIN_PASSWORD_HASH) {
             if(onSuccess) onSuccess();
             onClose();
         } else {
@@ -4879,7 +4885,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                         if (!updated.standardTimeManual) {
                             const firstLotId = (updated.products || []).find(item => item.lotId)?.lotId;
                             if (firstLotId) {
-                                const derivedTime = deriveTraveteStandardTime(
+                                const derivedTime = deriveTraveteStandardTimeShared(
                                     firstLotId,
                                     value,
                                     lots,
@@ -4914,7 +4920,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 if (emp.standardTime) return emp;
                 const firstLotId = (emp.products || []).find(item => item.lotId)?.lotId;
                 if (!firstLotId) return emp;
-                const derivedTime = deriveTraveteStandardTime(
+                const derivedTime = deriveTraveteStandardTimeShared(
                     firstLotId,
                     emp.machineType,
                     lots,
@@ -4941,7 +4947,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 });
                 const updatedEmployee = { ...emp, products: updatedProducts };
                 if (field === 'lotId' && !emp.standardTimeManual) {
-                    const derivedTime = deriveTraveteStandardTime(
+                    const derivedTime = deriveTraveteStandardTimeShared(
                         value,
                         emp.machineType,
                         lots,
