@@ -67,7 +67,8 @@ async function sha256Hex(message) {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-const ADMIN_PASSWORD_HASH = process.env.REACT_APP_ADMIN_PASSWORD_HASH || '';
+const ADMIN_PASSWORD_HASH = (process.env.REACT_APP_ADMIN_PASSWORD_HASH || '').trim();
+const IS_VALID_ADMIN_PASSWORD_HASH = /^[a-f0-9]{64}$/i.test(ADMIN_PASSWORD_HASH);
 
 
 // --- ESTILOS GLOBAIS E ANIMAÇÕES ---
@@ -2893,14 +2894,14 @@ const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
 
     const handleConfirm = async () => {
         setError('');
-        if (!ADMIN_PASSWORD_HASH) {
+        if (!IS_VALID_ADMIN_PASSWORD_HASH) {
             setError('Configuração de segurança ausente. Contate o administrador.');
             return;
         }
 
         const inputHash = await sha256Hex(password.trim());
 
-        if (inputHash === ADMIN_PASSWORD_HASH) {
+        if (IS_VALID_ADMIN_PASSWORD_HASH && inputHash === ADMIN_PASSWORD_HASH) {
             if(onSuccess) onSuccess();
             onClose();
         } else {
