@@ -232,6 +232,29 @@ const splitGoalSegments = (goalDisplay = '') => goalDisplay
     .map(segment => segment.trim())
     .filter(Boolean);
 
+const splitTraveteGoalSegments = (goalDisplay = '') => goalDisplay
+    .split('//')
+    .map(segment => segment.trim())
+    .filter(Boolean);
+
+const joinGoalSegments = (segments = []) => {
+    const cleaned = segments
+        .map(segment => {
+            if (typeof segment === 'number') {
+                return Number.isFinite(segment) ? segment.toString() : '';
+            }
+            if (segment === null || segment === undefined) {
+                return '';
+            }
+            return String(segment).trim();
+        })
+        .filter(segment => segment !== '');
+    return cleaned.length > 0 ? cleaned.join(' / ') : '0';
+};
+
+const sumGoalDisplay = (goalDisplay = '') => splitGoalSegments(goalDisplay)
+    .reduce((total, segment) => total + (parseInt(segment, 10) || 0), 0);
+
 const formatDefaultLotDisplayName = (lot, product) => {
     if (!lot) {
         return product?.name || '';
@@ -2071,6 +2094,7 @@ const EditEntryModal = ({
             goalDisplay: goalDisplayValue,
             primaryProductId,
         });
+        onClose();
     };
 
     return (
@@ -4047,11 +4071,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             });
             const totalAvailableTime = (item.people || 0) * (item.availableTime || 0);
             const efficiency = totalAvailableTime > 0 ? parseFloat(((totalTimeValue / totalAvailableTime) * 100).toFixed(2)) : 0;
-            const numericGoal = (item.goalDisplay || "0").split(' / ').reduce((acc, val) => acc + (parseInt(val.trim(), 10) || 0), 0);
             const goalSegments = splitGoalSegments(item.goalDisplay || '');
-            const goalForDisplay = goalSegments.length > 0
-                ? goalSegments.join('/')
-                : (numericGoal ? numericGoal.toString() : '0');
+            const numericGoal = sumGoalDisplay(item.goalDisplay || '');
+            const goalForDisplay = joinGoalSegments(goalSegments);
             cumulativeProduction += totalProducedInPeriod;
             cumulativeGoal += numericGoal;
             cumulativeEfficiencySum += efficiency;
@@ -4070,9 +4092,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
         return [...productionData]
             .sort((a, b) => (a.period || "").localeCompare(b.period || ""))
             .map((entry) => {
-                const entryGoalSegments = (entry.goalDisplay || '')
-                    .split(' // ')
-                    .map(segment => segment.trim());
+                const entryGoalSegments = splitTraveteGoalSegments(entry.goalDisplay || '');
                 const employees = (entry.employeeEntries || []).map((emp, empIndex) => {
                     const productsArray = Array.isArray(emp.products) && emp.products.length > 0
                         ? emp.products
@@ -4274,7 +4294,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                                 const product = productsForDateMap.get(detail.productId);
                                 if (product?.standardTime) totalTimeValue += (detail.produced || 0) * product.standardTime;
                             });
-                            if (item.goalDisplay) dailyGoal += item.goalDisplay.split(' / ').reduce((acc, val) => acc + (parseInt(val.trim(), 10) || 0), 0);
+                            if (item.goalDisplay) dailyGoal += sumGoalDisplay(item.goalDisplay);
                             dailyProduction += periodProduction;
                             const totalAvailableTime = (item.people || 0) * (item.availableTime || 0);
                             dailyEfficiencySum += totalAvailableTime > 0 ? (totalTimeValue / totalAvailableTime) * 100 : 0;
@@ -5792,11 +5812,9 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             });
             const totalAvailableTime = (item.people || 0) * (item.availableTime || 0);
             const efficiency = totalAvailableTime > 0 ? parseFloat(((totalTimeValue / totalAvailableTime) * 100).toFixed(2)) : 0;
-            const numericGoal = (item.goalDisplay||"0").split(' / ').reduce((a,v)=>a+(parseInt(v.trim(),10)||0),0);
             const goalSegments = splitGoalSegments(item.goalDisplay || '');
-            const goalForDisplay = goalSegments.length > 0
-                ? goalSegments.join('/')
-                : (numericGoal ? numericGoal.toString() : '0');
+            const numericGoal = sumGoalDisplay(item.goalDisplay || '');
+            const goalForDisplay = joinGoalSegments(goalSegments);
             cumulativeProduction += totalProducedInPeriod;
             cumulativeGoal += numericGoal;
             cumulativeEfficiencySum += efficiency;
@@ -5820,9 +5838,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
 
                 const storedGoalBlocks = Array.isArray(entry.traveteGoalBlocks) ? entry.traveteGoalBlocks : null;
                 const storedLotBlocks = Array.isArray(entry.traveteLotBlocks) ? entry.traveteLotBlocks : null;
-                const entryGoalSegments = (entry.goalDisplay || '')
-                    .split(' // ')
-                    .map(segment => segment.trim());
+                const entryGoalSegments = splitTraveteGoalSegments(entry.goalDisplay || '');
 
                 const employees = (entry.employeeEntries || []).map((emp, empIndex) => {
                     const productsArray = Array.isArray(emp.products) && emp.products.length > 0
@@ -6221,7 +6237,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
                                 const product = productsForDateMap.get(detail.productId);
                                 if (product?.standardTime) totalTimeValue += (detail.produced || 0) * product.standardTime;
                             });
-                            if (item.goalDisplay) dailyGoal += item.goalDisplay.split(' / ').reduce((acc, val) => acc + (parseInt(val.trim(), 10) || 0), 0);
+                            if (item.goalDisplay) dailyGoal += sumGoalDisplay(item.goalDisplay);
                             dailyProduction += periodProduction;
                             const totalAvailableTime = (item.people || 0) * (item.availableTime || 0);
                             dailyEfficiencySum += totalAvailableTime > 0 ? (totalTimeValue / totalAvailableTime) * 100 : 0;
