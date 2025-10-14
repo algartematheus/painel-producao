@@ -2071,7 +2071,6 @@ const EditEntryModal = ({
             goalDisplay: goalDisplayValue,
             primaryProductId,
         });
-        onClose();
     };
 
     return (
