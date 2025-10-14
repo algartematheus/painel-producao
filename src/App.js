@@ -446,7 +446,7 @@ const findTraveteVariationForLot = (lot, machineType, products, variationLookup)
     return products.find(p => p.machineType === machineType && (p.baseProductId === baseId || p.id === baseId)) || null;
 };
 
-const deriveTraveteStandardTimeShared = (
+const deriveTraveteStandardTime = (
     lotId,
     machineType,
     lots = [],
@@ -462,6 +462,42 @@ const deriveTraveteStandardTimeShared = (
     if (!Number.isFinite(numeric) || numeric <= 0) return '';
 
     return formatTraveteStandardTimeValue(numeric);
+};
+
+const buildTraveteStandardTimePatch = ({
+    employee,
+    lotId,
+    machineType,
+    lots = [],
+    products = [],
+    variationLookup = new Map(),
+    resetWhenMissing = false,
+}) => {
+    if (!employee || employee.standardTimeManual) {
+        return null;
+    }
+
+    if (!lotId) {
+        return resetWhenMissing ? { standardTime: '', standardTimeManual: false } : null;
+    }
+
+    const derived = deriveTraveteStandardTime(
+        lotId,
+        machineType || employee.machineType,
+        lots,
+        products,
+        variationLookup
+    );
+
+    if (!derived) {
+        return resetWhenMissing ? { standardTime: '', standardTimeManual: false } : null;
+    }
+
+    if (derived === employee.standardTime) {
+        return null;
+    }
+
+    return { standardTime: derived, standardTimeManual: false };
 };
 
 const applyTraveteAutoSuggestions = (employeeEntries = [], lotOptions = [], products = [], variationLookup = new Map()) => {
@@ -541,22 +577,25 @@ const applyTraveteAutoSuggestions = (employeeEntries = [], lotOptions = [], prod
             }
         }
 
-        if (!employee.standardTimeManual) {
-            const firstLotId = productsList[0]?.lotId;
-            if (firstLotId) {
-                const derived = deriveTraveteStandardTimeShared(firstLotId, employee.machineType, lotOptions, products, variationLookup);
-                if (derived && derived !== (employee.standardTime || '')) {
-                    employee.standardTime = derived;
-                    employeeChanged = true;
-                }
-            }
+        let nextEmployee = { ...employee, products: productsList };
+        const patch = buildTraveteStandardTimePatch({
+            employee: nextEmployee,
+            lotId: productsList[0]?.lotId,
+            machineType: nextEmployee.machineType,
+            lots: lotOptions,
+            products,
+            variationLookup,
+        });
+        if (patch) {
+            nextEmployee = { ...nextEmployee, ...patch };
+            employeeChanged = true;
         }
 
         if (employeeChanged) {
             changed = true;
         }
 
-        return { ...employee, products: productsList };
+        return nextEmployee;
     });
 
     return { changed, employeeEntries: normalizedEntries };
@@ -1893,22 +1932,22 @@ const EditEntryModal = ({
             if (!prev || prev.type !== 'travete') return prev;
             const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
                 if (empIdx !== index) return emp;
-                const updated = { ...emp };
+                let updated = { ...emp };
                 switch (field) {
                     case 'machineType': {
-                        updated.machineType = value;
-                        if (!updated.standardTimeManual) {
-                            const firstLotId = updated.products.find(item => item.lotId)?.lotId;
-                            if (firstLotId) {
-                                const derived = deriveTraveteStandardTimeShared(
-                                    firstLotId,
-                                    value,
-                                    lots,
-                                    products,
-                                    traveteVariationLookup
-                                );
-                                updated.standardTime = derived;
-                            }
+                        updated = { ...updated, machineType: value };
+                        const firstLotId = updated.products.find(item => item.lotId)?.lotId;
+                        const patch = buildTraveteStandardTimePatch({
+                            employee: updated,
+                            lotId: firstLotId,
+                            machineType: value,
+                            lots,
+                            products,
+                            variationLookup: traveteVariationLookup,
+                            resetWhenMissing: true,
+                        });
+                        if (patch) {
+                            updated = { ...updated, ...patch };
                         }
                         break;
                     }
@@ -1940,17 +1979,18 @@ const EditEntryModal = ({
                     }
                     return nextProduct;
                 });
-                const updatedEmployee = { ...emp, products: updatedProducts };
-                if (field === 'lotId' && !emp.standardTimeManual) {
-                    const derived = deriveTraveteStandardTimeShared(
-                        value,
-                        emp.machineType,
+                let updatedEmployee = { ...emp, products: updatedProducts };
+                if (field === 'lotId') {
+                    const patch = buildTraveteStandardTimePatch({
+                        employee: updatedEmployee,
+                        lotId: value,
+                        machineType: emp.machineType,
                         lots,
                         products,
-                        traveteVariationLookup
-                    );
-                    if (derived) {
-                        updatedEmployee.standardTime = derived;
+                        variationLookup: traveteVariationLookup,
+                    });
+                    if (patch) {
+                        updatedEmployee = { ...updatedEmployee, ...patch };
                     }
                 }
                 return updatedEmployee;
@@ -4877,26 +4917,23 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
             ...prev,
             employeeEntries: prev.employeeEntries.map((emp, empIndex) => {
                 if (empIndex !== index) return emp;
-                const updated = { ...emp };
+                let updated = { ...emp };
 
                 switch (field) {
                     case 'machineType': {
-                        updated.machineType = value;
-                        updated.standardTimeManual = false;
-                        if (!updated.standardTimeManual) {
-                            const firstLotId = (updated.products || []).find(item => item.lotId)?.lotId;
-                            if (firstLotId) {
-                                const derivedTime = deriveTraveteStandardTimeShared(
-                                    firstLotId,
-                                    value,
-                                    lots,
-                                    productsForSelectedDate,
-                                    traveteVariationLookup
-                                );
-                                updated.standardTime = derivedTime;
-                            } else {
-                                updated.standardTime = '';
-                            }
+                        updated = { ...updated, machineType: value, standardTimeManual: false };
+                        const firstLotId = (updated.products || []).find(item => item.lotId)?.lotId;
+                        const patch = buildTraveteStandardTimePatch({
+                            employee: updated,
+                            lotId: firstLotId,
+                            machineType: value,
+                            lots,
+                            products: productsForSelectedDate,
+                            variationLookup: traveteVariationLookup,
+                            resetWhenMissing: true,
+                        });
+                        if (patch) {
+                            updated = { ...updated, ...patch };
                         }
                         break;
                     }
@@ -4920,16 +4957,16 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 if (empIndex !== index) return emp;
                 if (emp.standardTime) return emp;
                 const firstLotId = (emp.products || []).find(item => item.lotId)?.lotId;
-                if (!firstLotId) return emp;
-                const derivedTime = deriveTraveteStandardTimeShared(
-                    firstLotId,
-                    emp.machineType,
+                const patch = buildTraveteStandardTimePatch({
+                    employee: emp,
+                    lotId: firstLotId,
+                    machineType: emp.machineType,
                     lots,
-                    productsForSelectedDate,
-                    traveteVariationLookup
-                );
-                if (!derivedTime) return emp;
-                return { ...emp, standardTime: derivedTime, standardTimeManual: false };
+                    products: productsForSelectedDate,
+                    variationLookup: traveteVariationLookup,
+                });
+                if (!patch) return emp;
+                return { ...emp, ...patch };
             }),
         }));
     };
@@ -4946,17 +4983,18 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                     }
                     return nextProduct;
                 });
-                const updatedEmployee = { ...emp, products: updatedProducts };
-                if (field === 'lotId' && !emp.standardTimeManual) {
-                    const derivedTime = deriveTraveteStandardTimeShared(
-                        value,
-                        emp.machineType,
+                let updatedEmployee = { ...emp, products: updatedProducts };
+                if (field === 'lotId') {
+                    const patch = buildTraveteStandardTimePatch({
+                        employee: updatedEmployee,
+                        lotId: value,
+                        machineType: emp.machineType,
                         lots,
-                        productsForSelectedDate,
-                        traveteVariationLookup
-                    );
-                    if (derivedTime) {
-                        updatedEmployee.standardTime = derivedTime;
+                        products: productsForSelectedDate,
+                        variationLookup: traveteVariationLookup,
+                    });
+                    if (patch) {
+                        updatedEmployee = { ...updatedEmployee, ...patch };
                     }
                 }
                 return updatedEmployee;
