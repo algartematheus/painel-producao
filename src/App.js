@@ -443,6 +443,24 @@ const findTraveteVariationForLot = (lot, machineType, products, variationLookup)
     return products.find(p => p.machineType === machineType && (p.baseProductId === baseId || p.id === baseId)) || null;
 };
 
+const deriveTraveteStandardTime = (
+    lotId,
+    machineType,
+    lots = [],
+    products = [],
+    variationLookup = new Map()
+) => {
+    if (!lotId || !machineType) return '';
+    const lot = lots.find(l => l.id === lotId) || null;
+    if (!lot) return '';
+
+    const variation = findTraveteVariationForLot(lot, machineType, products, variationLookup);
+    const numeric = variation?.standardTime ? parseFloat(variation.standardTime) : NaN;
+    if (!Number.isFinite(numeric) || numeric <= 0) return '';
+
+    return formatTraveteStandardTimeValue(numeric);
+};
+
 const applyTraveteAutoSuggestions = (employeeEntries = [], lotOptions = [], products = [], variationLookup = new Map()) => {
     if (!Array.isArray(employeeEntries) || employeeEntries.length === 0) {
         return { changed: false, employeeEntries: Array.isArray(employeeEntries) ? employeeEntries : [] };
@@ -523,14 +541,10 @@ const applyTraveteAutoSuggestions = (employeeEntries = [], lotOptions = [], prod
         if (!employee.standardTimeManual) {
             const firstLotId = productsList[0]?.lotId;
             if (firstLotId) {
-                const lotReference = lotOptions.find(l => l.id === firstLotId) || null;
-                if (lotReference) {
-                    const variation = findTraveteVariationForLot(lotReference, employee.machineType, products, variationLookup);
-                    const derived = formatTraveteStandardTimeValue(parseFloat(variation?.standardTime));
-                    if (derived && derived !== (employee.standardTime || '')) {
-                        employee.standardTime = derived;
-                        employeeChanged = true;
-                    }
+                const derived = deriveTraveteStandardTime(firstLotId, employee.machineType, lotOptions, products, variationLookup);
+                if (derived && derived !== (employee.standardTime || '')) {
+                    employee.standardTime = derived;
+                    employeeChanged = true;
                 }
             }
         }
@@ -1871,15 +1885,6 @@ const EditEntryModal = ({
 
     if (!isOpen || !entryData) return null;
 
-    const deriveTraveteEditStandardTime = (lotId, machineType) => {
-        const lot = lots.find(l => l.id === lotId) || null;
-        if (!lot || !machineType) return '';
-        const variation = findTraveteVariationForLot(lot, machineType, products, traveteVariationLookup);
-        const numeric = variation?.standardTime ? parseFloat(variation.standardTime) : NaN;
-        if (!Number.isFinite(numeric) || numeric <= 0) return '';
-        return formatTraveteStandardTimeValue(numeric);
-    };
-
     const handleTraveteEmployeeChange = (index, field, value) => {
         setEntryData(prev => {
             if (!prev || prev.type !== 'travete') return prev;
@@ -1892,7 +1897,13 @@ const EditEntryModal = ({
                         if (!updated.standardTimeManual) {
                             const firstLotId = updated.products.find(item => item.lotId)?.lotId;
                             if (firstLotId) {
-                                const derived = deriveTraveteEditStandardTime(firstLotId, value);
+                                const derived = deriveTraveteStandardTime(
+                                    firstLotId,
+                                    value,
+                                    lots,
+                                    products,
+                                    traveteVariationLookup
+                                );
                                 updated.standardTime = derived;
                             }
                         }
@@ -1928,7 +1939,13 @@ const EditEntryModal = ({
                 });
                 const updatedEmployee = { ...emp, products: updatedProducts };
                 if (field === 'lotId' && !emp.standardTimeManual) {
-                    const derived = deriveTraveteEditStandardTime(value, emp.machineType);
+                    const derived = deriveTraveteStandardTime(
+                        value,
+                        emp.machineType,
+                        lots,
+                        products,
+                        traveteVariationLookup
+                    );
                     if (derived) {
                         updatedEmployee.standardTime = derived;
                     }
@@ -4862,9 +4879,13 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                         if (!updated.standardTimeManual) {
                             const firstLotId = (updated.products || []).find(item => item.lotId)?.lotId;
                             if (firstLotId) {
-                                const lot = lots.find(l => l.id === firstLotId) || null;
-                                const variation = findTraveteVariationForLot(lot, value, productsForSelectedDate, traveteVariationLookup);
-                                const derivedTime = formatTraveteStandardTimeValue(parseFloat(variation?.standardTime));
+                                const derivedTime = deriveTraveteStandardTime(
+                                    firstLotId,
+                                    value,
+                                    lots,
+                                    productsForSelectedDate,
+                                    traveteVariationLookup
+                                );
                                 updated.standardTime = derivedTime;
                             } else {
                                 updated.standardTime = '';
@@ -4893,10 +4914,13 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 if (emp.standardTime) return emp;
                 const firstLotId = (emp.products || []).find(item => item.lotId)?.lotId;
                 if (!firstLotId) return emp;
-                const lot = lots.find(l => l.id === firstLotId) || null;
-                if (!lot) return emp;
-                const variation = findTraveteVariationForLot(lot, emp.machineType, productsForSelectedDate, traveteVariationLookup);
-                const derivedTime = formatTraveteStandardTimeValue(parseFloat(variation?.standardTime));
+                const derivedTime = deriveTraveteStandardTime(
+                    firstLotId,
+                    emp.machineType,
+                    lots,
+                    productsForSelectedDate,
+                    traveteVariationLookup
+                );
                 if (!derivedTime) return emp;
                 return { ...emp, standardTime: derivedTime, standardTimeManual: false };
             }),
@@ -4917,13 +4941,15 @@ const CronoanaliseDashboard = ({ onNavigateToStock, user, permissions, startTvMo
                 });
                 const updatedEmployee = { ...emp, products: updatedProducts };
                 if (field === 'lotId' && !emp.standardTimeManual) {
-                    const lot = lots.find(l => l.id === value) || null;
-                    if (lot) {
-                        const variation = findTraveteVariationForLot(lot, emp.machineType, productsForSelectedDate, traveteVariationLookup);
-                        const derivedTime = formatTraveteStandardTimeValue(parseFloat(variation?.standardTime));
-                        if (derivedTime) {
-                            updatedEmployee.standardTime = derivedTime;
-                        }
+                    const derivedTime = deriveTraveteStandardTime(
+                        value,
+                        emp.machineType,
+                        lots,
+                        productsForSelectedDate,
+                        traveteVariationLookup
+                    );
+                    if (derivedTime) {
+                        updatedEmployee.standardTime = derivedTime;
                     }
                 }
                 return updatedEmployee;
