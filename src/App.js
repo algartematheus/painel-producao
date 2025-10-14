@@ -794,6 +794,145 @@ const getTraveteBaseProductName = (product) => {
     return product.id || '';
 };
 
+const deriveProductBaseName = (product) => {
+    if (!product) return '';
+    if (product.baseProductName) return product.baseProductName;
+    if (product.baseName) return product.baseName;
+    if (product.name) {
+        const trimmed = product.name.trim();
+        const travetePattern = /\s-\s(?:Travete\s*)?(?:\d+\sAgulhas|Convencional)$/i;
+        if (travetePattern.test(trimmed)) {
+            return trimmed.replace(travetePattern, '');
+        }
+        return trimmed.replace(/\s-\s.*$/, '');
+    }
+    return product.id || '';
+};
+
+const normalizeTraveteMachineType = (machine = '') => {
+    if (!machine) return '';
+    const normalized = machine.toString().trim().toLowerCase();
+    if (!normalized) return '';
+    const hasTravete = normalized.includes('travete');
+    if (!hasTravete) return '';
+    if (normalized.includes('convenc')) return 'Travete Convencional';
+    if (normalized.includes('2') && normalized.includes('agulh')) return 'Travete 2 Agulhas';
+    if (normalized.includes('1') && normalized.includes('agulh')) return 'Travete 1 Agulha';
+    return 'Travete 2 Agulhas';
+};
+
+const computeOperationalTimeBreakdown = (operations = []) => {
+    const breakdown = {
+        productionMinutes: 0,
+        traveteMinutesByMachine: {
+            'Travete 2 Agulhas': 0,
+            'Travete 1 Agulha': 0,
+            'Travete Convencional': 0,
+        },
+    };
+
+    operations.forEach((operation) => {
+        const minutesRaw = typeof operation.tempoMinutos === 'number'
+            ? operation.tempoMinutos
+            : parseFloat(operation.tempoMinutos);
+        if (!(minutesRaw > 0)) {
+            return;
+        }
+        const machineType = normalizeTraveteMachineType(operation.maquina || operation.machine || operation.machineType);
+        if (machineType && TRAVETE_MACHINES.includes(machineType)) {
+            breakdown.traveteMinutesByMachine[machineType] += minutesRaw;
+        } else {
+            breakdown.productionMinutes += minutesRaw;
+        }
+    });
+
+    breakdown.totalMinutes = breakdown.productionMinutes
+        + TRAVETE_MACHINES
+            .map(machine => breakdown.traveteMinutesByMachine[machine] || 0)
+            .reduce((total, value) => total + value, 0);
+
+    return breakdown;
+};
+
+const aggregateProductOptionsForSequences = (products = []) => {
+    const map = new Map();
+
+    products.forEach((product) => {
+        const baseId = product.baseProductId
+            || product.baseProductName
+            || product.baseId
+            || deriveProductBaseName(product)
+            || product.id;
+        const baseName = deriveProductBaseName(product) || baseId;
+
+        let entry = map.get(baseId);
+        if (!entry) {
+            entry = {
+                id: product.id,
+                baseProductId: baseId,
+                baseProductName: baseName,
+                name: baseName,
+                primaryProductId: null,
+                primaryProduct: null,
+                productionProducts: [],
+                traveteProducts: {},
+                relatedProductIds: new Set(),
+                dashboardNames: new Set(),
+                allProducts: [],
+            };
+        }
+
+        entry.allProducts.push(product);
+        entry.relatedProductIds.add(product.id);
+        if (product.dashboardName) {
+            entry.dashboardNames.add(product.dashboardName);
+        }
+
+        if (product.dashboardId === 'producao') {
+            entry.productionProducts.push(product);
+            if (!entry.primaryProductId) {
+                entry.primaryProductId = product.id;
+                entry.primaryProduct = product;
+            }
+        } else if (product.dashboardId === 'travete' && TRAVETE_MACHINES.includes(product.machineType)) {
+            entry.traveteProducts[product.machineType] = product;
+            if (!entry.primaryProductId) {
+                entry.primaryProductId = product.id;
+                entry.primaryProduct = product;
+            }
+        } else if (!entry.primaryProductId) {
+            entry.primaryProductId = product.id;
+            entry.primaryProduct = product;
+        }
+
+        map.set(baseId, entry);
+    });
+
+    return Array.from(map.values()).map((entry) => {
+        if (!entry.primaryProductId) {
+            const fallback = entry.allProducts[0];
+            if (fallback) {
+                entry.primaryProductId = fallback.id;
+                entry.primaryProduct = fallback;
+            }
+        }
+
+        return {
+            id: entry.primaryProductId,
+            name: entry.name,
+            baseProductId: entry.baseProductId,
+            baseProductName: entry.baseProductName,
+            primaryProductId: entry.primaryProductId,
+            primaryProduct: entry.primaryProduct,
+            productionProducts: entry.productionProducts,
+            traveteProducts: { ...entry.traveteProducts },
+            relatedProductIds: Array.from(entry.relatedProductIds),
+            dashboardNames: Array.from(entry.dashboardNames).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+            allProducts: entry.allProducts,
+        };
+    });
+};
+
 
 // #####################################################################
 // #                                                                   #
@@ -1921,7 +2060,9 @@ const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, dashboar
                     }));
                 }));
                 if (isMounted) {
-                    setProductOptions(results.flat());
+                    const flattened = results.flat();
+                    const aggregated = aggregateProductOptionsForSequences(flattened);
+                    setProductOptions(aggregated);
                 }
             } catch (error) {
                 console.error('Erro ao carregar produtos para Sequência Operacional:', error);
@@ -1936,6 +2077,19 @@ const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, dashboar
             isMounted = false;
         };
     }, [dashboards]);
+
+    useEffect(() => {
+        if (!formState.productId || productOptions.length === 0) return;
+        const option = findProductOptionByProductId(formState.productId);
+        if (option && formState.productId !== option.primaryProductId) {
+            setFormState(prev => ({
+                ...prev,
+                productId: option.primaryProductId,
+                baseProductId: prev.baseProductId || option.baseProductId || '',
+                dashboardId: option.primaryProduct?.dashboardId || prev.dashboardId,
+            }));
+        }
+    }, [findProductOptionByProductId, formState.productId, productOptions.length]);
 
     const resetForm = useCallback(() => {
         setSelectedSequenceId(null);
@@ -1954,9 +2108,1071 @@ const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, dashboar
     const totalMinutes = useMemo(() => parseFloat((totalSeconds / 60).toFixed(4)), [totalSeconds]);
     const formattedTotal = useMemo(() => formatSecondsToDurationLabel(totalSeconds), [totalSeconds]);
 
+    const findProductOptionByProductId = useCallback((targetId) => {
+        if (!targetId) return null;
+        return productOptions.find(option => option.id === targetId || option.relatedProductIds?.includes(targetId)) || null;
+    }, [productOptions]);
+
     const handleFormChange = useCallback((field, value) => {
         setFormState(prev => ({ ...prev, [field]: value }));
     }, []);
+
+    const handleProductSelect = useCallback((productId) => {
+        const option = findProductOptionByProductId(productId);
+        if (option) {
+            setFormState(prev => ({
+                ...prev,
+                productId: option.primaryProductId,
+                dashboardId: option.primaryProduct?.dashboardId || prev.dashboardId,
+                baseProductId: option.baseProductId || '',
+                modelo: option.name || option.primaryProduct?.name || prev.modelo,
+            }));
+        } else {
+            setFormState(prev => ({ ...prev, productId, baseProductId: '', dashboardId: prev.dashboardId }));
+        }
+    }, [findProductOptionByProductId]);
+
+    const handleOperationChange = useCallback((operationId, field, value) => {
+        setOperations(prev => prev.map(operation => {
+            if (operation.id !== operationId) return operation;
+            return { ...operation, [field]: value };
+        }));
+    }, []);
+
+    const handleAddOperation = useCallback(() => {
+        setOperations(prev => {
+            const nextIndex = prev.length + 1;
+            return [...prev, createOperationalSequenceOperation({ numero: String(nextIndex) })];
+        });
+    }, []);
+
+    const handleRemoveOperation = useCallback((operationId) => {
+        setOperations(prev => {
+            const remaining = prev.filter(operation => operation.id !== operationId);
+            if (remaining.length === 0) {
+                return [createOperationalSequenceOperation({ numero: '1' })];
+            }
+            return remaining.map((operation, index) => ({ ...operation, numero: operation.numero || String(index + 1) }));
+        });
+    }, []);
+
+    const handleSelectSequence = useCallback((sequence) => {
+        if (!sequence) return;
+        const matchingOption = findProductOptionByProductId(sequence.productId);
+        const resolvedProductId = matchingOption?.primaryProductId || sequence.productId || '';
+        const resolvedBaseId = sequence.baseProductId || matchingOption?.baseProductId || '';
+        const resolvedDashboardId = matchingOption?.primaryProduct?.dashboardId || sequence.dashboardId || '';
+
+        setSelectedSequenceId(sequence.id);
+        setFormState({
+            empresa: sequence.empresa || 'Race Bull',
+            modelo: sequence.modelo || '',
+            codigo: sequence.codigo || '',
+            dashboardId: resolvedDashboardId,
+            productId: resolvedProductId,
+            baseProductId: resolvedBaseId,
+        });
+        const loadedOperations = (sequence.operacoes || []).map((operation, index) => {
+            const tempoValor = operation.tempoValor !== undefined
+                ? operation.tempoValor
+                : (operation.unidade === 'seg'
+                    ? (operation.tempoSegundos !== undefined ? operation.tempoSegundos : operation.tempo)
+                    : (operation.tempoMinutos !== undefined ? operation.tempoMinutos : operation.tempo));
+            return createOperationalSequenceOperation({
+                id: generateId('seqOp'),
+                numero: operation.numero !== undefined ? String(operation.numero) : String(index + 1),
+                descricao: operation.descricao || '',
+                maquina: operation.maquina || '',
+                tempoValor: tempoValor !== undefined && tempoValor !== null ? String(tempoValor) : '',
+                unidade: operation.unidade || 'min',
+            });
+        });
+        setOperations(loadedOperations.length > 0 ? loadedOperations : [createOperationalSequenceOperation({ numero: '1' })]);
+    }, [findProductOptionByProductId]);
+
+    const updateLinkedProductsStandardTimes = useCallback(async ({ productOption, productionMinutes, traveteMinutesByMachine }) => {
+        if (!productOption) return;
+
+        const actor = user ? { uid: user.uid, email: user.email } : null;
+        const nowIso = new Date().toISOString();
+        const nowTimestamp = Timestamp.now();
+        const batch = writeBatch(db);
+        let hasUpdates = false;
+
+        const queueUpdate = (product, minutes) => {
+            if (!product || !product.dashboardId || !product.id) return;
+            const safeMinutes = Number.isFinite(minutes) && minutes > 0 ? parseFloat(minutes.toFixed(4)) : 0;
+            const productRef = doc(db, `dashboards/${product.dashboardId}/products`, product.id);
+            const payload = {
+                standardTime: safeMinutes,
+                lastEditedAt: nowTimestamp,
+                lastEditedBy: actor,
+            };
+            if (safeMinutes > 0) {
+                payload.standardTimeHistory = arrayUnion({
+                    time: safeMinutes,
+                    effectiveDate: nowIso,
+                    changedBy: actor,
+                    source: 'sequencia-operacional',
+                });
+            }
+            batch.update(productRef, payload);
+            hasUpdates = true;
+        };
+
+        const safeProductionMinutes = Number.isFinite(productionMinutes) && productionMinutes >= 0
+            ? parseFloat(productionMinutes.toFixed(4))
+            : 0;
+
+        (productOption.productionProducts || []).forEach(product => queueUpdate(product, safeProductionMinutes));
+
+        const traveteMap = traveteMinutesByMachine || {};
+        Object.entries(productOption.traveteProducts || {}).forEach(([machineType, product]) => {
+            const minutesRaw = traveteMap[machineType];
+            const safeMinutes = Number.isFinite(minutesRaw) && minutesRaw >= 0
+                ? parseFloat(minutesRaw.toFixed(4))
+                : 0;
+            queueUpdate(product, safeMinutes);
+        });
+
+        if (hasUpdates) {
+            try {
+                await batch.commit();
+            } catch (error) {
+                console.error('Não foi possível atualizar os tempos padrão vinculados:', error);
+            }
+        }
+    }, [user]);
+
+    const handleSaveSequence = useCallback(async (event) => {
+        event.preventDefault();
+        if (isSaving) return;
+        const trimmedEmpresa = formState.empresa.trim() || 'Race Bull';
+        const trimmedModelo = formState.modelo.trim();
+        if (!trimmedModelo) {
+            alert('Informe o modelo para salvar a sequência operacional.');
+            return;
+        }
+        if (!formState.productId) {
+            alert('Selecione um produto para vincular ao tempo padrão.');
+            return;
+        }
+        const selectedOption = findProductOptionByProductId(formState.productId);
+        if (!selectedOption) {
+            alert('Não foi possível localizar o produto vinculado. Atualize a lista e tente novamente.');
+            return;
+        }
+        const preparedOperations = operations
+            .map((operation, index) => {
+                const tempoValor = parseFloat(operation.tempoValor);
+                const seconds = convertOperationToSeconds(operation);
+                if (!(seconds > 0)) return null;
+                return {
+                    numero: operation.numero ? parseInt(operation.numero, 10) || index + 1 : index + 1,
+                    descricao: operation.descricao?.trim() || `Operação ${index + 1}`,
+                    maquina: operation.maquina?.trim() || 'N/A',
+                    unidade: operation.unidade || 'min',
+                    tempoValor: tempoValor || 0,
+                    tempoSegundos: parseFloat(seconds.toFixed(2)),
+                    tempoMinutos: parseFloat((seconds / 60).toFixed(4)),
+                };
+            })
+            .filter(Boolean);
+
+        if (preparedOperations.length === 0) {
+            alert('Adicione pelo menos uma operação com tempo válido.');
+            return;
+        }
+
+        const tempoSegundosTotal = preparedOperations.reduce((total, operation) => total + operation.tempoSegundos, 0);
+        const tempoMinutosTotal = parseFloat((tempoSegundosTotal / 60).toFixed(4));
+        const tempoDecimalPadrao = parseFloat(tempoMinutosTotal.toFixed(2));
+        const breakdown = computeOperationalTimeBreakdown(preparedOperations);
+        const traveteMinutesByMachine = TRAVETE_MACHINES.reduce((acc, machine) => {
+            const value = breakdown.traveteMinutesByMachine[machine] || 0;
+            acc[machine] = Number.isFinite(value) ? parseFloat(value.toFixed(4)) : 0;
+            return acc;
+        }, {});
+        const productionMinutesOnly = Number.isFinite(breakdown.productionMinutes)
+            ? parseFloat(Math.max(0, breakdown.productionMinutes).toFixed(4))
+            : tempoMinutosTotal;
+
+        setIsSaving(true);
+        try {
+            const sequenceId = selectedSequenceId || generateId('seq');
+            const sequenceRef = doc(db, 'sequenciasOperacionais', sequenceId);
+            const nowTimestamp = Timestamp.now();
+            const nowIso = new Date().toISOString();
+
+            const payload = {
+                id: sequenceId,
+                empresa: trimmedEmpresa,
+                modelo: trimmedModelo,
+                codigo: formState.codigo.trim(),
+                dashboardId: selectedOption.primaryProduct?.dashboardId || formState.dashboardId || null,
+                productId: selectedOption.primaryProductId,
+                baseProductId: formState.baseProductId || selectedOption.baseProductId || null,
+                operacoes: preparedOperations,
+                tempoTotal: tempoDecimalPadrao,
+                tempoTotalMinutos: tempoMinutosTotal,
+                tempoTotalSegundos: parseFloat(tempoSegundosTotal.toFixed(2)),
+                tempoTotalFormatado: formatSecondsToDurationLabel(tempoSegundosTotal),
+                updatedAt: nowTimestamp,
+                updatedBy: user ? { uid: user.uid, email: user.email } : null,
+            };
+
+            if (!selectedSequenceId) {
+                payload.createdAt = nowTimestamp;
+                payload.dataCadastro = nowIso;
+                payload.createdBy = user ? { uid: user.uid, email: user.email } : null;
+            }
+
+            await setDoc(sequenceRef, payload, { merge: true });
+            await updateLinkedProductsStandardTimes({
+                productOption: selectedOption,
+                productionMinutes: productionMinutesOnly,
+                traveteMinutesByMachine,
+            });
+            setSelectedSequenceId(sequenceId);
+            alert('Sequência operacional salva com sucesso!');
+        } catch (error) {
+            console.error('Erro ao salvar sequência operacional:', error);
+            alert('Não foi possível salvar a sequência operacional.');
+        } finally {
+            setIsSaving(false);
+        }
+    }, [findProductOptionByProductId, formState, isSaving, operations, selectedSequenceId, updateLinkedProductsStandardTimes, user]);
+
+    const handleDeleteSequence = useCallback(async () => {
+        if (!selectedSequenceId) return;
+        const sequence = sequences.find(seq => seq.id === selectedSequenceId);
+        const confirmationMessage = sequence?.modelo
+            ? `Deseja realmente excluir a sequência "${sequence.modelo}"?`
+            : 'Deseja realmente excluir esta sequência operacional?';
+        if (!window.confirm(confirmationMessage)) return;
+        try {
+            await deleteDoc(doc(db, 'sequenciasOperacionais', selectedSequenceId));
+            resetForm();
+            alert('Sequência operacional removida.');
+        } catch (error) {
+            console.error('Erro ao excluir sequência operacional:', error);
+            alert('Não foi possível excluir a sequência.');
+        }
+    }, [resetForm, selectedSequenceId, sequences]);
+
+    const sortedSequences = useMemo(() => {
+        return [...sequences].sort((a, b) => (a.modelo || '').localeCompare(b.modelo || ''));
+    }, [sequences]);
+
+    const productOptionsSorted = useMemo(() => {
+        return [...productOptions].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }, [productOptions]);
+
+    const selectedProduct = useMemo(() => findProductOptionByProductId(formState.productId), [findProductOptionByProductId, formState.productId]);
+
+    return (
+        <div className="responsive-root min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200">
+            <GlobalStyles />
+            <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-3">
+                    <button onClick={onNavigateToCrono} className="flex items-center gap-2 px-3 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700">
+                        <ArrowLeft size={18} /> Voltar para Quadros
+                    </button>
+                    {onNavigateToStock && (
+                        <button onClick={onNavigateToStock} className="flex items-center gap-2 px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600">
+                            <Box size={18} /> Estoque
+                        </button>
+                    )}
+                </div>
+                <div className="text-right">
+                    <h1 className="text-2xl font-bold">Sequência Operacional</h1>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Cadastre e mantenha as operações padrão por modelo.</p>
+                </div>
+            </header>
+
+            <main className="responsive-main py-6 space-y-6">
+                <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr] gap-6">
+                    <aside className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg p-4 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-lg font-semibold flex items-center gap-2"><List size={18} /> Modelos Cadastrados</h2>
+                            <button onClick={resetForm} className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-500">
+                                <PlusCircle size={16} /> Novo
+                            </button>
+                        </div>
+                        <div className="max-h-[60vh] overflow-y-auto space-y-2 pr-1">
+                            {sortedSequences.map(sequence => {
+                                const isActive = sequence.id === selectedSequenceId;
+                                return (
+                                    <button
+                                        key={sequence.id}
+                                        onClick={() => handleSelectSequence(sequence)}
+                                        className={`w-full text-left p-3 rounded-lg border transition-colors ${isActive ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/40' : 'border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800/60'}`}
+                                    >
+                                        <p className="font-semibold truncate">{sequence.modelo || 'Sem nome'}</p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">Tempo: {sequence.tempoTotalFormatado || `${sequence.tempoTotal || 0} min`}</p>
+                                        {sequence.codigo && <p className="text-[11px] text-gray-400">Código: {sequence.codigo}</p>}
+                                    </button>
+                                );
+                            })}
+                            {sortedSequences.length === 0 && <p className="text-sm text-gray-500">Nenhuma sequência cadastrada.</p>}
+                        </div>
+                        <button
+                            onClick={handleDeleteSequence}
+                            disabled={!selectedSequenceId}
+                            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <Trash2 size={18} /> Excluir Sequência
+                        </button>
+                    </aside>
+
+                    <section className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg p-6 space-y-6">
+                        <form onSubmit={handleSaveSequence} className="space-y-6">
+                            <div className="responsive-form-grid">
+                                <div className="flex flex-col">
+                                    <label className="text-sm font-medium">Empresa</label>
+                                    <input
+                                        type="text"
+                                        value={formState.empresa}
+                                        onChange={(e) => handleFormChange('empresa', e.target.value)}
+                                        className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                        placeholder="Ex: Race Bull"
+                                    />
+                                </div>
+                                <div className="flex flex-col">
+                                    <label className="text-sm font-medium">Modelo</label>
+                                    <input
+                                        type="text"
+                                        value={formState.modelo}
+                                        onChange={(e) => handleFormChange('modelo', e.target.value)}
+                                        className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                        placeholder="Ex: Calça Jeans Ref. 123"
+                                        required
+                                    />
+                                </div>
+                                <div className="flex flex-col">
+                                    <label className="text-sm font-medium">Código (opcional)</label>
+                                    <input
+                                        type="text"
+                                        value={formState.codigo}
+                                        onChange={(e) => handleFormChange('codigo', e.target.value)}
+                                        className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                        placeholder="Ex: CJ-123"
+                                    />
+                                </div>
+                                <div className="flex flex-col">
+                                    <label className="text-sm font-medium">Produto Vinculado</label>
+                                    <select
+                                        value={formState.productId}
+                                        onChange={(e) => handleProductSelect(e.target.value)}
+                                        className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                        required
+                                    >
+                                        <option value="" disabled>{isLoadingProducts ? 'Carregando produtos...' : 'Selecione um produto'}</option>
+                                        {productOptionsSorted.map(product => (
+                                            <option key={product.id} value={product.id}>
+                                                {product.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-lg font-semibold flex items-center gap-2"><Layers size={18} /> Operações do Modelo</h3>
+                                    <button type="button" onClick={handleAddOperation} className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-500">
+                                        <PlusCircle size={16} /> Adicionar operação
+                                    </button>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-gray-50 dark:bg-gray-800">
+                                            <tr>
+                                                <th className="p-3 text-left">Nº</th>
+                                                <th className="p-3 text-left">Descrição</th>
+                                                <th className="p-3 text-left">Máquina</th>
+                                                <th className="p-3 text-left">Tempo</th>
+                                                <th className="p-3 text-left">Unidade</th>
+                                                <th className="p-3 text-center">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                                            {operations.map(operation => (
+                                                <tr key={operation.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                                                    <td className="p-2">
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            value={operation.numero}
+                                                            onChange={(e) => handleOperationChange(operation.id, 'numero', e.target.value)}
+                                                            className="w-20 p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                        />
+                                                    </td>
+                                                    <td className="p-2">
+                                                        <input
+                                                            type="text"
+                                                            value={operation.descricao}
+                                                            onChange={(e) => handleOperationChange(operation.id, 'descricao', e.target.value)}
+                                                            className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                            placeholder="Descrição da operação"
+                                                        />
+                                                    </td>
+                                                    <td className="p-2">
+                                                        <input
+                                                            type="text"
+                                                            value={operation.maquina}
+                                                            onChange={(e) => handleOperationChange(operation.id, 'maquina', e.target.value)}
+                                                            className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                            placeholder="Máquina utilizada"
+                                                        />
+                                                    </td>
+                                                    <td className="p-2">
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            value={operation.tempoValor}
+                                                            onChange={(e) => handleOperationChange(operation.id, 'tempoValor', e.target.value)}
+                                                            className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                            placeholder="Tempo"
+                                                        />
+                                                    </td>
+                                                    <td className="p-2">
+                                                        <select
+                                                            value={operation.unidade}
+                                                            onChange={(e) => handleOperationChange(operation.id, 'unidade', e.target.value)}
+                                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                        >
+                                                            <option value="min">Minutos</option>
+                                                            <option value="seg">Segundos</option>
+                                                        </select>
+                                                    </td>
+                                                    <td className="p-2 text-center">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveOperation(operation.id)}
+                                                            className="text-red-500 hover:text-red-400"
+                                                            title="Remover operação"
+                                                        >
+                                                            <Trash size={16} />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">Informe o tempo de cada operação em minutos ou segundos. O sistema converterá automaticamente para o tempo padrão do modelo.</p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="bg-blue-50 dark:bg-blue-900/40 p-4 rounded-xl">
+                                    <h4 className="text-sm font-semibold text-blue-800 dark:text-blue-200">Resumo do Modelo</h4>
+                                    <p className="text-sm mt-2">Tempo Total das Operações:</p>
+                                    <p className="text-xl font-bold text-blue-700 dark:text-blue-200">{formattedTotal}</p>
+                                    <p className="text-sm mt-2">Tempo Padrão (minutos decimais):</p>
+                                    <p className="text-lg font-semibold">{totalMinutes > 0 ? totalMinutes.toFixed(2) : '0.00'} min</p>
+                                </div>
+                                <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl text-sm space-y-2">
+                                    <p><span className="font-semibold">Produto vinculado:</span> {selectedProduct ? selectedProduct.name : 'Selecione um produto'}</p>
+                                    {selectedProduct?.dashboardNames?.length > 0 && (
+                                        <p><span className="font-semibold">Quadros:</span> {selectedProduct.dashboardNames.join(' • ')}</p>
+                                    )}
+                                    <p><span className="font-semibold">Última atualização:</span> {selectedSequenceId ? 'Sequência existente' : 'Novo cadastro'}</p>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
+                                <button
+                                    type="button"
+                                    onClick={resetForm}
+                                    className="px-4 py-2 rounded-md bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600"
+                                >
+                                    Limpar
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isSaving}
+                                    className="px-6 py-2 rounded-md bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 justify-center"
+                                >
+                                    <Save size={18} /> {isSaving ? 'Salvando...' : 'Salvar Sequência'}
+                                </button>
+                            </div>
+                        </form>
+                    </section>
+                </div>
+            </main>
+        </div>
+    );
+};
+
+// #####################################################################
+// #                                                                   #
+// #                 FIM: SEQUÊNCIA OPERACIONAL (NOVO)                 #
+// #                                                                   #
+// #####################################################################
+
+
+
+// #####################################################################
+// #                                                                   #
+// #               INÍCIO: COMPONENTES DE MODAIS E AUXILIARES            #
+// #                                                                   #
+// #####################################################################
+
+const EditEntryModal = ({
+    isOpen,
+    onClose,
+    entry,
+    onSave,
+    products,
+    productsForSelectedDate = [],
+    lots = [],
+    traveteMachines = TRAVETE_MACHINES,
+    traveteVariationLookup = new Map(),
+}) => {
+    const [entryData, setEntryData] = useState(null);
+    const modalRef = useRef();
+    useClickOutside(modalRef, onClose);
+
+    const productMap = useMemo(() => {
+        const map = new Map();
+        (products || []).forEach(product => {
+            if (product?.id) {
+                map.set(product.id, product);
+            }
+        });
+        (productsForSelectedDate || []).forEach(product => {
+            if (product?.id) {
+                const existing = map.get(product.id) || {};
+                map.set(product.id, { ...existing, ...product });
+            }
+        });
+        return map;
+    }, [products, productsForSelectedDate]);
+
+    useEffect(() => {
+        if (isOpen && entry) {
+            if (Array.isArray(entry.employeeEntries) && entry.employeeEntries.length > 0) {
+                setEntryData({
+                    type: 'travete',
+                    availableTime: entry.availableTime || 0,
+                    observation: entry.observation || '',
+                    employeeEntries: entry.employeeEntries.map((emp, idx) => {
+                        const baseProducts = getEmployeeProducts(emp);
+                        const normalizedProducts = baseProducts.map(detail => ({
+                            lotId: detail.lotId || '',
+                            productId: detail.productId || '',
+                            produced: detail.produced !== undefined ? String(detail.produced) : '',
+                            isAutoSuggested: false,
+                        }));
+                        if (normalizedProducts.length === 0) {
+                            normalizedProducts.push(createDefaultTraveteProductItem());
+                        }
+                        const standardTimeValue = emp.standardTime !== undefined && emp.standardTime !== null
+                            ? String(emp.standardTime)
+                            : '';
+                        return {
+                            employeeId: emp.employeeId || idx + 1,
+                            machineType: emp.machineType || traveteMachines[idx] || traveteMachines[0],
+                            standardTime: standardTimeValue,
+                            standardTimeManual: standardTimeValue !== '',
+                            products: normalizedProducts,
+                        };
+                    }),
+                });
+            } else {
+                const productionDetails = Array.isArray(entry.productionDetails)
+                    ? entry.productionDetails
+                    : [];
+                const productionRows = productionDetails
+                    .map(detail => createProductionRowFromDetail(detail, productMap, lots))
+                    .filter(Boolean);
+
+                setEntryData({
+                    type: 'default',
+                    people: entry.people !== undefined && entry.people !== null
+                        ? String(entry.people)
+                        : '',
+                    availableTime: entry.availableTime !== undefined && entry.availableTime !== null
+                        ? String(entry.availableTime)
+                        : '',
+                    productionRows,
+                    previousGoalDisplay: entry.goalDisplay || '',
+                });
+            }
+        } else if (!isOpen) {
+            setEntryData(null);
+        }
+    }, [isOpen, entry, traveteMachines, lots, productMap]);
+
+    const traveteLotOptions = useMemo(
+        () => lots.filter(lot => lot.status !== 'completed'),
+        [lots]
+    );
+
+    useEffect(() => {
+        if (!isOpen || !entryData || entryData.type !== 'travete') return;
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const { changed, employeeEntries } = applyTraveteAutoSuggestions(
+                prev.employeeEntries,
+                traveteLotOptions,
+                products,
+                traveteVariationLookup
+            );
+            if (!changed) {
+                return prev;
+            }
+            return { ...prev, employeeEntries };
+        });
+    }, [isOpen, entryData, traveteLotOptions, products, traveteVariationLookup]);
+
+    const isTraveteEntry = entryData?.type === 'travete';
+
+    const handleProductionRowChange = (index, value) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'default') return prev;
+            const rows = prev.productionRows || [];
+            if (index < 0 || index >= rows.length) return prev;
+            const nextRows = rows.map((row, idx) => (
+                idx === index
+                    ? { ...row, produced: value }
+                    : row
+            ));
+            return { ...prev, productionRows: nextRows };
+        });
+    };
+
+    const entryPrimaryProductId = useMemo(() => (
+        entry?.primaryProductId
+        || entry?.productionDetails?.[0]?.productId
+        || ''
+    ), [entry]);
+
+    const fallbackProductId = !isTraveteEntry
+        ? (entryData?.productionRows?.[0]?.productId || entryPrimaryProductId)
+        : '';
+
+    const defaultPredictions = useMemo(() => {
+        if (isTraveteEntry) {
+            return [];
+        }
+
+        return computeDefaultPredictionsForEdit({
+            peopleValue: entryData?.people,
+            availableTimeValue: entryData?.availableTime,
+            lots,
+            productMap,
+            fallbackProductId,
+        });
+    }, [isTraveteEntry, entryData?.people, entryData?.availableTime, lots, productMap, fallbackProductId]);
+
+    useEffect(() => {
+        if (!isOpen || isTraveteEntry) return;
+
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'default') return prev;
+            const existingRows = prev.productionRows || [];
+            const nextRows = buildRowsFromPredictions(existingRows, defaultPredictions, lots, productMap);
+            if (areProductionRowsEqual(existingRows, nextRows)) {
+                return prev;
+            }
+            return { ...prev, productionRows: nextRows };
+        });
+    }, [isOpen, isTraveteEntry, defaultPredictions, lots, productMap]);
+
+    const defaultGoalPreview = useMemo(() => {
+        if (isTraveteEntry) {
+            return '';
+        }
+
+        if (!defaultPredictions || defaultPredictions.length === 0) {
+            const fallbackDisplay = entryData?.previousGoalDisplay || entry?.goalDisplay || '';
+            return fallbackDisplay && fallbackDisplay.trim().length > 0 ? fallbackDisplay : '0';
+        }
+
+        const segments = defaultPredictions
+            .map(prediction => Math.max(0, prediction.remainingPieces ?? prediction.plannedPieces ?? 0))
+            .filter((value, index) => value > 0 || index === 0);
+
+        return segments.length > 0
+            ? segments.map(value => value.toLocaleString('pt-BR')).join(' / ')
+            : '0';
+    }, [isTraveteEntry, defaultPredictions, entryData?.previousGoalDisplay, entry?.goalDisplay]);
+
+    const defaultPredictedLotLabel = useMemo(() => {
+        if (isTraveteEntry || !defaultPredictions || defaultPredictions.length === 0) {
+            return '';
+        }
+
+        return defaultPredictions
+            .map(prediction => prediction.productName)
+            .filter(Boolean)
+            .join(' / ');
+    }, [isTraveteEntry, defaultPredictions]);
+
+    const traveteMetaPreview = useMemo(() => {
+        if (!isTraveteEntry) return null;
+        const availableTime = parseFloat(entryData?.availableTime) || 0;
+        return (entryData?.employeeEntries || []).map(emp => {
+            const standardTime = parseFloat(emp.standardTime) || 0;
+            if (availableTime <= 0 || standardTime <= 0) return 0;
+            return Math.round(availableTime / standardTime);
+        });
+    }, [isTraveteEntry, entryData]);
+
+    const traveteMetaDisplay = useMemo(() => {
+        if (!Array.isArray(traveteMetaPreview)) return '';
+        return traveteMetaPreview
+            .map(value => value.toLocaleString('pt-BR'))
+            .join(' // ');
+    }, [traveteMetaPreview]);
+
+    if (!isOpen || !entryData) return null;
+
+    const handleTraveteEmployeeChange = (index, field, value) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== index) return emp;
+                let updated = { ...emp };
+                switch (field) {
+                    case 'machineType': {
+                        updated = { ...updated, machineType: value };
+                        const firstLotId = updated.products.find(item => item.lotId)?.lotId;
+                        const patch = buildTraveteStandardTimePatch({
+                            employee: updated,
+                            lotId: firstLotId,
+                            machineType: value,
+                            lots,
+                            products,
+                            variationLookup: traveteVariationLookup,
+                            resetWhenMissing: true,
+                        });
+                        if (patch) {
+                            updated = { ...updated, ...patch };
+                        }
+                        break;
+                    }
+                    case 'standardTime': {
+                        updated.standardTime = value;
+                        updated.standardTimeManual = value !== '';
+                        break;
+                    }
+                    default: {
+                        updated[field] = value;
+                    }
+                }
+                return updated;
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteProductChange = (employeeIndex, productIndex, field, value) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                const updatedProducts = emp.products.map((product, prodIdx) => {
+                    if (prodIdx !== productIndex) return product;
+                    const nextProduct = { ...product, [field]: value };
+                    if (field === 'lotId') {
+                        nextProduct.isAutoSuggested = false;
+                    }
+                    return nextProduct;
+                });
+                let updatedEmployee = { ...emp, products: updatedProducts };
+                if (field === 'lotId') {
+                    const patch = buildTraveteStandardTimePatch({
+                        employee: updatedEmployee,
+                        lotId: value,
+                        machineType: emp.machineType,
+                        lots,
+                        products,
+                        variationLookup: traveteVariationLookup,
+                    });
+                    if (patch) {
+                        updatedEmployee = { ...updatedEmployee, ...patch };
+                    }
+                }
+                return updatedEmployee;
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteAddProduct = (employeeIndex) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                return { ...emp, products: [...emp.products, createDefaultTraveteProductItem()] };
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteRemoveProduct = (employeeIndex, productIndex) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                const remaining = emp.products.filter((_, idx) => idx !== productIndex);
+                return { ...emp, products: remaining.length > 0 ? remaining : [createDefaultTraveteProductItem()] };
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleSave = () => {
+        if (isTraveteEntry) {
+            const normalizedEmployees = entryData.employeeEntries.map(emp => ({
+                employeeId: emp.employeeId,
+                machineType: emp.machineType,
+                standardTime: emp.standardTime,
+                products: emp.products.map(product => ({
+                    ...product,
+                    produced: parseInt(product.produced, 10) || 0,
+                })),
+            }));
+
+            onSave(entry.id, {
+                type: 'travete',
+                availableTime: parseFloat(entryData.availableTime) || 0,
+                employeeEntries: normalizedEmployees,
+                observation: entryData.observation || '',
+            });
+            onClose();
+            return;
+        }
+
+        const numericPeople = parseFloat(entryData.people) || 0;
+        const numericAvailableTime = parseFloat(entryData.availableTime) || 0;
+        const updatedProductions = (entryData.productionRows || [])
+            .filter(row => row.productId)
+            .map(row => ({
+                productId: row.productId,
+                produced: parseInt(row.produced, 10) || 0,
+            }))
+            .filter(detail => detail.produced > 0);
+
+        const primaryProductId = updatedProductions[0]?.productId
+            || entry?.primaryProductId
+            || entry?.productionDetails?.[0]?.productId
+            || '';
+
+        const goalDisplayValue = defaultGoalPreview && defaultGoalPreview.trim().length > 0
+            ? defaultGoalPreview
+            : entry?.goalDisplay || '0';
+
+        onSave(entry.id, {
+            type: 'default',
+            people: numericPeople,
+            availableTime: numericAvailableTime,
+            productions: updatedProductions,
+            goalDisplay: goalDisplayValue,
+            primaryProductId,
+        });
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-40 modal-backdrop">
+            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-3xl modal-content max-h-[90vh] overflow-y-auto">
+                <h2 className="text-xl font-bold mb-4">Editar Lançamento: {entry.period}</h2>
+                {isTraveteEntry ? (
+                    <div className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="flex flex-col">
+                                <label htmlFor="travete-edit-time" className="text-sm font-medium">Tempo Disp. (min)</label>
+                                <input
+                                    id="travete-edit-time"
+                                    type="number"
+                                    value={entryData.availableTime}
+                                    onChange={(e) => setEntryData(prev => ({ ...prev, availableTime: e.target.value }))}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                            <div className="md:col-span-2 flex flex-col">
+                                <label htmlFor="travete-edit-observation" className="text-sm font-medium">Observação</label>
+                                <textarea
+                                    id="travete-edit-observation"
+                                    value={entryData.observation}
+                                    onChange={(e) => setEntryData(prev => ({ ...prev, observation: e.target.value }))}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                    rows={2}
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            {entryData.employeeEntries.map((employee, index) => (
+                                <div key={employee.employeeId || index} className="p-4 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/60 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-lg font-semibold">Funcionário {employee.employeeId}</h3>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div className="flex flex-col">
+                                            <label className="text-sm font-medium">Máquina</label>
+                                            <select
+                                                value={employee.machineType}
+                                                onChange={(e) => handleTraveteEmployeeChange(index, 'machineType', e.target.value)}
+                                                className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                            >
+                                                {traveteMachines.map(machine => (
+                                                    <option key={machine} value={machine}>{machine}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <label className="text-sm font-medium">Tempo por Peça (min)</label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                value={employee.standardTime}
+                                                onChange={(e) => handleTraveteEmployeeChange(index, 'standardTime', e.target.value)}
+                                                className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-3">
+                                        {employee.products.map((productItem, productIdx) => (
+                                            <div key={`${employee.employeeId}-${productIdx}`} className="p-3 rounded-lg bg-white dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 space-y-3">
+                                                        <div className="flex items-center justify-between">
+                                                            <label className="text-sm font-semibold">
+                                                                {productIdx === 0
+                                                                    ? 'Produto / Lote (Prioridade)'
+                                                                    : productItem.isAutoSuggested
+                                                                        ? 'Próximo Lote (Automático)'
+                                                                        : 'Produto / Lote'}
+                                                            </label>
+                                                            {employee.products.length > 1 && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleTraveteRemoveProduct(index, productIdx)}
+                                                                    className="text-red-500 hover:text-red-400"
+                                                        >
+                                                            <Trash size={16} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <select
+                                                    value={productItem.lotId}
+                                                    onChange={(e) => handleTraveteProductChange(index, productIdx, 'lotId', e.target.value)}
+                                                    className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                >
+                                                    <option value="">Selecione...</option>
+                                                    {traveteLotOptions.map(lotOption => (
+                                                        <option key={lotOption.id} value={lotOption.id}>
+                                                            {formatTraveteLotDisplayName(lotOption, products)}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <div className="flex flex-col">
+                                                    <label className="text-sm">Quantidade Produzida</label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        value={productItem.produced}
+                                                        onChange={(e) => handleTraveteProductChange(index, productIdx, 'produced', e.target.value)}
+                                                        className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
+                                        <button
+                                            type="button"
+                                            onClick={() => handleTraveteAddProduct(index)}
+                                            className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-500"
+                                        >
+                                            <PlusCircle size={16} /> Adicionar item fora de ordem
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="flex flex-col justify-center items-center bg-blue-100 dark:bg-blue-900/50 p-3 rounded-md shadow-inner">
+                                <span className="text-sm font-medium text-gray-700 dark:text-gray-200">Meta Prevista</span>
+                                <span className="font-bold text-lg text-blue-600 dark:text-blue-300 text-center">
+                                    {traveteMetaDisplay || '- // -'}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label htmlFor="edit-people" className="block text-sm font-medium">Nº Pessoas</label>
+                                <input
+                                    id="edit-people"
+                                    type="number"
+                                    value={entryData.people}
+                                    onChange={(e) => setEntryData({ ...entryData, people: e.target.value })}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="edit-time" className="block text-sm font-medium">Tempo Disp. (min)</label>
+                                <input
+                                    id="edit-time"
+                                    type="number"
+                                    value={entryData.availableTime}
+                                    onChange={(e) => setEntryData({ ...entryData, availableTime: e.target.value })}
+                                    className="mt-1 w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <h3 className="text-sm font-semibold mb-2">Produções</h3>
+                            <div className="space-y-2 max-h-64 overflow-y-auto">
+                                {(entryData.productionRows || []).map((row, index) => (
+                                    <div key={row.key || `${row.productId}-${index}`} className="flex items-center justify-between gap-4">
+                                        <span className="text-sm font-medium truncate">{row.productName || row.productId || 'Produto'}</span>
+                                        <input
+                                            type="number"
+                                            value={row.produced || ''}
+                                            onChange={(e) => handleProductionRowChange(index, e.target.value)}
+                                            className="w-24 p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                        />
+                                    </div>
+                                ))}
+                                {(!entryData.productionRows || entryData.productionRows.length === 0) && (
+                                    <p className="text-sm text-gray-500">Nenhum lote previsto para este horário.</p>
+                                )}
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                                {defaultPredictedLotLabel && (
+                                    <div className="flex flex-col justify-center items-center bg-blue-50 dark:bg-blue-900/40 p-3 rounded-md shadow-inner">
+                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-200">Lotes Previstos</span>
+                                        <span className="font-semibold text-base text-blue-700 dark:text-blue-200 text-center">{defaultPredictedLotLabel}</span>
+                                    </div>
+                                )}
+                                <div className="flex flex-col justify-center items-center bg-blue-100 dark:bg-blue-900/50 p-3 rounded-md shadow-inner">
+                                    <span className="text-sm font-medium text-gray-700 dark:text-gray-200">Meta Prevista</span>
+                                    <span className="font-bold text-lg text-blue-600 dark:text-blue-400">{defaultGoalPreview}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                <div className="mt-6 flex justify-end gap-3">
+                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-md">Cancelar</button>
+                    <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Salvar</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+
+const DashboardActionDialog = ({ isOpen, onClose, onConfirm, mode, initialName }) => {
+    const [name, setName] = useState('');
+    const modalRef = useRef();
+    useClickOutside(modalRef, onClose);
 
     const handleProductSelect = useCallback((productId) => {
         const product = productOptions.find(p => p.id === productId);
@@ -4994,9 +6210,15 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         traveteVariationLookup,
     ]);
 
-    const availablePeriods = useMemo(() => FIXED_PERIODS.filter(p => !productionData.some(e => e.period === p)), [productionData]);
-    const filteredLots = useMemo(() => [...lots].filter(l => lotFilter === 'ongoing' ? (l.status === 'ongoing' || l.status === 'future') : l.status.startsWith('completed')), [lots, lotFilter]);
+        if (isTraveteDashboard) {
+            const trimmedName = traveteProductForm.baseName.trim();
+            if (!trimmedName) return;
 
+            const variationConfigs = [
+                { key: 'createTwoNeedle', suffix: '2 Agulhas', machineType: 'Travete 2 Agulhas', timeField: 'baseTime', defaultMultiplier: 1 },
+                { key: 'createOneNeedle', suffix: '1 Agulha', machineType: 'Travete 1 Agulha', timeField: 'oneNeedleTime', defaultMultiplier: 2 },
+                { key: 'createConventional', suffix: 'Convencional', machineType: 'Travete Convencional', timeField: 'conventionalTime', defaultMultiplier: 3 },
+            ];
 
     const handleInputChange = (e) => { const { name, value } = e.target; setNewEntry(prev => ({ ...prev, [name]: value, ...(name === 'productId' && { productions: [] }) })); };
     const handleUrgentChange = (e) => setUrgentProduction(prev => ({...prev, [e.target.name]: e.target.value}));
