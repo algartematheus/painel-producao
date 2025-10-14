@@ -1962,6 +1962,97 @@ const EditEntryModal = ({
         });
     };
 
+    const deriveTraveteStandardTime = (lotId, machineType) => {
+        const lot = lots.find(l => l.id === lotId) || null;
+        if (!lot || !machineType) return '';
+        const variation = findTraveteVariationForLot(lot, machineType, products, traveteVariationLookup);
+        const numeric = variation?.standardTime ? parseFloat(variation.standardTime) : NaN;
+        if (!Number.isFinite(numeric) || numeric <= 0) return '';
+        return formatTraveteStandardTimeValue(numeric);
+    };
+
+    const handleTraveteEmployeeChange = (index, field, value) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== index) return emp;
+                const updated = { ...emp };
+                switch (field) {
+                    case 'machineType': {
+                        updated.machineType = value;
+                        if (!updated.standardTimeManual) {
+                            const firstLotId = updated.products.find(item => item.lotId)?.lotId;
+                            if (firstLotId) {
+                                const derived = deriveTraveteStandardTime(firstLotId, value);
+                                updated.standardTime = derived;
+                            }
+                        }
+                        break;
+                    }
+                    case 'standardTime': {
+                        updated.standardTime = value;
+                        updated.standardTimeManual = value !== '';
+                        break;
+                    }
+                    default: {
+                        updated[field] = value;
+                    }
+                }
+                return updated;
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteProductChange = (employeeIndex, productIndex, field, value) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                const updatedProducts = emp.products.map((product, prodIdx) => {
+                    if (prodIdx !== productIndex) return product;
+                    const nextProduct = { ...product, [field]: value };
+                    if (field === 'lotId') {
+                        nextProduct.isAutoSuggested = false;
+                    }
+                    return nextProduct;
+                });
+                const updatedEmployee = { ...emp, products: updatedProducts };
+                if (field === 'lotId' && !emp.standardTimeManual) {
+                    const derived = deriveTraveteStandardTime(value, emp.machineType);
+                    if (derived) {
+                        updatedEmployee.standardTime = derived;
+                    }
+                }
+                return updatedEmployee;
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteAddProduct = (employeeIndex) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                return { ...emp, products: [...emp.products, createDefaultTraveteProductItem()] };
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
+    const handleTraveteRemoveProduct = (employeeIndex, productIndex) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'travete') return prev;
+            const updatedEmployees = prev.employeeEntries.map((emp, empIdx) => {
+                if (empIdx !== employeeIndex) return emp;
+                const remaining = emp.products.filter((_, idx) => idx !== productIndex);
+                return { ...emp, products: remaining.length > 0 ? remaining : [createDefaultTraveteProductItem()] };
+            });
+            return { ...prev, employeeEntries: updatedEmployees };
+        });
+    };
+
     const handleSave = () => {
         if (isTraveteEntry) {
             const normalizedEmployees = entryData.employeeEntries.map(emp => ({
