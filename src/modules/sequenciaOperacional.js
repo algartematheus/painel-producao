@@ -16,6 +16,12 @@ import {
   normalizeOperationDestinations
 } from './shared';
 
+const TRAVETE_VARIATION_CONFIGS = [
+    { machineType: 'Travete 2 Agulhas', suffix: '2 Agulhas', defaultMultiplier: 1, idSuffix: '2agulhas' },
+    { machineType: 'Travete 1 Agulha', suffix: '1 Agulha', defaultMultiplier: 2, idSuffix: '1agulha' },
+    { machineType: 'Travete Convencional', suffix: 'Convencional', defaultMultiplier: 3, idSuffix: 'convencional' },
+];
+
 export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, dashboards = [], user }) => {
     const [sequences, setSequences] = useState([]);
     const [productOptions, setProductOptions] = useState([]);
@@ -76,6 +82,160 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
             isMounted = false;
         };
     }, [dashboards]);
+
+    const createProductsForSequence = useCallback(async ({
+        modelName,
+        productionMinutes,
+        traveteMinutesByMachine,
+    }) => {
+        const trimmedName = (modelName || '').trim();
+        if (!trimmedName || !dashboards || dashboards.length === 0) {
+            return null;
+        }
+
+        const baseId = generateId('seqProd');
+        const creationIso = new Date().toISOString();
+        const actor = user ? { uid: user.uid, email: user.email } : null;
+        const batch = writeBatch(db);
+        const productionProducts = [];
+        const traveteProducts = {};
+        const relatedIds = new Set();
+        const dashboardNameSet = new Set();
+        const safeTraveteMinutes = traveteMinutesByMachine || {};
+        const baseTwoNeedleMinutes = Number.isFinite(safeTraveteMinutes['Travete 2 Agulhas'])
+            ? parseFloat(safeTraveteMinutes['Travete 2 Agulhas'].toFixed(4))
+            : 0;
+
+        dashboards.forEach((dashboard) => {
+            if (dashboard.id === 'travete') {
+                TRAVETE_VARIATION_CONFIGS.forEach((config) => {
+                    const normalizedSuffix = config.idSuffix;
+                    const productId = `${baseId}_${normalizedSuffix}`;
+                    const docRef = doc(db, `dashboards/${dashboard.id}/products`, productId);
+                    const rawMinutes = safeTraveteMinutes[config.machineType];
+                    const minutesValue = Number.isFinite(rawMinutes)
+                        ? parseFloat(rawMinutes.toFixed(4))
+                        : 0;
+
+                    let multiplier = config.defaultMultiplier;
+                    if (config.machineType === 'Travete 2 Agulhas' && minutesValue > 0) {
+                        multiplier = 1;
+                    } else if (baseTwoNeedleMinutes > 0 && minutesValue > 0) {
+                        multiplier = parseFloat((minutesValue / baseTwoNeedleMinutes).toFixed(4));
+                    }
+
+                    const productData = {
+                        id: productId,
+                        name: `${trimmedName} - ${config.suffix}`,
+                        baseProductId: baseId,
+                        baseProductName: trimmedName,
+                        machineType: config.machineType,
+                        variationMultiplier: multiplier,
+                        standardTime: minutesValue,
+                        createdAt: creationIso,
+                        createdBy: actor,
+                    };
+
+                    batch.set(docRef, productData, { merge: true });
+
+                    const aggregated = {
+                        ...productData,
+                        dashboardId: dashboard.id,
+                        dashboardName: dashboard.name,
+                        standardTimeHistory: [],
+                    };
+
+                    traveteProducts[config.machineType] = aggregated;
+                    relatedIds.add(productId);
+                    if (dashboard.name) {
+                        dashboardNameSet.add(dashboard.name);
+                    }
+                });
+                return;
+            }
+
+            const productId = baseId;
+            const docRef = doc(db, `dashboards/${dashboard.id}/products`, productId);
+            const safeProductionMinutes = Number.isFinite(productionMinutes)
+                ? parseFloat(Math.max(0, productionMinutes).toFixed(4))
+                : 0;
+            const productData = {
+                id: productId,
+                name: trimmedName,
+                baseProductId: baseId,
+                baseProductName: trimmedName,
+                standardTime: safeProductionMinutes,
+                createdAt: creationIso,
+                createdBy: actor,
+            };
+
+            batch.set(docRef, productData, { merge: true });
+
+            const aggregated = {
+                ...productData,
+                dashboardId: dashboard.id,
+                dashboardName: dashboard.name,
+                standardTimeHistory: [],
+            };
+
+            productionProducts.push(aggregated);
+            relatedIds.add(productId);
+            if (dashboard.name) {
+                dashboardNameSet.add(dashboard.name);
+            }
+        });
+
+        try {
+            await batch.commit();
+        } catch (error) {
+            console.error('Não foi possível criar os produtos automaticamente a partir da sequência operacional:', error);
+            return null;
+        }
+
+        const primaryProduction = productionProducts.find(product => product.dashboardId === 'producao')
+            || productionProducts[0]
+            || null;
+        const primaryTravete = traveteProducts['Travete 2 Agulhas']
+            || Object.values(traveteProducts)[0]
+            || null;
+        const primaryProduct = primaryProduction || primaryTravete;
+
+        const aggregatedOption = {
+            id: primaryProduct?.id || baseId,
+            name: trimmedName,
+            baseProductId: baseId,
+            baseProductName: trimmedName,
+            primaryProductId: primaryProduct?.id || baseId,
+            primaryProduct,
+            productionProducts,
+            traveteProducts,
+            relatedProductIds: Array.from(relatedIds),
+            dashboardNames: Array.from(dashboardNameSet).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+            displayLabel: trimmedName,
+            tags: [
+                ...(productionProducts.length > 0 ? ['Produção'] : []),
+                ...(Object.keys(traveteProducts).length > 0 ? ['Travete'] : []),
+            ],
+            allProducts: [
+                ...productionProducts,
+                ...Object.values(traveteProducts),
+            ],
+        };
+
+        setProductOptions(prev => [
+            ...prev.filter(option => option.baseProductId !== aggregatedOption.baseProductId),
+            aggregatedOption,
+        ]);
+
+        setFormState(prev => ({
+            ...prev,
+            productId: aggregatedOption.primaryProductId,
+            baseProductId: aggregatedOption.baseProductId,
+            dashboardId: aggregatedOption.primaryProduct?.dashboardId || prev.dashboardId,
+        }));
+
+        return aggregatedOption;
+    }, [dashboards, setFormState, setProductOptions, user]);
 
     const resetForm = useCallback(() => {
         setSelectedSequenceId(null);
@@ -392,15 +552,6 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
             alert('Informe o modelo para salvar a sequência operacional.');
             return;
         }
-        if (!formState.productId) {
-            alert('Selecione um produto para vincular ao tempo padrão.');
-            return;
-        }
-        const selectedOption = findProductOptionByProductId(formState.productId);
-        if (!selectedOption) {
-            alert('Não foi possível localizar o produto vinculado. Atualize a lista e tente novamente.');
-            return;
-        }
         const preparedOperations = operations
             .map((operation, index) => {
                 const tempoValor = parseFloat(operation.tempoValor);
@@ -450,6 +601,23 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
 
         setIsSaving(true);
         try {
+            let selectedOption = formState.productId
+                ? findProductOptionByProductId(formState.productId)
+                : null;
+
+            if (!selectedOption) {
+                selectedOption = await createProductsForSequence({
+                    modelName: trimmedModelo,
+                    productionMinutes: productionMinutesOnly,
+                    traveteMinutesByMachine,
+                });
+            }
+
+            if (!selectedOption) {
+                alert('Não foi possível definir ou criar o produto vinculado para esta sequência.');
+                return;
+            }
+
             const sequenceId = selectedSequenceId || generateId('seq');
             const sequenceRef = doc(db, 'sequenciasOperacionais', sequenceId);
             const nowTimestamp = Timestamp.now();
@@ -462,7 +630,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
                 codigo: formState.codigo.trim(),
                 dashboardId: selectedOption.primaryProduct?.dashboardId || formState.dashboardId || null,
                 productId: selectedOption.primaryProductId,
-                baseProductId: formState.baseProductId || selectedOption.baseProductId || null,
+                baseProductId: selectedOption.baseProductId || formState.baseProductId || null,
                 operacoes: preparedOperations,
                 tempoTotal: tempoDecimalPadrao,
                 tempoTotalMinutos: tempoMinutosTotal,
@@ -492,7 +660,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
         } finally {
             setIsSaving(false);
         }
-    }, [findProductOptionByProductId, formState, isSaving, operations, selectedSequenceId, updateLinkedProductsStandardTimes, user]);
+    }, [createProductsForSequence, findProductOptionByProductId, formState, isSaving, operations, selectedSequenceId, updateLinkedProductsStandardTimes, user]);
 
     const handleDeleteSequence = useCallback(async () => {
         if (!selectedSequenceId) return;
@@ -615,20 +783,24 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
                                     />
                                 </div>
                                 <div className="flex flex-col">
-                                    <label className="text-sm font-medium">Produto Vinculado</label>
+                                    <label className="text-sm font-medium">Produto vinculado (opcional)</label>
                                     <select
                                         value={formState.productId}
                                         onChange={(e) => handleProductSelect(e.target.value)}
                                         className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                        required
                                     >
-                                        <option value="" disabled>{isLoadingProducts ? 'Carregando produtos...' : 'Selecione um produto'}</option>
+                                        <option value="">
+                                            {isLoadingProducts ? 'Carregando produtos...' : 'Criar produto automaticamente'}
+                                        </option>
                                         {productOptionsSorted.map(product => (
                                             <option key={product.id} value={product.id}>
                                                 {product.displayLabel || product.name}
                                             </option>
                                         ))}
                                     </select>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        Selecione um produto existente apenas se desejar reaproveitar tempos já cadastrados.
+                                    </p>
                                 </div>
                             </div>
 
@@ -755,7 +927,12 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
                                     <p className="text-lg font-semibold">{totalMinutes > 0 ? totalMinutes.toFixed(2) : '0.00'} min</p>
                                 </div>
                                 <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl text-sm space-y-2">
-                                    <p><span className="font-semibold">Produto vinculado:</span> {selectedProduct ? (selectedProduct.displayLabel || selectedProduct.name) : 'Selecione um produto'}</p>
+                                    <p>
+                                        <span className="font-semibold">Produto vinculado:</span>{' '}
+                                        {selectedProduct
+                                            ? (selectedProduct.displayLabel || selectedProduct.name)
+                                            : 'Será criado automaticamente com o modelo informado'}
+                                    </p>
                                     {selectedProduct?.dashboardNames?.length > 0 && (
                                         <p><span className="font-semibold">Quadros:</span> {selectedProduct.dashboardNames.join(' • ')}</p>
                                     )}
