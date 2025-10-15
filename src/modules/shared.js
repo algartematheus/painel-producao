@@ -1154,20 +1154,36 @@ export const aggregateProductOptionsForSequences = (products = []) => {
     const map = new Map();
 
     products.forEach((product) => {
-        const baseId = product.baseProductId
-            || product.baseProductName
-            || product.baseId
-            || deriveProductBaseName(product)
-            || product.id;
-        const baseName = deriveProductBaseName(product) || baseId;
+        if (!product) return;
 
-        let entry = map.get(baseId);
+        const derivedName = (deriveProductBaseName(product)
+            || product.baseProductName
+            || product.name
+            || product.baseProductId
+            || product.baseId
+            || product.id
+            || '')
+            .toString()
+            .trim();
+
+        if (!derivedName) {
+            return;
+        }
+
+        const aggregationKey = derivedName.toLowerCase();
+        const candidateBaseProductId = product.baseProductId
+            || product.baseId
+            || product.primaryProductId
+            || product.id;
+
+        let entry = map.get(aggregationKey);
         if (!entry) {
             entry = {
                 id: product.id,
-                baseProductId: baseId,
-                baseProductName: baseName,
-                name: baseName,
+                aggregationKey,
+                baseProductId: candidateBaseProductId || aggregationKey,
+                baseProductName: derivedName,
+                name: derivedName,
                 primaryProductId: null,
                 primaryProduct: null,
                 productionProducts: [],
@@ -1201,7 +1217,11 @@ export const aggregateProductOptionsForSequences = (products = []) => {
             entry.primaryProduct = product;
         }
 
-        map.set(baseId, entry);
+        if (candidateBaseProductId) {
+            entry.baseProductId = entry.baseProductId || candidateBaseProductId;
+        }
+
+        map.set(aggregationKey, entry);
     });
 
     return Array.from(map.values()).map((entry) => {
