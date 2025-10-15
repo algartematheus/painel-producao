@@ -29,6 +29,7 @@ import {
   ConfirmationModal,
   useClickOutside,
   usePrevious,
+  buildProductLookupMap,
   getEmployeeProducts,
   sumProducedQuantities,
   findFirstProductDetail,
@@ -92,21 +93,10 @@ const EntryEditorModal = ({
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
 
-    const productMap = useMemo(() => {
-        const map = new Map();
-        (products || []).forEach(product => {
-            if (product?.id) {
-                map.set(product.id, product);
-            }
-        });
-        (productsForSelectedDate || []).forEach(product => {
-            if (product?.id) {
-                const existing = map.get(product.id) || {};
-                map.set(product.id, { ...existing, ...product });
-            }
-        });
-        return map;
-    }, [products, productsForSelectedDate]);
+    const productMap = useMemo(
+        () => buildProductLookupMap(products, productsForSelectedDate),
+        [products, productsForSelectedDate]
+    );
 
     useEffect(() => {
         if (isOpen && entry) {
@@ -358,14 +348,7 @@ const EntryEditorModal = ({
             });
             return { ...prev, employeeEntries: updatedEmployees };
         });
-        (productsForSelectedDate || []).forEach(product => {
-            if (product?.id) {
-                const existing = map.get(product.id) || {};
-                map.set(product.id, { ...existing, ...product });
-            }
-        });
-        return map;
-    }, [products, productsForSelectedDate]);
+    };
 
     const handleTraveteAddProduct = (employeeIndex) => {
         setEntryData(prev => {
@@ -2381,9 +2364,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         return labels.join(' / ');
     }, [isTraveteDashboard, predictedLots]);
 
-    const productMapForSelectedDate = useMemo(() =>
-        new Map(productsForSelectedDate.map(p => [p.id, p])),
-    [productsForSelectedDate]);
+    const productMapForSelectedDate = useMemo(
+        () => buildProductLookupMap(productsForSelectedDate),
+        [productsForSelectedDate]
+    );
     
     const processedData = useMemo(() => {
         if (isTraveteDashboard || !productionData || productionData.length === 0) return [];
@@ -4093,7 +4077,10 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     const dateKey = selectedDate.toISOString().slice(0, 10);
     const productionData = useMemo(() => allProductionData[dateKey] || [], [allProductionData, dateKey]);
 
-    const productMapForSelectedDate = useMemo(() => new Map(productsForSelectedDate.map(p => [p.id, p])), [productsForSelectedDate]);
+    const productMapForSelectedDate = useMemo(
+        () => buildProductLookupMap(productsForSelectedDate),
+        [productsForSelectedDate]
+    );
 
     const processedData = useMemo(() => {
         if (isTraveteDashboard || !productionData || productionData.length === 0) return [];

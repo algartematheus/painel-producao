@@ -217,6 +217,19 @@ export const getEmployeeProducts = (employee) => {
     return [];
 };
 
+export const buildProductLookupMap = (...lists) => {
+    const map = new Map();
+    lists.forEach(list => {
+        (list || []).forEach(product => {
+            if (product?.id) {
+                const existing = map.get(product.id) || {};
+                map.set(product.id, { ...existing, ...product });
+            }
+        });
+    });
+    return map;
+};
+
 export const sumProducedQuantities = (productsArray, fallbackProduced) => {
     const producedFromProducts = productsArray.reduce((sum, detail) => sum + (parseInt(detail.produced, 10) || 0), 0);
     if (producedFromProducts > 0) return producedFromProducts;
