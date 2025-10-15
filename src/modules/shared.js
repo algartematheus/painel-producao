@@ -1227,9 +1227,7 @@ export const aggregateProductOptionsForSequences = (products = []) => {
             }
         });
 
-        const displayLabel = tags.length > 0
-            ? `${entry.name} (${tags.join(' + ')})`
-            : entry.name;
+        const displayLabel = entry.name;
 
         return {
             id: entry.primaryProductId,
@@ -1244,6 +1242,7 @@ export const aggregateProductOptionsForSequences = (products = []) => {
             dashboardNames: Array.from(entry.dashboardNames).filter(Boolean).sort((a, b) => a.localeCompare(b)),
             allProducts: entry.allProducts,
             displayLabel,
+            tags,
         };
     });
 };
