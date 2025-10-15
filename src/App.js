@@ -14,7 +14,8 @@ import {
   orderBy,
   getDocs,
   increment,
-  Timestamp
+  Timestamp,
+  arrayUnion
 } from 'firebase/firestore';
 import { StockManagementApp } from './modules/gerenciamentodeestoque';
 import { OperationalSequenceApp } from './modules/sequenciaOperacional';
