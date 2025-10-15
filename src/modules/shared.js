@@ -239,15 +239,75 @@ export const createDefaultTraveteEmployee = (employeeId) => ({
     products: [createDefaultTraveteProductItem()],
 });
 
-export const createOperationalSequenceOperation = (overrides = {}) => ({
-    id: generateId('seqOp'),
-    numero: '',
-    descricao: '',
-    maquina: '',
-    tempoValor: '',
-    unidade: 'min',
-    ...overrides,
-});
+export const createDefaultOperationDestinations = (machine) => {
+    const normalized = normalizeTraveteMachineType(machine || '');
+    const traveteFlags = {};
+    TRAVETE_MACHINES.forEach((machineType) => {
+        traveteFlags[machineType] = normalized === machineType;
+    });
+    return {
+        production: !normalized,
+        travete: traveteFlags,
+    };
+};
+
+export const normalizeOperationDestinations = (destinos, machine) => {
+    const base = createDefaultOperationDestinations(machine);
+    if (!destinos || typeof destinos !== 'object') {
+        return base;
+    }
+
+    const normalized = {
+        production: typeof destinos.production === 'boolean' ? destinos.production : base.production,
+        travete: { ...base.travete },
+    };
+
+    const traveteSource = destinos.travete && typeof destinos.travete === 'object' ? destinos.travete : destinos;
+    TRAVETE_MACHINES.forEach((machineType) => {
+        const value = traveteSource[machineType];
+        if (typeof value === 'boolean') {
+            normalized.travete[machineType] = value;
+        }
+    });
+
+    if (typeof destinos.manuallyEdited === 'boolean') {
+        normalized.manuallyEdited = destinos.manuallyEdited;
+    } else if (typeof destinos.destinosManualmenteEditados === 'boolean') {
+        normalized.manuallyEdited = destinos.destinosManualmenteEditados;
+    }
+
+    return normalized;
+};
+
+export const createOperationalSequenceOperation = (overrides = {}) => {
+    const {
+        id: overrideId,
+        destinos,
+        destinations,
+        destinosManualmenteEditados,
+        machine,
+        ...restOverrides
+    } = overrides;
+
+    const machineValue = restOverrides.maquina || machine || '';
+    const normalizedDestinos = normalizeOperationDestinations(destinos || destinations, machineValue);
+    const manuallyEdited = destinosManualmenteEditados
+        ?? destinos?.manuallyEdited
+        ?? destinations?.manuallyEdited
+        ?? false;
+
+    return {
+        id: overrideId ?? generateId('seqOp'),
+        numero: '',
+        descricao: '',
+        maquina: '',
+        tempoValor: '',
+        unidade: 'min',
+        ...restOverrides,
+        destinos: normalizedDestinos,
+        destinosManualmenteEditados: manuallyEdited,
+    };
+};
 
 export const convertOperationToSeconds = (operation) => {
     const value = parseFloat(operation?.tempoValor);
@@ -1022,7 +1082,7 @@ export const deriveProductBaseName = (product) => {
     return product.id || '';
 };
 
-export const normalizeTraveteMachineType = (machine = '') => {
+export function normalizeTraveteMachineType(machine = '') {
     if (!machine) return '';
     const normalized = machine.toString().trim().toLowerCase();
     if (!normalized) return '';
@@ -1032,7 +1092,7 @@ export const normalizeTraveteMachineType = (machine = '') => {
     if (normalized.includes('2') && normalized.includes('agulh')) return 'Travete 2 Agulhas';
     if (normalized.includes('1') && normalized.includes('agulh')) return 'Travete 1 Agulha';
     return 'Travete 2 Agulhas';
-};
+}
 
 export const computeOperationalTimeBreakdown = (operations = []) => {
     const breakdown = {
@@ -1051,6 +1111,29 @@ export const computeOperationalTimeBreakdown = (operations = []) => {
         if (!(minutesRaw > 0)) {
             return;
         }
+        const destinos = normalizeOperationDestinations(
+            operation.destinos || operation.destinations,
+            operation.maquina || operation.machine || operation.machineType
+        );
+
+        let appliedByDestinos = false;
+
+        if (destinos.production) {
+            breakdown.productionMinutes += minutesRaw;
+            appliedByDestinos = true;
+        }
+
+        TRAVETE_MACHINES.forEach((machineType) => {
+            if (destinos.travete[machineType]) {
+                breakdown.traveteMinutesByMachine[machineType] += minutesRaw;
+                appliedByDestinos = true;
+            }
+        });
+
+        if (appliedByDestinos) {
+            return;
+        }
+
         const machineType = normalizeTraveteMachineType(operation.maquina || operation.machine || operation.machineType);
         if (machineType && TRAVETE_MACHINES.includes(machineType)) {
             breakdown.traveteMinutesByMachine[machineType] += minutesRaw;
@@ -1130,6 +1213,24 @@ export const aggregateProductOptionsForSequences = (products = []) => {
             }
         }
 
+        const tags = [];
+        if (entry.productionProducts.length > 0) {
+            tags.push('Produção');
+        }
+        if (Object.values(entry.traveteProducts).some(Boolean)) {
+            tags.push('Travete');
+        }
+
+        entry.dashboardNames.forEach((name) => {
+            if (name && !tags.includes(name)) {
+                tags.push(name);
+            }
+        });
+
+        const displayLabel = tags.length > 0
+            ? `${entry.name} (${tags.join(' + ')})`
+            : entry.name;
+
         return {
             id: entry.primaryProductId,
             name: entry.name,
@@ -1142,6 +1243,7 @@ export const aggregateProductOptionsForSequences = (products = []) => {
             relatedProductIds: Array.from(entry.relatedProductIds),
             dashboardNames: Array.from(entry.dashboardNames).filter(Boolean).sort((a, b) => a.localeCompare(b)),
             allProducts: entry.allProducts,
+            displayLabel,
         };
     });
 };

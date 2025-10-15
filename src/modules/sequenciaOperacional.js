@@ -11,7 +11,9 @@ import {
   convertOperationToSeconds,
   formatSecondsToDurationLabel,
   aggregateProductOptionsForSequences,
-  exportSequenciaOperacionalPDF
+  exportSequenciaOperacionalPDF,
+  createDefaultOperationDestinations,
+  normalizeOperationDestinations
 } from './shared';
 
 export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, dashboards = [], user }) => {
@@ -132,7 +134,65 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
     const handleOperationChange = useCallback((operationId, field, value) => {
         setOperations(prev => prev.map(operation => {
             if (operation.id !== operationId) return operation;
-            return { ...operation, [field]: value };
+            const nextOperation = { ...operation, [field]: value };
+            if (field === 'maquina') {
+                const manuallyEdited = operation.destinosManualmenteEditados
+                    ?? operation.destinos?.manuallyEdited
+                    ?? false;
+                if (manuallyEdited) {
+                    nextOperation.destinos = normalizeOperationDestinations(
+                        operation.destinos,
+                        value
+                    );
+                } else {
+                    nextOperation.destinos = createDefaultOperationDestinations(value);
+                }
+            }
+            return nextOperation;
+        }));
+    }, []);
+
+    const handleOperationDestinationChange = useCallback((operationId, target, checked) => {
+        setOperations(prev => prev.map(operation => {
+            if (operation.id !== operationId) return operation;
+
+            const normalized = normalizeOperationDestinations(operation.destinos, operation.maquina);
+            const nextDestinos = {
+                production: normalized.production,
+                travete: { ...normalized.travete },
+            };
+
+            if (target === 'production') {
+                nextDestinos.production = checked;
+                if (checked) {
+                    TRAVETE_MACHINES.forEach((machine) => {
+                        nextDestinos.travete[machine] = false;
+                    });
+                } else {
+                    const hasTraveteSelected = TRAVETE_MACHINES.some(machine => nextDestinos.travete[machine]);
+                    if (!hasTraveteSelected) {
+                        nextDestinos.production = true;
+                    }
+                }
+            } else if (TRAVETE_MACHINES.includes(target)) {
+                TRAVETE_MACHINES.forEach((machine) => {
+                    nextDestinos.travete[machine] = machine === target ? checked : false;
+                });
+                if (checked) {
+                    nextDestinos.production = false;
+                } else {
+                    const hasTraveteSelected = TRAVETE_MACHINES.some(machine => nextDestinos.travete[machine]);
+                    if (!hasTraveteSelected) {
+                        nextDestinos.production = true;
+                    }
+                }
+            }
+
+            return {
+                ...operation,
+                destinos: nextDestinos,
+                destinosManualmenteEditados: true,
+            };
         }));
     }, []);
 
@@ -253,6 +313,11 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
                 maquina: operation.maquina || '',
                 tempoValor: tempoValor !== undefined && tempoValor !== null ? String(tempoValor) : '',
                 unidade: operation.unidade || 'min',
+                destinos: operation.destinos || operation.destinations || null,
+                destinosManualmenteEditados: operation.destinosManualmenteEditados
+                    ?? operation.destinos?.manuallyEdited
+                    ?? operation.destinations?.manuallyEdited
+                    ?? false,
             });
         });
         setOperations(loadedOperations.length > 0 ? loadedOperations : [createOperationalSequenceOperation({ numero: '1' })]);
@@ -341,6 +406,16 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
                 const tempoValor = parseFloat(operation.tempoValor);
                 const seconds = convertOperationToSeconds(operation);
                 if (!(seconds > 0)) return null;
+                const destinosNormalizados = normalizeOperationDestinations(
+                    operation.destinos,
+                    operation.maquina
+                );
+                const destinosManuais = operation.destinosManualmenteEditados
+                    ?? operation.destinos?.manuallyEdited
+                    ?? false;
+                if (destinosManuais) {
+                    destinosNormalizados.manuallyEdited = true;
+                }
                 return {
                     numero: operation.numero ? parseInt(operation.numero, 10) || index + 1 : index + 1,
                     descricao: operation.descricao?.trim() || `Operação ${index + 1}`,
@@ -349,6 +424,8 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
                     tempoValor: tempoValor || 0,
                     tempoSegundos: parseFloat(seconds.toFixed(2)),
                     tempoMinutos: parseFloat((seconds / 60).toFixed(4)),
+                    destinos: destinosNormalizados,
+                    destinosManualmenteEditados: destinosManuais,
                 };
             })
             .filter(Boolean);
@@ -439,7 +516,11 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
     }, [sequences]);
 
     const productOptionsSorted = useMemo(() => {
-        return [...productOptions].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        return [...productOptions].sort((a, b) => {
+            const labelA = a.displayLabel || a.name || '';
+            const labelB = b.displayLabel || b.name || '';
+            return labelA.localeCompare(labelB);
+        });
     }, [productOptions]);
 
     const selectedProduct = useMemo(() => findProductOptionByProductId(formState.productId), [findProductOptionByProductId, formState.productId]);
@@ -544,7 +625,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
                                         <option value="" disabled>{isLoadingProducts ? 'Carregando produtos...' : 'Selecione um produto'}</option>
                                         {productOptionsSorted.map(product => (
                                             <option key={product.id} value={product.id}>
-                                                {product.name}
+                                                {product.displayLabel || product.name}
                                             </option>
                                         ))}
                                     </select>
@@ -567,11 +648,14 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
                                                 <th className="p-3 text-left">Máquina</th>
                                                 <th className="p-3 text-left">Tempo</th>
                                                 <th className="p-3 text-left">Unidade</th>
+                                                <th className="p-3 text-left">Destinos</th>
                                                 <th className="p-3 text-center">Ações</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                            {operations.map(operation => (
+                                            {operations.map(operation => {
+                                                const destinos = normalizeOperationDestinations(operation.destinos, operation.maquina);
+                                                return (
                                                 <tr key={operation.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
                                                     <td className="p-2">
                                                         <input
@@ -621,6 +705,28 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
                                                             <option value="seg">Segundos</option>
                                                         </select>
                                                     </td>
+                                                    <td className="p-2">
+                                                        <div className="flex flex-col gap-1 text-xs">
+                                                            <label className="inline-flex items-center gap-2">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={destinos.production}
+                                                                    onChange={(e) => handleOperationDestinationChange(operation.id, 'production', e.target.checked)}
+                                                                />
+                                                                Produção
+                                                            </label>
+                                                            {TRAVETE_MACHINES.map(machine => (
+                                                                <label key={machine} className="inline-flex items-center gap-2">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={destinos.travete[machine]}
+                                                                        onChange={(e) => handleOperationDestinationChange(operation.id, machine, e.target.checked)}
+                                                                    />
+                                                                    {machine}
+                                                                </label>
+                                                            ))}
+                                                        </div>
+                                                    </td>
                                                     <td className="p-2 text-center">
                                                         <button
                                                             type="button"
@@ -632,7 +738,8 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
                                                         </button>
                                                     </td>
                                                 </tr>
-                                            ))}
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>
@@ -648,7 +755,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
                                     <p className="text-lg font-semibold">{totalMinutes > 0 ? totalMinutes.toFixed(2) : '0.00'} min</p>
                                 </div>
                                 <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl text-sm space-y-2">
-                                    <p><span className="font-semibold">Produto vinculado:</span> {selectedProduct ? selectedProduct.name : 'Selecione um produto'}</p>
+                                    <p><span className="font-semibold">Produto vinculado:</span> {selectedProduct ? (selectedProduct.displayLabel || selectedProduct.name) : 'Selecione um produto'}</p>
                                     {selectedProduct?.dashboardNames?.length > 0 && (
                                         <p><span className="font-semibold">Quadros:</span> {selectedProduct.dashboardNames.join(' • ')}</p>
                                     )}
