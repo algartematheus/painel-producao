@@ -1,9 +1,63 @@
 import React, { useEffect, useRef } from 'react';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
 import { getDownloadURL, ref } from 'firebase/storage';
 import { storage } from '../firebase';
 import { TRAVETE_MACHINES, raceBullLogoUrl } from './constants';
+
+const JSPDF_CDN_URL = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+const JSPDF_AUTOTABLE_CDN_URL = 'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.1/dist/jspdf.plugin.autotable.min.js';
+
+const loadScriptOnce = (src) => new Promise((resolve, reject) => {
+    if (typeof document === 'undefined') {
+        reject(new Error('Scripts can only be loaded in the browser.'));
+        return;
+    }
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+        if (existing.dataset.loaded === 'true') {
+            resolve();
+            return;
+        }
+        existing.addEventListener('load', () => resolve());
+        existing.addEventListener('error', (event) => reject(event?.error || new Error(`Falha ao carregar script: ${src}`)));
+        return;
+    }
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.dataset.loaded = 'false';
+    script.onload = () => {
+        script.dataset.loaded = 'true';
+        resolve();
+    };
+    script.onerror = (event) => reject(event?.error || new Error(`Falha ao carregar script: ${src}`));
+    document.head.appendChild(script);
+});
+
+let jsPdfLoaderPromise = null;
+
+const ensureJsPdfResources = async () => {
+    if (jsPdfLoaderPromise) {
+        return jsPdfLoaderPromise;
+    }
+    jsPdfLoaderPromise = (async () => {
+        if (typeof window === 'undefined') {
+            throw new Error('Exportação de PDF disponível apenas no navegador.');
+        }
+        await loadScriptOnce(JSPDF_CDN_URL);
+        const globalJsPdf = window.jspdf;
+        if (!globalJsPdf || !globalJsPdf.jsPDF) {
+            throw new Error('Não foi possível carregar o jsPDF.');
+        }
+        if (!globalJsPdf.jsPDF.API?.autoTable) {
+            await loadScriptOnce(JSPDF_AUTOTABLE_CDN_URL);
+        }
+        if (!globalJsPdf.jsPDF.API?.autoTable) {
+            throw new Error('Não foi possível carregar o plugin jsPDF-Autotable.');
+        }
+        return globalJsPdf;
+    })();
+    return jsPdfLoaderPromise;
+};
 
 export const generateId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -227,7 +281,7 @@ const fetchOperationalLogoDataUrl = async () => {
     }
     const tryConvertToDataUrl = async (url) => {
         if (!url) return '';
-        const response = await fetch(url);
+        const response = await fetch(url, { cache: 'no-store' });
         if (!response.ok) {
             throw new Error(`Falha ao carregar logo: ${response.status}`);
         }
@@ -288,26 +342,38 @@ const deriveOperationMinutesForPdf = (operation) => {
     return 0;
 };
 
-export const exportSequenciaOperacionalPDF = async (modelo, incluirDados = true) => {
+export const exportSequenciaOperacionalPDF = async (modelo, incluirDados = true, options = {}) => {
+    const globalJsPdf = await ensureJsPdfResources();
+    const { jsPDF } = globalJsPdf;
     const doc = new jsPDF();
     const now = new Date();
     const dateLabel = now.toLocaleDateString('pt-BR');
     const dateTimeLabel = now.toLocaleString('pt-BR');
 
+    const { blankLineCount = 25 } = options;
+    const sanitizedBlankLineCount = Math.max(1, Math.floor(Number(blankLineCount) || 0) || 25);
+
     const logoDataUrl = await fetchOperationalLogoDataUrl();
     if (logoDataUrl) {
-        doc.addImage(logoDataUrl, 'PNG', 160, 10, 30, 30);
+        const logoWidth = 32;
+        const logoHeight = 32;
+        const marginRight = 12;
+        const pdfWidth = doc.internal.pageSize.getWidth();
+        const x = pdfWidth - marginRight - logoWidth;
+        const y = 10;
+        doc.addImage(logoDataUrl, 'PNG', x, y, logoWidth, logoHeight, undefined, 'FAST');
     }
 
     doc.setFontSize(14);
-    doc.text('SEQUÊNCIA OPERACIONAL', 105, 20, { align: 'center' });
+    const pageCenterX = doc.internal.pageSize.getWidth() / 2;
+    doc.text('SEQUÊNCIA OPERACIONAL', pageCenterX, 22, { align: 'center' });
     doc.setFontSize(10);
 
     const empresa = (modelo?.empresa || 'RACE BULL').toUpperCase();
     const modeloNome = modelo?.modelo || '__________';
 
-    doc.text(`EMPRESA: ${empresa}`, 15, 35);
-    doc.text(`MODELO: ${modeloNome}`, 15, 42);
+    doc.text(`EMPRESA: ${empresa}`, 15, 38);
+    doc.text(`MODELO: ${modeloNome}`, 15, 45);
 
     const colunas = ['N', 'OPERAÇÃO', 'MÁQUINA', 'TEMPO'];
     let linhas = [];
@@ -337,15 +403,30 @@ export const exportSequenciaOperacionalPDF = async (modelo, incluirDados = true)
             linhas.push(['', '', 'TOTAL', `${totalMinutos.toFixed(2)} min`]);
         }
     } else {
-        linhas = Array.from({ length: 25 }, (_, index) => [index + 1, '', '', '']);
+        linhas = Array.from({ length: sanitizedBlankLineCount }, (_, index) => [index + 1, '', '', '']);
     }
 
     doc.autoTable({
         startY: 50,
         head: [colunas],
         body: linhas,
-        styles: { fontSize: 9, halign: 'center' },
-        headStyles: { fillColor: [0, 0, 0], textColor: [255, 255, 255] },
+        theme: 'grid',
+        styles: {
+            fontSize: 9,
+            halign: 'center',
+            lineColor: [0, 0, 0],
+            lineWidth: 0.1,
+        },
+        headStyles: {
+            fillColor: [0, 0, 0],
+            textColor: [255, 255, 255],
+            lineColor: [0, 0, 0],
+            lineWidth: 0.1,
+        },
+        bodyStyles: {
+            lineColor: [0, 0, 0],
+            lineWidth: 0.1,
+        },
         columnStyles: {
             1: { halign: 'left' },
             2: { halign: 'left' },

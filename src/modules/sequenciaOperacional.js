@@ -164,30 +164,65 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
         };
     }), [operations]);
 
+    const exportBlankSequence = useCallback(async (presetModelName = formState.modelo || '') => {
+        const defaultLineSuggestion = Math.max(operations.length, 25);
+        const lineCountInput = window.prompt(
+            'Quantas operações deseja exibir na folha em branco?',
+            String(defaultLineSuggestion)
+        );
+        if (lineCountInput === null) {
+            return;
+        }
+        const parsedLineCount = parseInt(lineCountInput, 10);
+        const sanitizedLineCount = Number.isFinite(parsedLineCount) && parsedLineCount > 0
+            ? parsedLineCount
+            : defaultLineSuggestion;
+
+        const modelNameInput = window.prompt(
+            'Informe o nome do modelo para o cabeçalho da folha em branco:',
+            presetModelName || ''
+        );
+        if (modelNameInput === null) {
+            return;
+        }
+
+        const sequencePayload = {
+            empresa: formState.empresa || 'Race Bull',
+            modelo: modelNameInput.trim() || '__________',
+            operacoes: [],
+        };
+
+        await exportSequenciaOperacionalPDF(sequencePayload, false, { blankLineCount: sanitizedLineCount });
+    }, [formState.empresa, formState.modelo, operations.length]);
+
     const handleExportSequence = useCallback(async (includeData) => {
+        if (!includeData) {
+            await exportBlankSequence();
+            return;
+        }
+
         const sequencePayload = {
             empresa: formState.empresa || 'Race Bull',
             modelo: formState.modelo || '',
-            operacoes: includeData ? buildOperationsForPdf() : [],
+            operacoes: buildOperationsForPdf(),
         };
 
-        if (includeData) {
-            const hasFilledOperation = sequencePayload.operacoes.some(op => {
-                const hasTime = Number.isFinite(op.tempoMinutos) && op.tempoMinutos > 0;
-                return hasTime || op.descricao || op.maquina;
-            });
-            if (!hasFilledOperation) {
-                const proceed = window.confirm('Nenhuma operação preenchida. Deseja gerar a folha em branco?');
-                if (!proceed) {
-                    return;
-                }
-                await exportSequenciaOperacionalPDF({ ...sequencePayload, operacoes: [] }, false);
+        const hasFilledOperation = sequencePayload.operacoes.some(op => {
+            const hasTime = Number.isFinite(op.tempoMinutos) && op.tempoMinutos > 0;
+            return hasTime || op.descricao || op.maquina;
+        });
+
+        if (!hasFilledOperation) {
+            const proceed = window.confirm('Nenhuma operação preenchida. Deseja gerar a folha em branco?');
+            if (!proceed) {
                 return;
             }
+            await exportBlankSequence(sequencePayload.modelo);
+            return;
         }
 
-        await exportSequenciaOperacionalPDF(sequencePayload, includeData);
-    }, [buildOperationsForPdf, formState.empresa, formState.modelo]);
+        await exportSequenciaOperacionalPDF(sequencePayload, true);
+    }, [buildOperationsForPdf, exportBlankSequence, formState.empresa, formState.modelo]);
 
     const handleSelectSequence = useCallback((sequence) => {
         if (!sequence) return;
