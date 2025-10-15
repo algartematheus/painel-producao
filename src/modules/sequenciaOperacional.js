@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { collection, doc, setDoc, deleteDoc, writeBatch, getDocs, query, orderBy, Timestamp, arrayUnion, onSnapshot } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, writeBatch, getDocs, query, orderBy, Timestamp, onSnapshot } from 'firebase/firestore';
 import { Layers, List, PlusCircle, Save, Trash2, Trash, Box, ArrowLeft } from 'lucide-react';
 import { db } from '../firebase';
 import { TRAVETE_MACHINES } from './constants';
@@ -205,12 +205,18 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
                 lastEditedBy: actor,
             };
             if (safeMinutes > 0) {
-                payload.standardTimeHistory = arrayUnion({
-                    time: safeMinutes,
-                    effectiveDate: nowIso,
-                    changedBy: actor,
-                    source: 'sequencia-operacional',
-                });
+                const existingHistory = Array.isArray(product.standardTimeHistory)
+                    ? product.standardTimeHistory
+                    : [];
+                payload.standardTimeHistory = [
+                    ...existingHistory,
+                    {
+                        time: safeMinutes,
+                        effectiveDate: nowIso,
+                        changedBy: actor,
+                        source: 'sequencia-operacional',
+                    },
+                ];
             }
             batch.update(productRef, payload);
             hasUpdates = true;
