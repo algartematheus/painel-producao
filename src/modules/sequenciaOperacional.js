@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, doc, setDoc, deleteDoc, writeBatch, getDocs, query, orderBy, Timestamp, onSnapshot } from 'firebase/firestore';
-import { Layers, List, PlusCircle, Save, Trash2, Trash, Box, ArrowLeft } from 'lucide-react';
+import { Layers, List, PlusCircle, Save, Trash2, Trash, Box, ArrowLeft, FileDown, FilePlus } from 'lucide-react';
 import { db } from '../firebase';
 import { TRAVETE_MACHINES } from './constants';
 import { computeOperationalTimeBreakdown } from './travete';
@@ -10,7 +10,8 @@ import {
   createOperationalSequenceOperation,
   convertOperationToSeconds,
   formatSecondsToDurationLabel,
-  aggregateProductOptionsForSequences
+  aggregateProductOptionsForSequences,
+  exportSequenciaOperacionalPDF
 } from './shared';
 
 export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, dashboards = [], user }) => {
@@ -151,6 +152,42 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
             return remaining.map((operation, index) => ({ ...operation, numero: operation.numero || String(index + 1) }));
         });
     }, []);
+
+    const buildOperationsForPdf = useCallback(() => operations.map((operation, index) => {
+        const seconds = convertOperationToSeconds(operation);
+        const minutes = seconds > 0 ? parseFloat((seconds / 60).toFixed(4)) : 0;
+        return {
+            numero: operation.numero ? parseInt(operation.numero, 10) || index + 1 : index + 1,
+            descricao: operation.descricao?.trim() || '',
+            maquina: operation.maquina?.trim() || '',
+            tempoMinutos: minutes,
+        };
+    }), [operations]);
+
+    const handleExportSequence = useCallback(async (includeData) => {
+        const sequencePayload = {
+            empresa: formState.empresa || 'Race Bull',
+            modelo: formState.modelo || '',
+            operacoes: includeData ? buildOperationsForPdf() : [],
+        };
+
+        if (includeData) {
+            const hasFilledOperation = sequencePayload.operacoes.some(op => {
+                const hasTime = Number.isFinite(op.tempoMinutos) && op.tempoMinutos > 0;
+                return hasTime || op.descricao || op.maquina;
+            });
+            if (!hasFilledOperation) {
+                const proceed = window.confirm('Nenhuma operação preenchida. Deseja gerar a folha em branco?');
+                if (!proceed) {
+                    return;
+                }
+                await exportSequenciaOperacionalPDF({ ...sequencePayload, operacoes: [] }, false);
+                return;
+            }
+        }
+
+        await exportSequenciaOperacionalPDF(sequencePayload, includeData);
+    }, [buildOperationsForPdf, formState.empresa, formState.modelo]);
 
     const handleSelectSequence = useCallback((sequence) => {
         if (!sequence) return;
@@ -585,6 +622,20 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
                             </div>
 
                             <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => handleExportSequence(false)}
+                                    className="px-4 py-2 rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200"
+                                >
+                                    <span className="flex items-center justify-center gap-2"><FilePlus size={18} /> Folha em Branco</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleExportSequence(true)}
+                                    className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                                >
+                                    <span className="flex items-center justify-center gap-2"><FileDown size={18} /> Exportar PDF</span>
+                                </button>
                                 <button
                                     type="button"
                                     onClick={resetForm}

@@ -1,4 +1,8 @@
 import React, { useEffect, useRef } from 'react';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
+import { getDownloadURL, ref } from 'firebase/storage';
+import { storage } from '../firebase';
 import { TRAVETE_MACHINES } from './constants';
 
 export const generateId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -205,6 +209,141 @@ export const formatSecondsToDurationLabel = (totalSeconds) => {
     const minutesLabel = String(minutes).padStart(2, '0');
     const secondsLabel = String(seconds).padStart(2, '0');
     return `${minutesLabel}:${secondsLabel} min`;
+};
+
+const RACE_BULL_LOGO_STORAGE_PATH = 'logos/racebull_logo.png';
+let cachedOperationalLogoDataUrl = null;
+
+const blobToDataURL = (blob) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+});
+
+const fetchOperationalLogoDataUrl = async () => {
+    if (cachedOperationalLogoDataUrl !== null) {
+        return cachedOperationalLogoDataUrl;
+    }
+    if (!storage) {
+        cachedOperationalLogoDataUrl = '';
+        return '';
+    }
+    try {
+        const logoRef = ref(storage, RACE_BULL_LOGO_STORAGE_PATH);
+        const downloadUrl = await getDownloadURL(logoRef);
+        const response = await fetch(downloadUrl);
+        if (!response.ok) {
+            throw new Error(`Falha ao carregar logo: ${response.status}`);
+        }
+        const blob = await response.blob();
+        const dataUrl = await blobToDataURL(blob);
+        cachedOperationalLogoDataUrl = typeof dataUrl === 'string' ? dataUrl : '';
+        return cachedOperationalLogoDataUrl;
+    } catch (error) {
+        console.warn('Não foi possível carregar a logo do Firebase, gerando PDF sem imagem.', error);
+        cachedOperationalLogoDataUrl = '';
+        return '';
+    }
+};
+
+const deriveOperationMinutesForPdf = (operation) => {
+    if (!operation) return 0;
+    if (operation.tempoMinutos !== undefined) {
+        const minutes = parseFloat(operation.tempoMinutos);
+        if (Number.isFinite(minutes)) return minutes;
+    }
+    if (operation.tempo !== undefined) {
+        const minutes = parseFloat(operation.tempo);
+        if (Number.isFinite(minutes)) return minutes;
+    }
+    if (operation.tempoSegundos !== undefined) {
+        const seconds = parseFloat(operation.tempoSegundos);
+        if (Number.isFinite(seconds)) return seconds / 60;
+    }
+    if (operation.tempoValor !== undefined) {
+        const value = parseFloat(operation.tempoValor);
+        if (Number.isFinite(value)) {
+            const unit = operation.unidade || operation.unidadeTempo || 'min';
+            return unit === 'seg' ? value / 60 : value;
+        }
+    }
+    return 0;
+};
+
+export const exportSequenciaOperacionalPDF = async (modelo, incluirDados = true) => {
+    const doc = new jsPDF();
+    const now = new Date();
+    const dateLabel = now.toLocaleDateString('pt-BR');
+    const dateTimeLabel = now.toLocaleString('pt-BR');
+
+    const logoDataUrl = await fetchOperationalLogoDataUrl();
+    if (logoDataUrl) {
+        doc.addImage(logoDataUrl, 'PNG', 160, 10, 30, 30);
+    }
+
+    doc.setFontSize(14);
+    doc.text('SEQUÊNCIA OPERACIONAL', 105, 20, { align: 'center' });
+    doc.setFontSize(10);
+
+    const empresa = (modelo?.empresa || 'RACE BULL').toUpperCase();
+    const modeloNome = modelo?.modelo || '__________';
+
+    doc.text(`EMPRESA: ${empresa}`, 15, 35);
+    doc.text(`MODELO: ${modeloNome}`, 15, 42);
+
+    const colunas = ['N', 'OPERAÇÃO', 'MÁQUINA', 'TEMPO'];
+    let linhas = [];
+
+    if (incluirDados && modelo) {
+        const operacoes = Array.isArray(modelo.operacoes) ? modelo.operacoes : [];
+        let totalMinutos = 0;
+        linhas = operacoes.map((operacao, index) => {
+            const numero = operacao?.numero !== undefined ? operacao.numero : index + 1;
+            const descricao = operacao?.descricao || operacao?.nome || '';
+            const maquina = operacao?.maquina || '';
+            const minutos = deriveOperationMinutesForPdf(operacao);
+            if (Number.isFinite(minutos)) {
+                totalMinutos += minutos;
+            }
+            return [
+                numero,
+                descricao,
+                maquina,
+                Number.isFinite(minutos) && minutos > 0 ? `${minutos.toFixed(2)} min` : '',
+            ];
+        });
+
+        if (linhas.length === 0) {
+            linhas = Array.from({ length: 25 }, (_, index) => [index + 1, '', '', '']);
+        } else {
+            linhas.push(['', '', 'TOTAL', `${totalMinutos.toFixed(2)} min`]);
+        }
+    } else {
+        linhas = Array.from({ length: 25 }, (_, index) => [index + 1, '', '', '']);
+    }
+
+    doc.autoTable({
+        startY: 50,
+        head: [colunas],
+        body: linhas,
+        styles: { fontSize: 9, halign: 'center' },
+        headStyles: { fillColor: [0, 0, 0], textColor: [255, 255, 255] },
+        columnStyles: {
+            1: { halign: 'left' },
+            2: { halign: 'left' },
+        },
+    });
+
+    doc.setFontSize(8);
+    doc.text(`Gerado automaticamente pelo Sistema Race Bull – ${dateTimeLabel}`, 15, 285);
+
+    const safeModelName = modelo?.modelo ? modelo.modelo.replace(/\s+/g, '_') : 'SemModelo';
+    const nomeArquivo = incluirDados
+        ? `Sequencia_Operacional_${safeModelName}_${dateLabel}.pdf`
+        : `Sequencia_Operacional_EmBranco_${dateLabel}.pdf`;
+
+    doc.save(nomeArquivo);
 };
 
 export const getEmployeeProducts = (employee) => {
