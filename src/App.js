@@ -1368,423 +1368,17 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         const targetDate = new Date(selectedDate);
         targetDate.setHours(23, 59, 59, 999);
 
-        const goalBlocks = employeeSummaries.map(emp => emp.metaSegments);
-        const lotBlocks = employeeSummaries.map(emp => emp.lotSegments);
-
-        const goalDisplay = employeeSummaries
-            .map(emp => emp.metaDisplay || '-')
-            .join(' // ');
-
-        const lotDisplay = employeeSummaries
-            .map(emp => emp.lotDisplay || '-')
-            .join(' // ');
-
-        const productionDetails = employeeSummaries.flatMap(emp => emp.productionDetails);
-        const totalMeta = employeeSummaries.reduce((sum, emp) => sum + (emp.meta || 0), 0);
-        const totalProduced = employeeSummaries.reduce((sum, emp) => sum + (emp.produced || 0), 0);
-
-        const isValid = Boolean(
-            period &&
-            availableTime > 0 &&
-            employeeSummaries.every(emp => emp.valid)
-        );
-
-        return {
-            employeeSummaries,
-            goalDisplay,
-            lotDisplay,
-            isValid,
-            productionDetails,
-            totalMeta,
-            totalProduced,
-            goalBlocks,
-            lotBlocks,
-        };
-    }, [lots, productsForSelectedDate, traveteVariationLookup, products]);
-
-    const traveteComputedEntry = useMemo(() => {
-        if (!isTraveteDashboard) {
-            return {
-                employeeSummaries: [],
-                goalDisplay: '- // -',
-                lotDisplay: '- // -',
-                isValid: false,
-                productionDetails: [],
-                totalMeta: 0,
-                totalProduced: 0,
-                goalBlocks: [],
-                lotBlocks: [],
-            };
-        }
-
-        return summarizeTraveteEntry(traveteEntry);
-    }, [isTraveteDashboard, summarizeTraveteEntry, traveteEntry]);
-
-    const travetePreviewPending = useMemo(() => {
-        if (!isTraveteDashboard) return false;
-        if (!traveteEntry.period || !(parseFloat(traveteEntry.availableTime) > 0)) return false;
-        return traveteEntry.employeeEntries.some(emp => (emp.products || []).some(item => item.lotId));
-    }, [isTraveteDashboard, traveteEntry]);
+        return products
+            .map(p => {
+                if (!p.standardTimeHistory || p.standardTimeHistory.length === 0) {
+                    return null; 
+                }
+                const validTimeEntry = p.standardTimeHistory
+                    .filter(h => new Date(h.effectiveDate) <= targetDate)
+                    .pop();
 
                 if (!validTimeEntry) {
                     return null; 
-                }
-                return { ...p, standardTime: validTimeEntry.time };
-            })
-            .filter(Boolean);
-    }, [products, selectedDate]);
-
-    const traveteVariationLookup = useMemo(() => {
-        const lookup = new Map();
-        productsForSelectedDate.forEach(product => {
-            if (!product?.machineType) return;
-            const baseId = product.baseProductId || product.id;
-            if (!lookup.has(baseId)) {
-                lookup.set(baseId, new Map());
-            }
-            lookup.get(baseId).set(product.machineType, product);
-        });
-        return lookup;
-    }, [productsForSelectedDate]);
-    
-    const summarizeTraveteEntry = useCallback((entryDraft) => {
-        const defaultResult = {
-            employeeSummaries: [],
-            goalDisplay: '- // -',
-            lotDisplay: '- // -',
-            isValid: false,
-            productionDetails: [],
-            totalMeta: 0,
-            totalProduced: 0,
-            goalBlocks: [],
-            lotBlocks: [],
-        };
-
-        if (!entryDraft) {
-            return defaultResult;
-        }
-
-        const availableTime = parseFloat(entryDraft.availableTime) || 0;
-        const period = entryDraft.period;
-        const activeLots = getOrderedActiveLots(lots);
-
-        const employeeSummaries = (entryDraft.employeeEntries || []).map((emp) => {
-            const manualStandardTime = parseFloat(emp.standardTime);
-            let derivedStandardTime = 0;
-
-            const productSummaries = (emp.products || []).map(productItem => {
-                const lot = productItem.lotId ? (lots.find(l => l.id === productItem.lotId) || null) : null;
-                const produced = parseInt(productItem.produced, 10) || 0;
-                const variation = lot
-                    ? findTraveteVariationForLot(lot, emp.machineType, productsForSelectedDate, traveteVariationLookup)
-                    : null;
-                const baseProductId = lot ? resolveTraveteLotBaseId(lot, productsForSelectedDate) : null;
-                const variationStandardTime = variation?.standardTime ? parseFloat(variation.standardTime) : NaN;
-                if (!Number.isNaN(variationStandardTime) && variationStandardTime > 0 && derivedStandardTime <= 0) {
-                    derivedStandardTime = variationStandardTime;
-                }
-
-                return {
-                    lot,
-                    lotId: lot?.id || '',
-                    productId: variation?.id || '',
-                    productBaseId: baseProductId || '',
-                    produced,
-                    standardTime: (!Number.isNaN(variationStandardTime) && variationStandardTime > 0)
-                        ? variationStandardTime
-                        : 0,
-                };
-            });
-
-            const standardTimeValue = (!Number.isNaN(manualStandardTime) && manualStandardTime > 0)
-                ? manualStandardTime
-                : derivedStandardTime;
-
-            const produced = productSummaries.reduce((sum, item) => sum + (item.produced || 0), 0);
-            const meta = (standardTimeValue > 0 && availableTime > 0)
-                ? Math.round(availableTime / standardTimeValue)
-                : 0;
-            const efficiency = (standardTimeValue > 0 && availableTime > 0 && produced > 0)
-                ? parseFloat((((produced * standardTimeValue) / availableTime) * 100).toFixed(2))
-                : 0;
-
-            const productionDetails = productSummaries
-                .filter(item => item.produced > 0 && item.lotId)
-                .map(item => ({
-                    lotId: item.lotId,
-                    productId: item.productId,
-                    produced: item.produced,
-                    ...(item.productBaseId ? { productBaseId: item.productBaseId } : {}),
-                    standardTime: item.standardTime || standardTimeValue || 0,
-                }));
-
-            const productsForSave = productSummaries
-                .filter(item => item.produced > 0 && item.lotId)
-                .map(item => ({
-                    lotId: item.lotId,
-                    produced: item.produced,
-                    productId: item.productId,
-                    productBaseId: item.productBaseId || undefined,
-                    standardTime: item.standardTime || standardTimeValue || 0,
-                    lotName: item.lot ? formatTraveteLotDisplayName(item.lot, products) : '',
-                }));
-
-            const valid = Boolean(
-                period &&
-                availableTime > 0 &&
-                productionDetails.length > 0 &&
-                standardTimeValue > 0
-            );
-
-            const primaryLot = productSummaries.find(item => item.lot)?.lot || null;
-            const manualNextLotItem = productSummaries.slice(1).find(item => item.lot) || null;
-            const manualNextLot = manualNextLotItem?.lot || null;
-
-            const currentLot = primaryLot || activeLots[0] || null;
-            let nextLotCandidate = manualNextLot || null;
-
-            if (!nextLotCandidate && currentLot) {
-                const currentIndex = activeLots.findIndex(l => l.id === currentLot.id);
-                if (currentIndex !== -1) {
-                    nextLotCandidate = activeLots.slice(currentIndex + 1).find(Boolean) || null;
-                }
-                return { ...p, standardTime: validTimeEntry.time };
-            })
-            .filter(Boolean);
-    }, [products, selectedDate]);
-
-    const traveteVariationLookup = useMemo(() => {
-        const lookup = new Map();
-        productsForSelectedDate.forEach(product => {
-            if (!product?.machineType) return;
-            const baseId = product.baseProductId || product.id;
-            if (!lookup.has(baseId)) {
-                lookup.set(baseId, new Map());
-            }
-            lookup.get(baseId).set(product.machineType, product);
-        });
-        return lookup;
-    }, [productsForSelectedDate]);
-    
-    const summarizeTraveteEntry = useCallback((entryDraft) => {
-        const defaultResult = {
-            employeeSummaries: [],
-            goalDisplay: '- // -',
-            lotDisplay: '- // -',
-            isValid: false,
-            productionDetails: [],
-            totalMeta: 0,
-            totalProduced: 0,
-            goalBlocks: [],
-            lotBlocks: [],
-        };
-
-        if (!entryDraft) {
-            return defaultResult;
-        }
-
-        const availableTime = parseFloat(entryDraft.availableTime) || 0;
-        const period = entryDraft.period;
-        const activeLots = getOrderedActiveLots(lots);
-
-        const employeeSummaries = (entryDraft.employeeEntries || []).map((emp) => {
-            const manualStandardTime = parseFloat(emp.standardTime);
-            let derivedStandardTime = 0;
-
-            const productSummaries = (emp.products || []).map(productItem => {
-                const lot = productItem.lotId ? (lots.find(l => l.id === productItem.lotId) || null) : null;
-                const produced = parseInt(productItem.produced, 10) || 0;
-                const variation = lot
-                    ? findTraveteVariationForLot(lot, emp.machineType, productsForSelectedDate, traveteVariationLookup)
-                    : null;
-                const baseProductId = lot ? resolveTraveteLotBaseId(lot, productsForSelectedDate) : null;
-                const variationStandardTime = variation?.standardTime ? parseFloat(variation.standardTime) : NaN;
-                if (!Number.isNaN(variationStandardTime) && variationStandardTime > 0 && derivedStandardTime <= 0) {
-                    derivedStandardTime = variationStandardTime;
-                }
-
-                return {
-                    lot,
-                    lotId: lot?.id || '',
-                    productId: variation?.id || '',
-                    productBaseId: baseProductId || '',
-                    produced,
-                    standardTime: (!Number.isNaN(variationStandardTime) && variationStandardTime > 0)
-                        ? variationStandardTime
-                        : 0,
-                };
-            });
-
-            const standardTimeValue = (!Number.isNaN(manualStandardTime) && manualStandardTime > 0)
-                ? manualStandardTime
-                : derivedStandardTime;
-
-            const produced = productSummaries.reduce((sum, item) => sum + (item.produced || 0), 0);
-            const meta = (standardTimeValue > 0 && availableTime > 0)
-                ? Math.round(availableTime / standardTimeValue)
-                : 0;
-            const efficiency = (standardTimeValue > 0 && availableTime > 0 && produced > 0)
-                ? parseFloat((((produced * standardTimeValue) / availableTime) * 100).toFixed(2))
-                : 0;
-
-            const productionDetails = productSummaries
-                .filter(item => item.produced > 0 && item.lotId)
-                .map(item => ({
-                    lotId: item.lotId,
-                    productId: item.productId,
-                    produced: item.produced,
-                    ...(item.productBaseId ? { productBaseId: item.productBaseId } : {}),
-                    standardTime: item.standardTime || standardTimeValue || 0,
-                }));
-
-            const productsForSave = productSummaries
-                .filter(item => item.produced > 0 && item.lotId)
-                .map(item => ({
-                    lotId: item.lotId,
-                    produced: item.produced,
-                    productId: item.productId,
-                    productBaseId: item.productBaseId || undefined,
-                    standardTime: item.standardTime || standardTimeValue || 0,
-                    lotName: item.lot ? formatTraveteLotDisplayName(item.lot, products) : '',
-                }));
-
-            const valid = Boolean(
-                period &&
-                availableTime > 0 &&
-                productionDetails.length > 0 &&
-                standardTimeValue > 0
-            );
-
-            const primaryLot = productSummaries.find(item => item.lot)?.lot || null;
-            const manualNextLotItem = productSummaries.slice(1).find(item => item.lot) || null;
-            const manualNextLot = manualNextLotItem?.lot || null;
-
-            const currentLot = primaryLot || activeLots[0] || null;
-            let nextLotCandidate = manualNextLot || null;
-
-            if (!nextLotCandidate && currentLot) {
-                const currentIndex = activeLots.findIndex(l => l.id === currentLot.id);
-                if (currentIndex !== -1) {
-                    nextLotCandidate = activeLots.slice(currentIndex + 1).find(Boolean) || null;
-                }
-                return { ...p, standardTime: validTimeEntry.time };
-            })
-            .filter(Boolean);
-    }, [products, selectedDate]);
-
-    const traveteVariationLookup = useMemo(() => {
-        const lookup = new Map();
-        productsForSelectedDate.forEach(product => {
-            if (!product?.machineType) return;
-            const baseId = product.baseProductId || product.id;
-            if (!lookup.has(baseId)) {
-                lookup.set(baseId, new Map());
-            }
-            lookup.get(baseId).set(product.machineType, product);
-        });
-        return lookup;
-    }, [productsForSelectedDate]);
-    
-    const summarizeTraveteEntry = useCallback((entryDraft) => {
-        const defaultResult = {
-            employeeSummaries: [],
-            goalDisplay: '- // -',
-            lotDisplay: '- // -',
-            isValid: false,
-            productionDetails: [],
-            totalMeta: 0,
-            totalProduced: 0,
-            goalBlocks: [],
-            lotBlocks: [],
-        };
-
-        if (!entryDraft) {
-            return defaultResult;
-        }
-
-        const availableTime = parseFloat(entryDraft.availableTime) || 0;
-        const period = entryDraft.period;
-        const activeLots = getOrderedActiveLots(lots);
-
-        const employeeSummaries = (entryDraft.employeeEntries || []).map((emp) => {
-            const manualStandardTime = parseFloat(emp.standardTime);
-            let derivedStandardTime = 0;
-
-            const productSummaries = (emp.products || []).map(productItem => {
-                const lot = productItem.lotId ? (lots.find(l => l.id === productItem.lotId) || null) : null;
-                const produced = parseInt(productItem.produced, 10) || 0;
-                const variation = lot
-                    ? findTraveteVariationForLot(lot, emp.machineType, productsForSelectedDate, traveteVariationLookup)
-                    : null;
-                const baseProductId = lot ? resolveTraveteLotBaseId(lot, productsForSelectedDate) : null;
-                const variationStandardTime = variation?.standardTime ? parseFloat(variation.standardTime) : NaN;
-                if (!Number.isNaN(variationStandardTime) && variationStandardTime > 0 && derivedStandardTime <= 0) {
-                    derivedStandardTime = variationStandardTime;
-                }
-
-                return {
-                    lot,
-                    lotId: lot?.id || '',
-                    productId: variation?.id || '',
-                    productBaseId: baseProductId || '',
-                    produced,
-                    standardTime: (!Number.isNaN(variationStandardTime) && variationStandardTime > 0)
-                        ? variationStandardTime
-                        : 0,
-                };
-            });
-
-            const standardTimeValue = (!Number.isNaN(manualStandardTime) && manualStandardTime > 0)
-                ? manualStandardTime
-                : derivedStandardTime;
-
-            const produced = productSummaries.reduce((sum, item) => sum + (item.produced || 0), 0);
-            const meta = (standardTimeValue > 0 && availableTime > 0)
-                ? Math.round(availableTime / standardTimeValue)
-                : 0;
-            const efficiency = (standardTimeValue > 0 && availableTime > 0 && produced > 0)
-                ? parseFloat((((produced * standardTimeValue) / availableTime) * 100).toFixed(2))
-                : 0;
-
-            const productionDetails = productSummaries
-                .filter(item => item.produced > 0 && item.lotId)
-                .map(item => ({
-                    lotId: item.lotId,
-                    productId: item.productId,
-                    produced: item.produced,
-                    ...(item.productBaseId ? { productBaseId: item.productBaseId } : {}),
-                    standardTime: item.standardTime || standardTimeValue || 0,
-                }));
-
-            const productsForSave = productSummaries
-                .filter(item => item.produced > 0 && item.lotId)
-                .map(item => ({
-                    lotId: item.lotId,
-                    produced: item.produced,
-                    productId: item.productId,
-                    productBaseId: item.productBaseId || undefined,
-                    standardTime: item.standardTime || standardTimeValue || 0,
-                    lotName: item.lot ? formatTraveteLotDisplayName(item.lot, products) : '',
-                }));
-
-            const valid = Boolean(
-                period &&
-                availableTime > 0 &&
-                productionDetails.length > 0 &&
-                standardTimeValue > 0
-            );
-
-            const primaryLot = productSummaries.find(item => item.lot)?.lot || null;
-            const manualNextLotItem = productSummaries.slice(1).find(item => item.lot) || null;
-            const manualNextLot = manualNextLotItem?.lot || null;
-
-            const currentLot = primaryLot || activeLots[0] || null;
-            let nextLotCandidate = manualNextLot || null;
-
-            if (!nextLotCandidate && currentLot) {
-                const currentIndex = activeLots.findIndex(l => l.id === currentLot.id);
-                if (currentIndex !== -1) {
-                    nextLotCandidate = activeLots.slice(currentIndex + 1).find(Boolean) || null;
                 }
                 return { ...p, standardTime: validTimeEntry.time };
             })
@@ -3311,11 +2905,17 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         setNewProduct({ name: '', standardTime: '' });
     };
 
-    const handleStartEditProduct = (p) => { 
-        setEditingProductId(p.id); 
-        const currentTime = p.standardTimeHistory[p.standardTimeHistory.length - 1].time;
-        setEditingProductData({ name: p.name, standardTime: currentTime }); 
+    const handleStartEditProduct = (product) => {
+        if (!product) return;
+        setEditingProductId(product.id);
+        const history = product.standardTimeHistory || [];
+        const latest = history.length > 0 ? history[history.length - 1].time : product.standardTime || '';
+        setEditingProductData({ name: product.name, standardTime: latest });
     };
+
+    const handleEditingProductFieldChange = useCallback((field, value) => {
+        setEditingProductData(prev => ({ ...prev, [field]: value }));
+    }, []);
 
     const handleSaveProduct = async (id) => { 
         if (!editingProductData.name || !editingProductData.standardTime || !currentDashboard) return;
@@ -4215,7 +3815,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                                                                   <input
                                                                                       type="text"
                                                                                       value={editingProductData.name}
-                                                                                      onChange={(e) => setEditingProductData(prev => ({ ...prev, name: e.target.value }))}
+                                                                                      onChange={(e) => handleEditingProductFieldChange('name', e.target.value)}
                                                                                       className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600"
                                                                                   />
                                                                               </td>
@@ -4224,7 +3824,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                                                                       type="number"
                                                                                       step="0.01"
                                                                                       value={editingProductData.standardTime}
-                                                                                      onChange={(e) => setEditingProductData(prev => ({ ...prev, standardTime: e.target.value }))}
+                                                                                      onChange={(e) => handleEditingProductFieldChange('standardTime', e.target.value)}
                                                                                       className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600"
                                                                                   />
                                                                               </td>
@@ -4305,8 +3905,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         <tr key={p.id} className={!didExistOnDate ? 'bg-red-50 dark:bg-red-900/20' : ''}>
             {editingProductId === p.id ? (
                 <>
-                    <td className="p-2"><input type="text" value={editingProductData.name} onChange={e => setEditingProductData({ ...editingProductData, name: e.target.value })} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
-                    <td className="p-2"><input type="number" step="0.01" value={editingProductData.standardTime} onChange={e => setEditingProductData({ ...editingProductData, standardTime: e.target.value })} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
+                    <td className="p-2"><input type="text" value={editingProductData.name} onChange={e => handleEditingProductFieldChange('name', e.target.value)} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
+                    <td className="p-2"><input type="number" step="0.01" value={editingProductData.standardTime} onChange={e => handleEditingProductFieldChange('standardTime', e.target.value)} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
                     <td colSpan="2"></td>
                     {permissions.MANAGE_PRODUCTS && <td className="p-3">
                         <div className="flex gap-2 justify-center">
