@@ -4,18 +4,17 @@ import { db } from './firebase';
 import { AuthProvider, useAuth, LoginPage } from './modules/auth';
 import {
   collection,
-  doc,
-  setDoc,
-  updateDoc,
   deleteDoc,
-  onSnapshot,
-  writeBatch,
-  query,
-  orderBy,
+  doc,
   getDocs,
   increment,
+  onSnapshot,
+  orderBy,
+  query,
+  setDoc,
   Timestamp,
-  arrayUnion
+  updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import { StockManagementApp } from './modules/gerenciamentodeestoque';
 import { OperationalSequenceApp } from './modules/sequenciaOperacional';
