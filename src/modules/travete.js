@@ -1,5 +1,5 @@
 export {
-  buildTraveteProductFormState,
+  createTraveteProductFormState,
   createDefaultTraveteProductItem,
   createDefaultTraveteEmployee,
   formatTraveteLotDisplay,

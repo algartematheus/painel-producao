@@ -53,7 +53,7 @@ import {
   formatGoalBlockDisplay
 } from './modules/producao';
 import {
-  buildTraveteProductFormState,
+  createTraveteProductFormState,
   createDefaultTraveteProductItem,
   createDefaultTraveteEmployee,
   formatTraveteLotDisplay,
@@ -70,48 +70,6 @@ import {
 // == CONSTANTES E FUNÇÕES AUXILIARES GLOBAIS ==
 // =====================================================================
 
-const buildTraveteProductFormState = () => ({
-    baseName: '',
-    baseTime: '',
-    createTwoNeedle: true,
-    createOneNeedle: true,
-    createConventional: true,
-    oneNeedleTime: '',
-    conventionalTime: '',
-    oneNeedleManual: false,
-    conventionalManual: false,
-});
-
-const createDefaultTraveteProductItem = (overrides = {}) => ({
-    lotId: '',
-    produced: '',
-    isAutoSuggested: false,
-    ...overrides,
-});
-
-const createDefaultTraveteEmployee = (employeeId) => ({
-    employeeId,
-    machineType: employeeId === 1 ? 'Travete 2 Agulhas' : 'Travete 1 Agulha',
-    standardTime: '',
-    standardTimeManual: false,
-    products: [createDefaultTraveteProductItem()],
-});
-
-const createOperationalSequenceOperation = (overrides = {}) => ({
-    id: generateId('seqOp'),
-    numero: '',
-    descricao: '',
-    maquina: '',
-    tempoValor: '',
-    unidade: 'min',
-    ...overrides,
-});
-
-const convertOperationToSeconds = (operation) => {
-    const value = parseFloat(operation?.tempoValor);
-    if (!(value > 0)) return 0;
-    return (operation?.unidade || 'min') === 'seg' ? value : value * 60;
-};
 
 // #####################################################################
 // #                                                                   #
@@ -290,8 +248,6 @@ const EntryEditorModal = ({
             const fallbackDisplay = entryData?.previousGoalDisplay || entry?.goalDisplay || '';
             return fallbackDisplay && fallbackDisplay.trim().length > 0 ? fallbackDisplay : '0';
         }
-        return [];
-    }
 
         const segments = defaultPredictions
             .map(prediction => Math.max(0, prediction.remainingPieces ?? prediction.plannedPieces ?? 0))
@@ -402,23 +358,14 @@ const EntryEditorModal = ({
             });
             return { ...prev, employeeEntries: updatedEmployees };
         });
-        const loadedOperations = (sequence.operacoes || []).map((operation, index) => {
-            const tempoValor = operation.tempoValor !== undefined
-                ? operation.tempoValor
-                : (operation.unidade === 'seg'
-                    ? (operation.tempoSegundos !== undefined ? operation.tempoSegundos : operation.tempo)
-                    : (operation.tempoMinutos !== undefined ? operation.tempoMinutos : operation.tempo));
-            return createOperationalSequenceOperation({
-                id: generateId('seqOp'),
-                numero: operation.numero !== undefined ? String(operation.numero) : String(index + 1),
-                descricao: operation.descricao || '',
-                maquina: operation.maquina || '',
-                tempoValor: tempoValor !== undefined && tempoValor !== null ? String(tempoValor) : '',
-                unidade: operation.unidade || 'min',
-            });
+        (productsForSelectedDate || []).forEach(product => {
+            if (product?.id) {
+                const existing = map.get(product.id) || {};
+                map.set(product.id, { ...existing, ...product });
+            }
         });
-        setOperations(loadedOperations.length > 0 ? loadedOperations : [createOperationalSequenceOperation({ numero: '1' })]);
-    }, [findProductOptionByProductId]);
+        return map;
+    }, [products, productsForSelectedDate]);
 
     const handleTraveteAddProduct = (employeeIndex) => {
         setEntryData(prev => {
@@ -1397,9 +1344,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const [editingProductData, setEditingProductData] = useState({ name: '', standardTime: '' });
     
     const [newEntry, setNewEntry] = useState({ period: '', people: '', availableTime: 60, productId: '', productions: [] });
-    const [traveteProductForm, setTraveteProductForm] = useState(() => buildTraveteProductFormState());
+    const [traveteProductForm, setTraveteProductForm] = useState(() => createTraveteProductFormState());
     const resetTraveteProductForm = useCallback(() => {
-        setTraveteProductForm(buildTraveteProductFormState());
+        setTraveteProductForm(createTraveteProductFormState());
     }, [setTraveteProductForm]);
     const [traveteEntry, setTraveteEntry] = useState({
         period: '',
@@ -2160,7 +2107,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
     useEffect(() => {
         if (!isTraveteDashboard) {
-            setTraveteProductForm(buildTraveteProductFormState());
+            setTraveteProductForm(createTraveteProductFormState());
             setTraveteEntry({
                 period: '',
                 availableTime: 60,

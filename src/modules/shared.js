@@ -154,7 +154,7 @@ export const usePrevious = (value) => {
     return ref.current;
 };
 
-export const buildTraveteProductFormState = () => ({
+export const createTraveteProductFormState = () => ({
     baseName: '',
     baseTime: '',
     createTwoNeedle: true,
