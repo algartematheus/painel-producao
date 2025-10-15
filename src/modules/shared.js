@@ -335,19 +335,71 @@ const blobToDataURL = (blob) => new Promise((resolve, reject) => {
     reader.readAsDataURL(blob);
 });
 
+const convertImageToDataUrlViaCanvas = (url) => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+        return Promise.resolve('');
+    }
+
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.crossOrigin = 'anonymous';
+        image.onload = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const context = canvas.getContext('2d');
+                if (!context) {
+                    resolve('');
+                    return;
+                }
+                context.drawImage(image, 0, 0);
+                resolve(canvas.toDataURL('image/png'));
+            } catch (error) {
+                reject(error);
+            }
+        };
+        image.onerror = reject;
+        image.src = url;
+    });
+};
+
+const getImageFormatFromDataUrl = (dataUrl) => {
+    if (typeof dataUrl !== 'string') {
+        return 'PNG';
+    }
+    if (dataUrl.startsWith('data:image/jpeg') || dataUrl.startsWith('data:image/jpg')) {
+        return 'JPEG';
+    }
+    if (dataUrl.startsWith('data:image/webp')) {
+        return 'WEBP';
+    }
+    return 'PNG';
+};
+
 const fetchOperationalLogoDataUrl = async () => {
     if (cachedOperationalLogoDataUrl !== null) {
         return cachedOperationalLogoDataUrl;
     }
     const tryConvertToDataUrl = async (url) => {
         if (!url) return '';
-        const response = await fetch(url, { cache: 'no-store' });
-        if (!response.ok) {
-            throw new Error(`Falha ao carregar logo: ${response.status}`);
+        try {
+            const response = await fetch(url, { cache: 'no-store', mode: 'cors', credentials: 'omit' });
+            if (!response.ok) {
+                throw new Error(`Falha ao carregar logo: ${response.status}`);
+            }
+            const blob = await response.blob();
+            const dataUrl = await blobToDataURL(blob);
+            return typeof dataUrl === 'string' ? dataUrl : '';
+        } catch (networkError) {
+            try {
+                const dataUrl = await convertImageToDataUrlViaCanvas(url);
+                return typeof dataUrl === 'string' ? dataUrl : '';
+            } catch (canvasError) {
+                console.warn('Falha ao converter a logo para DataURL.', canvasError || networkError);
+                return '';
+            }
         }
-        const blob = await response.blob();
-        const dataUrl = await blobToDataURL(blob);
-        return typeof dataUrl === 'string' ? dataUrl : '';
     };
 
     if (raceBullLogoUrl) {
@@ -421,7 +473,7 @@ export const exportSequenciaOperacionalPDF = async (modelo, incluirDados = true,
         const pdfWidth = doc.internal.pageSize.getWidth();
         const x = pdfWidth - marginRight - logoWidth;
         const y = 10;
-        doc.addImage(logoDataUrl, 'PNG', x, y, logoWidth, logoHeight, undefined, 'FAST');
+        doc.addImage(logoDataUrl, getImageFormatFromDataUrl(logoDataUrl), x, y, logoWidth, logoHeight);
     }
 
     doc.setFontSize(14);
