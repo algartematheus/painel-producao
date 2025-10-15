@@ -14,7 +14,8 @@ import {
   orderBy,
   getDocs,
   increment,
-  Timestamp
+  Timestamp,
+  arrayUnion
 } from 'firebase/firestore';
 import { StockManagementApp } from './modules/gerenciamentodeestoque';
 import { OperationalSequenceApp } from './modules/sequenciaOperacional';
@@ -357,7 +358,14 @@ const EntryEditorModal = ({
             });
             return { ...prev, employeeEntries: updatedEmployees };
         });
-    };
+        (productsForSelectedDate || []).forEach(product => {
+            if (product?.id) {
+                const existing = map.get(product.id) || {};
+                map.set(product.id, { ...existing, ...product });
+            }
+        });
+        return map;
+    }, [products, productsForSelectedDate]);
 
     const handleTraveteAddProduct = (employeeIndex) => {
         setEntryData(prev => {
