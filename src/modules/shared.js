@@ -3,7 +3,7 @@ import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { getDownloadURL, ref } from 'firebase/storage';
 import { storage } from '../firebase';
-import { TRAVETE_MACHINES } from './constants';
+import { TRAVETE_MACHINES, raceBullLogoUrl } from './constants';
 
 export const generateId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -225,26 +225,43 @@ const fetchOperationalLogoDataUrl = async () => {
     if (cachedOperationalLogoDataUrl !== null) {
         return cachedOperationalLogoDataUrl;
     }
-    if (!storage) {
-        cachedOperationalLogoDataUrl = '';
-        return '';
-    }
-    try {
-        const logoRef = ref(storage, RACE_BULL_LOGO_STORAGE_PATH);
-        const downloadUrl = await getDownloadURL(logoRef);
-        const response = await fetch(downloadUrl);
+    const tryConvertToDataUrl = async (url) => {
+        if (!url) return '';
+        const response = await fetch(url);
         if (!response.ok) {
             throw new Error(`Falha ao carregar logo: ${response.status}`);
         }
         const blob = await response.blob();
         const dataUrl = await blobToDataURL(blob);
-        cachedOperationalLogoDataUrl = typeof dataUrl === 'string' ? dataUrl : '';
-        return cachedOperationalLogoDataUrl;
-    } catch (error) {
-        console.warn('Não foi possível carregar a logo do Firebase, gerando PDF sem imagem.', error);
-        cachedOperationalLogoDataUrl = '';
-        return '';
+        return typeof dataUrl === 'string' ? dataUrl : '';
+    };
+
+    if (raceBullLogoUrl) {
+        try {
+            const logoFromConstant = await tryConvertToDataUrl(raceBullLogoUrl);
+            cachedOperationalLogoDataUrl = logoFromConstant;
+            if (logoFromConstant) {
+                return logoFromConstant;
+            }
+        } catch (error) {
+            console.warn('Não foi possível carregar a logo usando a URL configurada, tentando buscar pelo Storage.', error);
+        }
     }
+
+    if (storage) {
+        try {
+            const logoRef = ref(storage, RACE_BULL_LOGO_STORAGE_PATH);
+            const downloadUrl = await getDownloadURL(logoRef);
+            const logoFromStorage = await tryConvertToDataUrl(downloadUrl);
+            cachedOperationalLogoDataUrl = logoFromStorage;
+            return logoFromStorage;
+        } catch (error) {
+            console.warn('Não foi possível carregar a logo do Firebase Storage, gerando PDF sem imagem.', error);
+        }
+    }
+
+    cachedOperationalLogoDataUrl = '';
+    return '';
 };
 
 const deriveOperationMinutesForPdf = (operation) => {
