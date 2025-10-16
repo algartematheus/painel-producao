@@ -2517,16 +2517,56 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             if (traveteProcessedData.length === 0) {
                 return { totalProduced: 0, totalGoal: 0, lastHourEfficiency: 0, averageEfficiency: 0 };
             }
-            const lastEntry = traveteProcessedData[traveteProcessedData.length - 1];
-            const employees = lastEntry.employees || [];
-            const totalProduced = employees.reduce((sum, emp) => sum + (emp.cumulativeProduced || 0), 0);
-            const totalGoal = employees.reduce((sum, emp) => sum + (emp.cumulativeMeta || 0), 0);
-            const lastHourEfficiency = employees.length > 0
-                ? parseFloat((employees.reduce((sum, emp) => sum + (emp.efficiency || 0), 0) / employees.length).toFixed(2))
+
+            const employeeStatsMap = new Map();
+            const toFinite = (value, fallback = 0) => {
+                if (typeof value === 'number') {
+                    return Number.isFinite(value) ? value : fallback;
+                }
+                const parsed = parseFloat(value);
+                return Number.isFinite(parsed) ? parsed : fallback;
+            };
+
+            traveteProcessedData.forEach(entry => {
+                (entry.employees || []).forEach((emp, index) => {
+                    const key = emp.employeeId ?? index;
+                    const previous = employeeStatsMap.get(key) || {
+                        produced: 0,
+                        goal: 0,
+                        lastEfficiency: 0,
+                        cumulativeEfficiency: 0,
+                    };
+
+                    const cumulativeProducedValue = toFinite(emp.cumulativeProduced, previous.produced);
+                    const producedValue = cumulativeProducedValue > 0
+                        ? cumulativeProducedValue
+                        : toFinite(emp.produced, previous.produced);
+                    const cumulativeGoalValue = toFinite(emp.cumulativeMeta, previous.goal);
+                    const goalValue = cumulativeGoalValue > 0
+                        ? cumulativeGoalValue
+                        : toFinite(emp.meta, previous.goal);
+                    const efficiencyValue = toFinite(emp.efficiency, previous.lastEfficiency);
+                    const cumulativeEfficiencyValue = toFinite(emp.cumulativeEfficiency, previous.cumulativeEfficiency);
+
+                    employeeStatsMap.set(key, {
+                        produced: Math.max(previous.produced, producedValue),
+                        goal: Math.max(previous.goal, goalValue),
+                        lastEfficiency: efficiencyValue,
+                        cumulativeEfficiency: Math.max(previous.cumulativeEfficiency, cumulativeEfficiencyValue),
+                    });
+                });
+            });
+
+            const employeeStats = Array.from(employeeStatsMap.values());
+            const totalProduced = employeeStats.reduce((sum, stat) => sum + (stat.produced || 0), 0);
+            const totalGoal = employeeStats.reduce((sum, stat) => sum + (stat.goal || 0), 0);
+            const lastHourEfficiency = employeeStats.length > 0
+                ? parseFloat((employeeStats.reduce((sum, stat) => sum + (stat.lastEfficiency || 0), 0) / employeeStats.length).toFixed(2))
                 : 0;
-            const averageEfficiency = employees.length > 0
-                ? parseFloat((employees.reduce((sum, emp) => sum + (emp.cumulativeEfficiency || 0), 0) / employees.length).toFixed(2))
+            const averageEfficiency = employeeStats.length > 0
+                ? parseFloat((employeeStats.reduce((sum, stat) => sum + (stat.cumulativeEfficiency || 0), 0) / employeeStats.length).toFixed(2))
                 : 0;
+
             return { totalProduced, totalGoal, lastHourEfficiency, averageEfficiency };
         }
 
@@ -4347,9 +4387,22 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         if (prevProductionData && productionData.length > prevProductionData.length) {
             if (isTraveteDashboard) {
                 const newTraveteEntry = traveteProcessedData[traveteProcessedData.length - 1];
-                const efficiencyToCheck = newTraveteEntry?.totalEfficiency ?? 0;
-                if (newTraveteEntry && efficiencyToCheck < 65) {
-                    setShowFullScreenAlert(true);
+                if (newTraveteEntry) {
+                    const employees = Array.isArray(newTraveteEntry.employees) ? newTraveteEntry.employees : [];
+                    const toFiniteNumber = value => {
+                        if (typeof value === 'number') {
+                            return Number.isFinite(value) ? value : 0;
+                        }
+                        const parsed = parseFloat(value);
+                        return Number.isFinite(parsed) ? parsed : 0;
+                    };
+                    const totalProduced = employees.reduce((sum, emp) => sum + toFiniteNumber(emp.produced), 0);
+                    const averageEfficiency = employees.length > 0
+                        ? employees.reduce((sum, emp) => sum + toFiniteNumber(emp.efficiency), 0) / employees.length
+                        : 0;
+                    if (totalProduced > 0 && averageEfficiency < 65) {
+                        setShowFullScreenAlert(true);
+                    }
                 }
             } else {
                 const newEntry = processedData[processedData.length - 1];
