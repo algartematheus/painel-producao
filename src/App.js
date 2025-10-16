@@ -71,10 +71,6 @@ import {
 // == CONSTANTES E FUNÇÕES AUXILIARES GLOBAIS ==
 // =====================================================================
 
-    const defaultPredictedLotLabel = useMemo(() => {
-        if (isTraveteEntry || !defaultPredictions || defaultPredictions.length === 0) {
-            return '';
-        }
 
 // #####################################################################
 // #                                                                   #
@@ -1476,10 +1472,12 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     derivedStandardTime = variationStandardTime;
                 }
 
+                const variationProductId = variation ? variation.id : '';
+
                 return {
                     lot,
                     lotId: lot?.id || '',
-                    productId: variation?.id || '',
+                    productId: variationProductId,
                     productBaseId: baseProductId || '',
                     produced,
                     standardTime: (!Number.isNaN(variationStandardTime) && variationStandardTime > 0)
