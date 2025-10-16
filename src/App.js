@@ -1530,7 +1530,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     derivedStandardTime = variationStandardTime;
                 }
 
-                const variationProductId = variation?.id ?? '';
+                const variationProductId = variation && variation.id ? variation.id : '';
 
                 return {
                     lot,
