@@ -1477,7 +1477,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     return null; 
                 }
                 return { ...p, standardTime: validTimeEntry.time };
-            });
             .filter(Boolean);
     }, [products, selectedDate]);
 
