@@ -1588,7 +1588,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
             const primaryLot = productSummaries.find(item => item.lot)?.lot || null;
             const manualNextLotItem = productSummaries.slice(1).find(item => item.lot) || null;
-            const manualNextLot = manualNextLotItem?.lot || null;
+            const manualNextLot = (manualNextLotItem && manualNextLotItem.lot)
+                ? manualNextLotItem.lot
+                : null;
 
             const currentLot = primaryLot || activeLots[0] || null;
             let nextLotCandidate = manualNextLot || null;
@@ -1620,7 +1622,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 && (manualNextLotItem || leftoverMetaForNext > 0)
                 && (nextMetaPieces > 0);
 
-            const machineSuffix = emp.machineType?.replace('Travete ', '') || '';
+            const machineSuffix = emp.machineType
+                ? emp.machineType.replace('Travete ', '')
+                : '';
             const currentLotLabel = currentLotName
                 ? `${currentLotName}${machineSuffix ? ` - ${machineSuffix}` : ''}`
                 : '';
