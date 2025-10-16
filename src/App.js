@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Trash } from 'lucide-react';
+import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Trash, FileDown } from 'lucide-react';
 import { db } from './firebase';
 import { AuthProvider, useAuth, LoginPage } from './modules/auth';
 import {
@@ -33,7 +33,8 @@ import {
   sumProducedQuantities,
   findFirstProductDetail,
   resolveProductReference,
-  resolveEmployeeStandardTime
+  resolveEmployeeStandardTime,
+  exportDashboardPerformancePDF
 } from './modules/shared';
 import {
   getOrderedActiveLots,
@@ -70,6 +71,10 @@ import {
 // == CONSTANTES E FUNÇÕES AUXILIARES GLOBAIS ==
 // =====================================================================
 
+    const defaultPredictedLotLabel = useMemo(() => {
+        if (isTraveteEntry || !defaultPredictions || defaultPredictions.length === 0) {
+            return '';
+        }
 
 // #####################################################################
 // #                                                                   #
@@ -1342,6 +1347,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const [modalState, setModalState] = useState({ type: null, data: null });
     const [showUrgent, setShowUrgent] = useState(false);
     const [urgentProduction, setUrgentProduction] = useState({ productId: '', produced: '' });
+    const [isExportingReport, setIsExportingReport] = useState(false);
     const [isNavOpen, setIsNavOpen] = useState(false);
     const navRef = useRef();
     useClickOutside(navRef, () => setIsNavOpen(false));
@@ -1350,14 +1356,67 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         const targetDate = new Date(selectedDate);
         targetDate.setHours(23, 59, 59, 999);
 
-        return products
-            .map(p => {
-                if (!p.standardTimeHistory || p.standardTimeHistory.length === 0) {
-                    return null; 
-                }
-                const validTimeEntry = p.standardTimeHistory
-                    .filter(h => new Date(h.effectiveDate) <= targetDate)
-                    .pop();
+        if (employeeSummaries.length === 0) {
+            return defaultResult;
+        }
+
+        const goalBlocks = employeeSummaries.map(emp => emp.metaSegments);
+        const lotBlocks = employeeSummaries.map(emp => emp.lotSegments);
+
+        const goalDisplay = employeeSummaries
+            .map(emp => emp.metaDisplay || '-')
+            .join(' // ');
+
+        const lotDisplay = employeeSummaries
+            .map(emp => emp.lotDisplay || '-')
+            .join(' // ');
+
+        const productionDetails = employeeSummaries.flatMap(emp => emp.productionDetails);
+        const totalMeta = employeeSummaries.reduce((sum, emp) => sum + (emp.meta || 0), 0);
+        const totalProduced = employeeSummaries.reduce((sum, emp) => sum + (emp.produced || 0), 0);
+
+        const isValid = Boolean(
+            period &&
+            availableTime > 0 &&
+            employeeSummaries.every(emp => emp.valid)
+        );
+
+        return {
+            employeeSummaries,
+            goalDisplay,
+            lotDisplay,
+            isValid,
+            productionDetails,
+            totalMeta,
+            totalProduced,
+            goalBlocks,
+            lotBlocks,
+        };
+    }, [lots, productsForSelectedDate, traveteVariationLookup, products]);
+
+    const traveteComputedEntry = useMemo(() => {
+        if (!isTraveteDashboard) {
+            return {
+                employeeSummaries: [],
+                goalDisplay: '- // -',
+                lotDisplay: '- // -',
+                isValid: false,
+                productionDetails: [],
+                totalMeta: 0,
+                totalProduced: 0,
+                goalBlocks: [],
+                lotBlocks: [],
+            };
+        }
+
+        return summarizeTraveteEntry(traveteEntry);
+    }, [isTraveteDashboard, summarizeTraveteEntry, traveteEntry]);
+
+    const travetePreviewPending = useMemo(() => {
+        if (!isTraveteDashboard) return false;
+        if (!traveteEntry.period || !(parseFloat(traveteEntry.availableTime) > 0)) return false;
+        return traveteEntry.employeeEntries.some(emp => (emp.products || []).some(item => item.lotId));
+    }, [isTraveteDashboard, traveteEntry]);
 
                 if (!validTimeEntry) {
                     return null; 
@@ -2579,6 +2638,197 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         return { totalProduction: totalMonthlyProduction, totalGoal: totalMonthlyGoal, averageEfficiency: averageMonthlyEfficiency };
     }, [isTraveteDashboard, allProductionData, currentMonth, products]);
 
+    const monthlyBreakdownForPdf = useMemo(() => {
+        const breakdown = [];
+        const year = currentMonth.getFullYear();
+        const month = currentMonth.getMonth();
+
+        Object.entries(allProductionData || {}).forEach(([dateStr, entries]) => {
+            const dayEntries = Array.isArray(entries) ? entries : [];
+            if (dayEntries.length === 0) return;
+            const referenceDate = new Date(`${dateStr}T00:00:00`);
+            if (referenceDate.getFullYear() !== year || referenceDate.getMonth() !== month) return;
+
+            if (isTraveteDashboard) {
+                const productsForDateMap = new Map(products
+                    .map(p => {
+                        const validTimeEntry = p.standardTimeHistory?.filter(h => new Date(h.effectiveDate) <= referenceDate).pop();
+                        if (!validTimeEntry) return null;
+                        return [p.id, { ...p, standardTime: validTimeEntry.time }];
+                    })
+                    .filter(Boolean));
+
+                const dayMetaPerEmployee = [];
+                const dayProductionPerEmployee = [];
+                let efficiencyTotal = 0;
+                let efficiencySamples = 0;
+
+                dayEntries.forEach(entry => {
+                    (entry.employeeEntries || []).forEach((emp, index) => {
+                        const productsArray = getEmployeeProducts(emp);
+                        const produced = sumProducedQuantities(productsArray, emp.produced);
+                        const firstProduct = findFirstProductDetail(productsArray, emp);
+                        const { product } = resolveProductReference(emp, firstProduct, productsForDateMap);
+                        const standardTime = resolveEmployeeStandardTime(emp, firstProduct, product);
+                        const availableTime = entry.availableTime || 0;
+                        const meta = computeMetaFromStandardTime(standardTime, availableTime);
+                        const efficiency = computeEfficiencyPercentage(produced, standardTime, availableTime);
+
+                        dayMetaPerEmployee[index] = (dayMetaPerEmployee[index] || 0) + meta;
+                        dayProductionPerEmployee[index] = (dayProductionPerEmployee[index] || 0) + produced;
+                        if (efficiency > 0) {
+                            efficiencyTotal += efficiency;
+                            efficiencySamples += 1;
+                        }
+                    });
+                });
+
+                if (dayMetaPerEmployee.length > 0 || dayProductionPerEmployee.length > 0) {
+                    breakdown.push({
+                        date: referenceDate,
+                        totalGoal: dayMetaPerEmployee.reduce((sum, value) => sum + (value || 0), 0),
+                        totalProduction: dayProductionPerEmployee.reduce((sum, value) => sum + (value || 0), 0),
+                        averageEfficiency: efficiencySamples > 0 ? parseFloat((efficiencyTotal / efficiencySamples).toFixed(2)) : 0,
+                    });
+                }
+            } else {
+                const productsForDateMap = new Map(products
+                    .map(p => {
+                        const validTimeEntry = p.standardTimeHistory?.filter(h => new Date(h.effectiveDate) <= referenceDate).pop();
+                        if (!validTimeEntry) return null;
+                        return [p.id, { ...p, standardTime: validTimeEntry.time }];
+                    })
+                    .filter(Boolean));
+
+                let dailyProduction = 0;
+                let dailyGoal = 0;
+                let efficiencyTotal = 0;
+                let efficiencySamples = 0;
+
+                dayEntries.forEach(item => {
+                    let periodProduction = 0;
+                    let totalTimeValue = 0;
+                    (item.productionDetails || []).forEach(detail => {
+                        const produced = detail.produced || 0;
+                        periodProduction += produced;
+                        const product = productsForDateMap.get(detail.productId);
+                        if (product?.standardTime) {
+                            totalTimeValue += produced * product.standardTime;
+                        }
+                    });
+                    if (item.goalDisplay) {
+                        dailyGoal += sumGoalDisplay(item.goalDisplay);
+                    }
+                    dailyProduction += periodProduction;
+                    const totalAvailableTime = (item.people || 0) * (item.availableTime || 0);
+                    if (totalAvailableTime > 0) {
+                        efficiencyTotal += (totalTimeValue / totalAvailableTime) * 100;
+                        efficiencySamples += 1;
+                    }
+                });
+
+                breakdown.push({
+                    date: referenceDate,
+                    totalGoal: dailyGoal,
+                    totalProduction: dailyProduction,
+                    averageEfficiency: efficiencySamples > 0 ? parseFloat((efficiencyTotal / efficiencySamples).toFixed(2)) : 0,
+                });
+            }
+        });
+
+        breakdown.sort((a, b) => a.date - b.date);
+        return breakdown;
+    }, [isTraveteDashboard, allProductionData, currentMonth, products]);
+
+    const lotSummaryForPdf = useMemo(() => {
+        if (!Array.isArray(lots) || lots.length === 0) {
+            return { completed: [], active: [], overallAverage: 0 };
+        }
+        const year = currentMonth.getFullYear();
+        const month = currentMonth.getMonth();
+        const isDateInCurrentMonth = (value) => {
+            if (!value) return false;
+            const parsed = new Date(value);
+            return parsed.getFullYear() === year && parsed.getMonth() === month;
+        };
+
+        const completed = [];
+        const active = [];
+        let totalPieces = 0;
+        let totalDays = 0;
+
+        lots.forEach(lot => {
+            const produced = Number(lot.produced) || 0;
+            const target = Number(lot.target) || 0;
+            const efficiency = target > 0 ? (produced / target) * 100 : 0;
+            const baseName = lot.customName
+                ? `${lot.productName || lot.baseProductName || lot.name || lot.id} - ${lot.customName}`
+                : (lot.productName || lot.baseProductName || lot.name || lot.id || lot.id);
+
+            if (lot.status?.startsWith('completed') && isDateInCurrentMonth(lot.endDate)) {
+                let duration = 0;
+                if (lot.startDate && lot.endDate) {
+                    const start = new Date(lot.startDate);
+                    const end = new Date(lot.endDate);
+                    duration = Math.max(1, (end - start) / (1000 * 60 * 60 * 24));
+                }
+                const averageDaily = duration > 0 ? produced / duration : 0;
+                completed.push({
+                    id: lot.id,
+                    name: baseName,
+                    produced,
+                    target,
+                    efficiency,
+                    duration,
+                    averageDaily,
+                    endDate: lot.endDate || '',
+                });
+                if (duration > 0) {
+                    totalPieces += produced;
+                    totalDays += duration;
+                }
+            } else if (lot.status === 'ongoing' || lot.status === 'future') {
+                active.push({
+                    id: lot.id,
+                    name: baseName,
+                    produced,
+                    target,
+                    efficiency,
+                    status: lot.status,
+                });
+            }
+        });
+
+        completed.sort((a, b) => (a.endDate || '').localeCompare(b.endDate || ''));
+        active.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        const overallAverage = totalDays > 0 ? totalPieces / totalDays : 0;
+        return { completed, active, overallAverage };
+    }, [lots, currentMonth]);
+
+    const handleExportDashboardReport = useCallback(async () => {
+        if (!currentDashboard) return;
+        try {
+            setIsExportingReport(true);
+            await exportDashboardPerformancePDF({
+                dashboardName: currentDashboard.name,
+                selectedDate,
+                currentMonth,
+                isTraveteDashboard,
+                summary,
+                monthlySummary,
+                dailyEntries: processedData,
+                traveteEntries: traveteProcessedData,
+                lotSummary: lotSummaryForPdf,
+                monthlyBreakdown: monthlyBreakdownForPdf,
+            });
+        } catch (error) {
+            console.error('Erro ao exportar relatório do dashboard:', error);
+            alert('Não foi possível gerar o PDF do relatório. Verifique o console para mais detalhes.');
+        } finally {
+            setIsExportingReport(false);
+        }
+    }, [currentDashboard, selectedDate, currentMonth, isTraveteDashboard, summary, monthlySummary, processedData, traveteProcessedData, lotSummaryForPdf, monthlyBreakdownForPdf]);
+
     const traveteGroupedProducts = useMemo(() => {
         if (!isTraveteDashboard) return [];
         const groups = new Map();
@@ -3122,6 +3372,14 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     <button onClick={onNavigateToStock} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center">
                         <Warehouse size={20} />
                         <span className="hidden sm:inline">Gerenciamento de Estoque</span>
+                    </button>
+                    <button
+                        onClick={handleExportDashboardReport}
+                        disabled={isExportingReport}
+                        className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                        <FileDown size={20} />
+                        <span className="hidden sm:inline">{isExportingReport ? 'Gerando...' : 'Exportar Relatório'}</span>
                     </button>
                     <span className='text-sm text-gray-500 dark:text-gray-400 hidden md:block'>{user.email}</span>
                     <button onClick={logout} title="Sair" className="p-2 rounded-full bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/50 dark:text-red-400 dark:hover:bg-red-900"><LogOut size={20} /></button>
