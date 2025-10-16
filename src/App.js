@@ -1352,14 +1352,67 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         const targetDate = new Date(selectedDate);
         targetDate.setHours(23, 59, 59, 999);
 
-        return products
-            .map(p => {
-                if (!p.standardTimeHistory || p.standardTimeHistory.length === 0) {
-                    return null; 
-                }
-                const validTimeEntry = p.standardTimeHistory
-                    .filter(h => new Date(h.effectiveDate) <= targetDate)
-                    .pop();
+        if (employeeSummaries.length === 0) {
+            return defaultResult;
+        }
+
+        const goalBlocks = employeeSummaries.map(emp => emp.metaSegments);
+        const lotBlocks = employeeSummaries.map(emp => emp.lotSegments);
+
+        const goalDisplay = employeeSummaries
+            .map(emp => emp.metaDisplay || '-')
+            .join(' // ');
+
+        const lotDisplay = employeeSummaries
+            .map(emp => emp.lotDisplay || '-')
+            .join(' // ');
+
+        const productionDetails = employeeSummaries.flatMap(emp => emp.productionDetails);
+        const totalMeta = employeeSummaries.reduce((sum, emp) => sum + (emp.meta || 0), 0);
+        const totalProduced = employeeSummaries.reduce((sum, emp) => sum + (emp.produced || 0), 0);
+
+        const isValid = Boolean(
+            period &&
+            availableTime > 0 &&
+            employeeSummaries.every(emp => emp.valid)
+        );
+
+        return {
+            employeeSummaries,
+            goalDisplay,
+            lotDisplay,
+            isValid,
+            productionDetails,
+            totalMeta,
+            totalProduced,
+            goalBlocks,
+            lotBlocks,
+        };
+    }, [lots, productsForSelectedDate, traveteVariationLookup, products]);
+
+    const traveteComputedEntry = useMemo(() => {
+        if (!isTraveteDashboard) {
+            return {
+                employeeSummaries: [],
+                goalDisplay: '- // -',
+                lotDisplay: '- // -',
+                isValid: false,
+                productionDetails: [],
+                totalMeta: 0,
+                totalProduced: 0,
+                goalBlocks: [],
+                lotBlocks: [],
+            };
+        }
+
+        return summarizeTraveteEntry(traveteEntry);
+    }, [isTraveteDashboard, summarizeTraveteEntry, traveteEntry]);
+
+    const travetePreviewPending = useMemo(() => {
+        if (!isTraveteDashboard) return false;
+        if (!traveteEntry.period || !(parseFloat(traveteEntry.availableTime) > 0)) return false;
+        return traveteEntry.employeeEntries.some(emp => (emp.products || []).some(item => item.lotId));
+    }, [isTraveteDashboard, traveteEntry]);
 
                 if (!validTimeEntry) {
                     return null; 
