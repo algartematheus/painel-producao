@@ -12,6 +12,7 @@ export {
   applyTraveteAutoSuggestions,
   formatTraveteLotDisplayName,
   getTraveteBaseProductName,
+  buildTraveteProcessedEntries,
   deriveProductBaseName,
   normalizeTraveteMachineType,
   computeOperationalTimeBreakdown

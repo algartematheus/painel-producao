@@ -945,6 +945,74 @@ export const splitTraveteGoalSegments = (goalDisplay = '') => goalDisplay
     .map(segment => segment.trim())
     .filter(Boolean);
 
+export const buildTraveteProcessedEntries = (productionData, productMapForSelectedDate) => {
+    if (!productionData || productionData.length === 0) return [];
+
+    const cumulativeMeta = [];
+    const cumulativeProduction = [];
+    const cumulativeEfficiencySum = [];
+    const cumulativeEntryCounts = [];
+
+    return [...productionData]
+        .sort((a, b) => (a.period || '').localeCompare(b.period || ''))
+        .map((entry) => {
+            const availableTime = parseFloat(entry.availableTime) || 0;
+            const storedGoalBlocks = Array.isArray(entry.traveteGoalBlocks) ? entry.traveteGoalBlocks : null;
+            const storedLotBlocks = Array.isArray(entry.traveteLotBlocks) ? entry.traveteLotBlocks : null;
+            const entryGoalSegments = splitTraveteGoalSegments(entry.goalDisplay || '');
+
+            const employees = (entry.employeeEntries || []).map((emp, empIndex) => {
+                const productsArray = getEmployeeProducts(emp);
+                const producedValue = sumProducedQuantities(productsArray, emp.produced);
+                const firstProduct = findFirstProductDetail(productsArray, emp);
+                const { product } = resolveProductReference(emp, firstProduct, productMapForSelectedDate);
+                const standardTime = resolveEmployeeStandardTime(emp, firstProduct, product);
+                const meta = computeMetaFromStandardTime(standardTime, availableTime);
+                const efficiency = computeEfficiencyPercentage(producedValue, standardTime, availableTime);
+
+                cumulativeMeta[empIndex] = (cumulativeMeta[empIndex] || 0) + meta;
+                cumulativeProduction[empIndex] = (cumulativeProduction[empIndex] || 0) + producedValue;
+                cumulativeEfficiencySum[empIndex] = (cumulativeEfficiencySum[empIndex] || 0) + efficiency;
+                cumulativeEntryCounts[empIndex] = (cumulativeEntryCounts[empIndex] || 0) + 1;
+
+                const entriesCount = cumulativeEntryCounts[empIndex] || 1;
+                const cumulativeEfficiency = parseFloat(((cumulativeEfficiencySum[empIndex] || 0) / entriesCount).toFixed(2));
+                const productNames = buildProductNames(productsArray, productMapForSelectedDate);
+                const producedSegments = buildNumericSegments(productsArray);
+                const producedDisplay = formatSegmentedNumbers(producedSegments, producedValue);
+
+                const goalBlock = storedGoalBlocks?.[empIndex] || null;
+                const lotBlock = storedLotBlocks?.[empIndex] || null;
+                const entryGoalDisplay = entryGoalSegments[empIndex] || '';
+                const fallbackGoalDisplay = entryGoalDisplay || (meta > 0 ? meta.toLocaleString('pt-BR') : '-');
+                const goalDisplayForEmployee = formatGoalBlockDisplay(goalBlock, fallbackGoalDisplay, meta);
+
+                const lotFallbackLabel = (productNames || product?.name) ? (productNames || product?.name) : '-';
+                const lotDisplayForEmployee = formatTraveteLotDisplay(lotBlock, lotFallbackLabel);
+
+                return {
+                    ...emp,
+                    produced: producedValue,
+                    producedDisplay,
+                    standardTime,
+                    meta,
+                    efficiency,
+                    cumulativeMeta: cumulativeMeta[empIndex] || 0,
+                    cumulativeProduced: cumulativeProduction[empIndex] || 0,
+                    cumulativeEfficiency,
+                    productName: productNames || product?.name || '',
+                    metaDisplay: goalDisplayForEmployee,
+                    lotDisplay: lotDisplayForEmployee,
+                };
+            });
+
+            return {
+                ...entry,
+                employees,
+            };
+        });
+};
+
 export const joinGoalSegments = (segments = []) => {
     const cleaned = segments
         .map(segment => {

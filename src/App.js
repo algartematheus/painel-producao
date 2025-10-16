@@ -47,24 +47,19 @@ import {
   buildRowsFromPredictions,
   areProductionRowsEqual,
   computeMetaFromStandardTime,
-  computeEfficiencyPercentage,
-  buildProductNames,
-  buildNumericSegments,
-  formatSegmentedNumbers,
-  formatGoalBlockDisplay
+  computeEfficiencyPercentage
 } from './modules/producao';
 import {
   createTraveteProductFormState,
   createDefaultTraveteProductItem,
   createDefaultTraveteEmployee,
-  formatTraveteLotDisplay,
-  splitTraveteGoalSegments,
   resolveTraveteLotBaseId,
   findTraveteVariationForLot,
   buildTraveteStandardTimePatch,
   applyTraveteAutoSuggestions,
   formatTraveteLotDisplayName,
   getTraveteBaseProductName,
+  buildTraveteProcessedEntries,
 } from './modules/travete';
 
 // =====================================================================
@@ -2513,58 +2508,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     }, [isTraveteDashboard, productionData, productMapForSelectedDate]);
 
     const traveteProcessedData = useMemo(() => {
-        if (!isTraveteDashboard || !productionData || productionData.length === 0) return [];
-        let cumulativeMeta = [];
-        let cumulativeProduction = [];
-        let cumulativeEfficiencySum = [];
-        let cumulativeEntryCounts = [];
-
-        return [...productionData]
-            .sort((a, b) => (a.period || "").localeCompare(b.period || ""))
-            .map((entry) => {
-                const entryGoalSegments = splitTraveteGoalSegments(entry.goalDisplay || '');
-                const employees = (entry.employeeEntries || []).map((emp, empIndex) => {
-                    const productsArray = getEmployeeProducts(emp);
-                    const producedValue = sumProducedQuantities(productsArray, emp.produced);
-                    const firstProduct = findFirstProductDetail(productsArray, emp);
-                    const { product } = resolveProductReference(emp, firstProduct, productMapForSelectedDate);
-                    const standardTime = resolveEmployeeStandardTime(emp, firstProduct, product);
-                    const availableTime = entry.availableTime || 0;
-                    const meta = computeMetaFromStandardTime(standardTime, availableTime);
-                    const efficiency = computeEfficiencyPercentage(producedValue, standardTime, availableTime);
-
-                    cumulativeMeta[empIndex] = (cumulativeMeta[empIndex] || 0) + meta;
-                    cumulativeProduction[empIndex] = (cumulativeProduction[empIndex] || 0) + producedValue;
-                    cumulativeEfficiencySum[empIndex] = (cumulativeEfficiencySum[empIndex] || 0) + efficiency;
-                    cumulativeEntryCounts[empIndex] = (cumulativeEntryCounts[empIndex] || 0) + 1;
-                    const entriesCount = cumulativeEntryCounts[empIndex] || 1;
-                    const cumulativeEfficiency = parseFloat(((cumulativeEfficiencySum[empIndex] || 0) / entriesCount).toFixed(2));
-                    const productNames = buildProductNames(productsArray, productMapForSelectedDate);
-                    const producedSegments = buildNumericSegments(productsArray);
-                    const producedDisplay = formatSegmentedNumbers(producedSegments, producedValue);
-                    const entryGoalDisplay = entryGoalSegments[empIndex] || '';
-                    const metaDisplay = entryGoalDisplay || (meta > 0 ? meta.toLocaleString('pt-BR') : '-');
-
-                    return {
-                        ...emp,
-                        produced: producedValue,
-                        producedDisplay,
-                        meta,
-                        efficiency,
-                        standardTime,
-                        cumulativeMeta: (cumulativeMeta[empIndex] || 0),
-                        cumulativeProduced: (cumulativeProduction[empIndex] || 0),
-                        cumulativeEfficiency,
-                        productName: productNames || product?.name || '',
-                        metaDisplay,
-                    };
-                });
-
-                return {
-                    ...entry,
-                    employees,
-                };
-            });
+        if (!isTraveteDashboard) return [];
+        return buildTraveteProcessedEntries(productionData, productMapForSelectedDate);
     }, [isTraveteDashboard, productionData, productMapForSelectedDate]);
 
     const summary = useMemo(() => {
@@ -4382,73 +4327,8 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
     }, [isTraveteDashboard, productionData, productMapForSelectedDate]);
 
     const traveteProcessedData = useMemo(() => {
-        if (!isTraveteDashboard || !productionData || productionData.length === 0) return [];
-
-        let cumulativeMeta = [];
-        let cumulativeProduction = [];
-        let cumulativeEfficiencySum = [];
-        let cumulativeEntryCounts = [];
-
-        return [...productionData]
-            .sort((a, b) => (a.period || "").localeCompare(b.period || ""))
-            .map((entry) => {
-                const availableTime = parseFloat(entry.availableTime) || 0;
-
-                const storedGoalBlocks = Array.isArray(entry.traveteGoalBlocks) ? entry.traveteGoalBlocks : null;
-                const storedLotBlocks = Array.isArray(entry.traveteLotBlocks) ? entry.traveteLotBlocks : null;
-                const entryGoalSegments = splitTraveteGoalSegments(entry.goalDisplay || '');
-
-                const employees = (entry.employeeEntries || []).map((emp, empIndex) => {
-                    const productsArray = getEmployeeProducts(emp);
-                    const producedValue = sumProducedQuantities(productsArray, emp.produced);
-                    const firstProduct = findFirstProductDetail(productsArray, emp);
-                    const { product } = resolveProductReference(emp, firstProduct, productMapForSelectedDate);
-                    const standardTime = resolveEmployeeStandardTime(emp, firstProduct, product);
-                    const meta = computeMetaFromStandardTime(standardTime, availableTime);
-                    const efficiency = computeEfficiencyPercentage(producedValue, standardTime, availableTime);
-
-                    cumulativeMeta[empIndex] = (cumulativeMeta[empIndex] || 0) + meta;
-                    cumulativeProduction[empIndex] = (cumulativeProduction[empIndex] || 0) + producedValue;
-                    cumulativeEfficiencySum[empIndex] = (cumulativeEfficiencySum[empIndex] || 0) + efficiency;
-                    cumulativeEntryCounts[empIndex] = (cumulativeEntryCounts[empIndex] || 0) + 1;
-
-                    const entriesCount = cumulativeEntryCounts[empIndex] || 1;
-                    const cumulativeEfficiency = parseFloat(((cumulativeEfficiencySum[empIndex] || 0) / entriesCount).toFixed(2));
-                    const productNames = buildProductNames(productsArray, productMapForSelectedDate);
-
-                    const goalBlock = storedGoalBlocks?.[empIndex] || null;
-                    const lotBlock = storedLotBlocks?.[empIndex] || null;
-                    const entryGoalDisplay = entryGoalSegments[empIndex] || '';
-                    const fallbackGoalDisplay = entryGoalDisplay || (meta > 0 ? meta.toLocaleString('pt-BR') : '-');
-                    const goalDisplayForEmployee = formatGoalBlockDisplay(goalBlock, fallbackGoalDisplay, meta);
-
-                    const lotFallbackLabel = (productNames || product?.name) ? (productNames || product?.name) : '-';
-                    const lotDisplayForEmployee = formatTraveteLotDisplay(lotBlock, lotFallbackLabel);
-
-                    const producedSegments = buildNumericSegments(productsArray);
-                    const producedDisplay = formatSegmentedNumbers(producedSegments, producedValue);
-
-                    return {
-                        ...emp,
-                        produced: producedValue,
-                        producedDisplay,
-                        standardTime,
-                        meta,
-                        efficiency,
-                        cumulativeMeta: cumulativeMeta[empIndex] || 0,
-                        cumulativeProduced: cumulativeProduction[empIndex] || 0,
-                        cumulativeEfficiency,
-                        productName: productNames || product?.name || '',
-                        metaDisplay: goalDisplayForEmployee,
-                        lotDisplay: lotDisplayForEmployee,
-                    };
-                });
-
-                return {
-                    ...entry,
-                    employees,
-                };
-            });
+        if (!isTraveteDashboard) return [];
+        return buildTraveteProcessedEntries(productionData, productMapForSelectedDate);
     }, [isTraveteDashboard, productionData, productMapForSelectedDate]);
 
     const traveteDataByPeriod = useMemo(() => {
