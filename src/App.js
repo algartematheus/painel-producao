@@ -1525,7 +1525,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     ? findTraveteVariationForLot(lot, emp.machineType, productsForSelectedDate, traveteVariationLookup)
                     : null;
                 const baseProductId = lot ? resolveTraveteLotBaseId(lot, productsForSelectedDate) : null;
-                const variationStandardTime = variation?.standardTime ? parseFloat(variation.standardTime) : NaN;
+                const variationStandardTime = variation && variation.standardTime
+                    ? parseFloat(variation.standardTime)
+                    : NaN;
                 if (!Number.isNaN(variationStandardTime) && variationStandardTime > 0 && derivedStandardTime <= 0) {
                     derivedStandardTime = variationStandardTime;
                 }
@@ -1534,7 +1536,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
                 return {
                     lot,
-                    lotId: lot?.id || '',
+                    lotId: lot && lot.id ? lot.id : '',
                     productId: variationProductId,
                     productBaseId: baseProductId || '',
                     produced,
