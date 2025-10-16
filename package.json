@@ -4,6 +4,8 @@
   "private": true,
   "dependencies": {
     "firebase": "^9.17.2",
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.8.1",
     "lucide-react": "^0.303.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
