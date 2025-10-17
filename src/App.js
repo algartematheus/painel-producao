@@ -3759,7 +3759,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                          <label htmlFor="entry-product">Produto (Prioridade)</label>
                                          <select id="entry-product" name="productId" value={newEntry.productId} onChange={handleInputChange} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
                                              <option value="">Selecione...</option>
-                                             {[...productsForSelectedDate].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
+                                            {(productsForSelectedDate || []).slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p => (
+                                                <option key={p.id} value={p.id}>{p.name}</option>
+                                            ))}
                                          </select>
                                      </div>
                                  </div>
