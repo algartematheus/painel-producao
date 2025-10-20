@@ -1467,13 +1467,26 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         return summarizeTraveteEntry(traveteEntry);
     }, [isTraveteDashboard, summarizeTraveteEntry, traveteEntry]);
 
-    const travetePreviewPending = useMemo(() => {
+const traveteVariationLookup = useMemo(() => {
+    const lookup = new Map();
+    productsForSelectedDate.forEach(product => {
+        if (!product?.machineType) return;
+        const baseId = product.baseProductId || product.id;
+        if (!lookup.has(baseId)) {
+            lookup.set(baseId, new Map());
+        }
+        lookup.get(baseId).set(product.machineType, product);
+    });
+    return lookup;
+}, [productsForSelectedDate]);
+
+const travetePreviewPending = useMemo(() => {
     if (!isTraveteDashboard) return false;
-    if (!traveteEntry.period || parseFloat(traveteEntry.availableTime) <= 0) return false;
+    if (!traveteEntry?.period || parseFloat(traveteEntry.availableTime) <= 0) return false;
 
     return traveteEntry.employeeEntries
-        .some(emp => (emp.products || [])
-        .some(item => item.lotId));
+        ?.some(emp => (emp.products || [])
+        ?.some(item => item.lotId));
 }, [isTraveteDashboard, traveteEntry]);
 
 const validTraveteProducts = traveteEntry?.employeeEntries
@@ -1486,28 +1499,16 @@ const validTraveteProducts = traveteEntry?.employeeEntries
         return { ...p, standardTime: validTimeEntry.time };
     })
     .filter(Boolean);
-    }, [products, selectedDate]);
 
-    const traveteVariationLookup = useMemo(() => {
-        const lookup = new Map();
-        productsForSelectedDate.forEach(product => {
-            if (!product?.machineType) return;
-            const baseId = product.baseProductId || product.id;
-            if (!lookup.has(baseId)) {
-                lookup.set(baseId, new Map());
-            }
-            lookup.get(baseId).set(product.machineType, product);
-        });
-        return lookup;
-    }, [productsForSelectedDate]);
+const sortedProductsForSelectedDate = useMemo(() => {
+    if (!Array.isArray(productsForSelectedDate)) {
+        return [];
+    }
 
-    const sortedProductsForSelectedDate = useMemo(() => {
-        if (!Array.isArray(productsForSelectedDate)) {
-            return [];
-        }
-
-        return [...productsForSelectedDate].sort((a, b) => a.name.localeCompare(b.name));
-    }, [productsForSelectedDate]);
+    return [...productsForSelectedDate].sort((a, b) =>
+        a.name.localeCompare(b.name)
+    );
+}, [productsForSelectedDate]);
     
     const summarizeTraveteEntry = useCallback((entryDraft) => {
         const defaultResult = {
