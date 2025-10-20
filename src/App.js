@@ -3058,6 +3058,59 @@ const sortedProductsForSelectedDate = useMemo(() => {
             .sort((a, b) => (a.order || 0) - (b.order || 0));
     }, [isTraveteDashboard, lots]);
 
+    const validTraveteProducts = useMemo(() => {
+        if (!isTraveteDashboard) return [];
+        if (!traveteEntry || !Array.isArray(traveteEntry.employeeEntries)) {
+            return [];
+        }
+
+        const collected = [];
+
+        traveteEntry.employeeEntries.forEach((employee) => {
+            if (!employee) return;
+            const machineType = employee.machineType;
+            if (!machineType) return;
+
+            const productsList = Array.isArray(employee.products) ? employee.products : [];
+            productsList.forEach((productItem) => {
+                if (!productItem || !productItem.lotId) return;
+
+                const lot = lots.find(l => l.id === productItem.lotId) || null;
+                if (!lot) return;
+
+                const baseId = resolveTraveteLotBaseId(lot, productsForSelectedDate);
+                if (!baseId) return;
+
+                const variationMap = traveteVariationLookup.get(baseId);
+                if (!variationMap) return;
+
+                const variationProduct = variationMap.get(machineType);
+                if (!variationProduct || variationProduct.standardTime === undefined || variationProduct.standardTime === null) {
+                    return;
+                }
+
+                const parsedStandardTime = parseFloat(variationProduct.standardTime);
+                if (Number.isNaN(parsedStandardTime) || parsedStandardTime <= 0) {
+                    return;
+                }
+
+                collected.push({
+                    ...productItem,
+                    machineType,
+                    standardTime: parsedStandardTime,
+                });
+            });
+        });
+
+        return collected;
+    }, [
+        isTraveteDashboard,
+        traveteEntry,
+        lots,
+        productsForSelectedDate,
+        traveteVariationLookup,
+    ]);
+
     useEffect(() => {
         if (!isTraveteDashboard) return;
         setTraveteEntry(prev => {
@@ -3081,6 +3134,64 @@ const sortedProductsForSelectedDate = useMemo(() => {
         productsForSelectedDate,
         traveteVariationLookup,
     ]);
+
+    useEffect(() => {
+        if (!isTraveteDashboard) return;
+        if (!Array.isArray(validTraveteProducts) || validTraveteProducts.length === 0) {
+            return;
+        }
+
+        setTraveteEntry(prev => {
+            if (!prev || !Array.isArray(prev.employeeEntries)) {
+                return prev;
+            }
+
+            let hasChanges = false;
+
+            const nextEmployees = prev.employeeEntries.map((employee) => {
+                if (!employee) return employee;
+                const productsList = Array.isArray(employee.products) ? employee.products : [];
+                if (productsList.length === 0) return employee;
+
+                let employeeChanged = false;
+
+                const nextProducts = productsList.map((productItem) => {
+                    if (!productItem || !productItem.lotId) {
+                        return productItem;
+                    }
+
+                    const match = validTraveteProducts.find(candidate => (
+                        candidate.lotId === productItem.lotId
+                        && candidate.machineType === employee.machineType
+                    ));
+
+                    if (!match) {
+                        return productItem;
+                    }
+
+                    if (productItem.standardTime === match.standardTime) {
+                        return productItem;
+                    }
+
+                    employeeChanged = true;
+                    return { ...productItem, standardTime: match.standardTime };
+                });
+
+                if (!employeeChanged) {
+                    return employee;
+                }
+
+                hasChanges = true;
+                return { ...employee, products: nextProducts };
+            });
+
+            if (!hasChanges) {
+                return prev;
+            }
+
+            return { ...prev, employeeEntries: nextEmployees };
+        });
+    }, [isTraveteDashboard, validTraveteProducts]);
 
     const availablePeriods = useMemo(() => FIXED_PERIODS.filter(p => !productionData.some(e => e.period === p)), [productionData]);
     const filteredLots = useMemo(() => [...lots].filter(l => lotFilter === 'ongoing' ? (l.status === 'ongoing' || l.status === 'future') : l.status.startsWith('completed')), [lots, lotFilter]);
