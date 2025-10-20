@@ -1411,17 +1411,211 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         const targetDate = new Date(selectedDate);
         targetDate.setHours(23, 59, 59, 999);
 
-        return products
-            .map(p => {
-                if (!p.standardTimeHistory || p.standardTimeHistory.length === 0) {
-                    return null; 
-                }
-                const validTimeEntry = p.standardTimeHistory
-                    .filter(h => new Date(h.effectiveDate) <= targetDate)
-                    .pop();
+        if (employeeSummaries.length === 0) {
+            return defaultResult;
+        }
 
-                if (!validTimeEntry) {
-                    return null; 
+        const goalBlocks = employeeSummaries.map(emp => emp.metaSegments);
+        const lotBlocks = employeeSummaries.map(emp => emp.lotSegments);
+
+        const goalDisplay = employeeSummaries
+            .map(emp => emp.metaDisplay || '-')
+            .join(' // ');
+
+        const lotDisplay = employeeSummaries
+            .map(emp => emp.lotDisplay || '-')
+            .join(' // ');
+
+        const productionDetails = employeeSummaries.flatMap(emp => emp.productionDetails);
+        const totalMeta = employeeSummaries.reduce((sum, emp) => sum + (emp.meta || 0), 0);
+        const totalProduced = employeeSummaries.reduce((sum, emp) => sum + (emp.produced || 0), 0);
+
+        const isValid = Boolean(
+            period &&
+            availableTime > 0 &&
+            employeeSummaries.every(emp => emp.valid)
+        );
+
+        return {
+            employeeSummaries,
+            goalDisplay,
+            lotDisplay,
+            isValid,
+            productionDetails,
+            totalMeta,
+            totalProduced,
+            goalBlocks,
+            lotBlocks,
+        };
+    }, [lots, productsForSelectedDate, traveteVariationLookup, products]);
+
+    const traveteComputedEntry = useMemo(() => {
+        if (!isTraveteDashboard) {
+            return {
+                employeeSummaries: [],
+                goalDisplay: '- // -',
+                lotDisplay: '- // -',
+                isValid: false,
+                productionDetails: [],
+                totalMeta: 0,
+                totalProduced: 0,
+                goalBlocks: [],
+                lotBlocks: [],
+            };
+        }
+
+        return summarizeTraveteEntry(traveteEntry);
+    }, [isTraveteDashboard, summarizeTraveteEntry, traveteEntry]);
+
+const traveteVariationLookup = useMemo(() => {
+    const lookup = new Map();
+    productsForSelectedDate.forEach(product => {
+        if (!product?.machineType) return;
+        const baseId = product.baseProductId || product.id;
+        if (!lookup.has(baseId)) {
+            lookup.set(baseId, new Map());
+        }
+        lookup.get(baseId).set(product.machineType, product);
+    });
+    return lookup;
+}, [productsForSelectedDate]);
+
+const travetePreviewPending = useMemo(() => {
+    if (!isTraveteDashboard) return false;
+    if (!traveteEntry?.period || parseFloat(traveteEntry.availableTime) <= 0) return false;
+
+    return traveteEntry.employeeEntries
+        ?.some(emp => (emp.products || [])
+        ?.some(item => item.lotId));
+}, [isTraveteDashboard, traveteEntry]);
+
+const validTraveteProducts = traveteEntry?.employeeEntries
+    ?.flatMap(emp => emp.products || [])
+    ?.map(p => {
+        const validTimeEntry = traveteVariationLookup[p?.machineType]?.find(
+            t => t.lotId === p?.lotId
+        );
+        if (!validTimeEntry) return null;
+        return { ...p, standardTime: validTimeEntry.time };
+    })
+    .filter(Boolean);
+
+const sortedProductsForSelectedDate = useMemo(() => {
+    if (!Array.isArray(productsForSelectedDate)) {
+        return [];
+    }
+
+    return [...productsForSelectedDate].sort((a, b) =>
+        a.name.localeCompare(b.name)
+    );
+}, [productsForSelectedDate]);
+    
+    const summarizeTraveteEntry = useCallback((entryDraft) => {
+        const defaultResult = {
+            employeeSummaries: [],
+            goalDisplay: '- // -',
+            lotDisplay: '- // -',
+            isValid: false,
+            productionDetails: [],
+            totalMeta: 0,
+            totalProduced: 0,
+            goalBlocks: [],
+            lotBlocks: [],
+        };
+
+        if (!entryDraft) {
+            return defaultResult;
+        }
+
+        const availableTime = parseFloat(entryDraft.availableTime) || 0;
+        const period = entryDraft.period;
+        const activeLots = getOrderedActiveLots(lots);
+
+        const employeeSummaries = (entryDraft.employeeEntries || []).map((emp) => {
+            const manualStandardTime = parseFloat(emp.standardTime);
+            let derivedStandardTime = 0;
+
+            const productSummaries = (emp.products || []).map(productItem => {
+                const lot = productItem.lotId ? (lots.find(l => l.id === productItem.lotId) || null) : null;
+                const produced = parseInt(productItem.produced, 10) || 0;
+                const variation = lot
+                    ? findTraveteVariationForLot(lot, emp.machineType, productsForSelectedDate, traveteVariationLookup)
+                    : null;
+                const baseProductId = lot ? resolveTraveteLotBaseId(lot, productsForSelectedDate) : null;
+                const variationStandardTime = variation && variation.standardTime
+                    ? parseFloat(variation.standardTime)
+                    : NaN;
+                if (!Number.isNaN(variationStandardTime) && variationStandardTime > 0 && derivedStandardTime <= 0) {
+                    derivedStandardTime = variationStandardTime;
+                }
+
+                const variationProductId = variation && variation.id ? variation.id : '';
+
+                return {
+                    lot,
+                    lotId: lot && lot.id ? lot.id : '',
+                    productId: variationProductId,
+                    productBaseId: baseProductId || '',
+                    produced,
+                    standardTime: (!Number.isNaN(variationStandardTime) && variationStandardTime > 0)
+                        ? variationStandardTime
+                        : 0,
+                };
+            });
+
+            const standardTimeValue = (!Number.isNaN(manualStandardTime) && manualStandardTime > 0)
+                ? manualStandardTime
+                : derivedStandardTime;
+
+            const produced = productSummaries.reduce((sum, item) => sum + (item.produced || 0), 0);
+            const meta = (standardTimeValue > 0 && availableTime > 0)
+                ? Math.round(availableTime / standardTimeValue)
+                : 0;
+            const efficiency = (standardTimeValue > 0 && availableTime > 0 && produced > 0)
+                ? parseFloat((((produced * standardTimeValue) / availableTime) * 100).toFixed(2))
+                : 0;
+
+            const productionDetails = productSummaries
+                .filter(item => item.produced > 0 && item.lotId)
+                .map(item => ({
+                    lotId: item.lotId,
+                    productId: item.productId,
+                    produced: item.produced,
+                    ...(item.productBaseId ? { productBaseId: item.productBaseId } : {}),
+                    standardTime: item.standardTime || standardTimeValue || 0,
+                }));
+
+            const productsForSave = productSummaries
+                .filter(item => item.produced > 0 && item.lotId)
+                .map(item => ({
+                    lotId: item.lotId,
+                    produced: item.produced,
+                    productId: item.productId,
+                    productBaseId: item.productBaseId || undefined,
+                    standardTime: item.standardTime || standardTimeValue || 0,
+                    lotName: item.lot ? formatTraveteLotDisplayName(item.lot, products) : '',
+                }));
+
+            const valid = Boolean(
+                period &&
+                availableTime > 0 &&
+                productionDetails.length > 0 &&
+                standardTimeValue > 0
+            );
+
+            const primaryLot = productSummaries.find(item => item.lot)?.lot || null;
+            const manualNextLotItem = productSummaries.slice(1).find(item => item.lot) || null;
+            const manualNextLot = (manualNextLotItem && manualNextLotItem.lot)
+                ? manualNextLotItem.lot
+                : null;
+
+            const currentLot = primaryLot || activeLots[0] || null;
+            let nextLotCandidate = manualNextLot || null;
+
+            if (!nextLotCandidate && currentLot) {
+                const currentIndex = activeLots.findIndex(l => l.id === currentLot.id);
+                if (currentIndex !== -1) {
+                    nextLotCandidate = activeLots.slice(currentIndex + 1).find(Boolean) || null;
                 }
                 return { ...p, standardTime: validTimeEntry.time };
             })
