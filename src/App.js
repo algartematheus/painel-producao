@@ -1501,12 +1501,13 @@ const validTraveteProducts = traveteEntry?.employeeEntries
         return lookup;
     }, [productsForSelectedDate]);
 
-    const sortedProductsForSelectedDate = useMemo(
-        () => (productsForSelectedDate || [])
-            .slice()
-            .sort((a, b) => a.name.localeCompare(b.name)),
-        [productsForSelectedDate]
-    );
+    const sortedProductsForSelectedDate = useMemo(() => {
+        if (!Array.isArray(productsForSelectedDate)) {
+            return [];
+        }
+
+        return [...productsForSelectedDate].sort((a, b) => a.name.localeCompare(b.name));
+    }, [productsForSelectedDate]);
     
     const summarizeTraveteEntry = useCallback((entryDraft) => {
         const defaultResult = {
