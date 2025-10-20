@@ -1468,16 +1468,24 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     }, [isTraveteDashboard, summarizeTraveteEntry, traveteEntry]);
 
     const travetePreviewPending = useMemo(() => {
-        if (!isTraveteDashboard) return false;
-        if (!traveteEntry.period || !(parseFloat(traveteEntry.availableTime) > 0)) return false;
-        return traveteEntry.employeeEntries.some(emp => (emp.products || []).some(item => item.lotId));
-    }, [isTraveteDashboard, traveteEntry]);
+    if (!isTraveteDashboard) return false;
+    if (!traveteEntry.period || parseFloat(traveteEntry.availableTime) <= 0) return false;
 
-                if (!validTimeEntry) {
-                    return null; 
-                }
-                return { ...p, standardTime: validTimeEntry.time };
-            .filter(Boolean);
+    return traveteEntry.employeeEntries
+        .some(emp => (emp.products || [])
+        .some(item => item.lotId));
+}, [isTraveteDashboard, traveteEntry]);
+
+const validTraveteProducts = traveteEntry?.employeeEntries
+    ?.flatMap(emp => emp.products || [])
+    ?.map(p => {
+        const validTimeEntry = traveteVariationLookup[p?.machineType]?.find(
+            t => t.lotId === p?.lotId
+        );
+        if (!validTimeEntry) return null;
+        return { ...p, standardTime: validTimeEntry.time };
+    })
+    .filter(Boolean);
     }, [products, selectedDate]);
 
     const traveteVariationLookup = useMemo(() => {
