@@ -1411,212 +1411,13 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         const targetDate = new Date(selectedDate);
         targetDate.setHours(23, 59, 59, 999);
 
-        if (employeeSummaries.length === 0) {
-            return defaultResult;
-        }
-
-        const goalBlocks = employeeSummaries.map(emp => emp.metaSegments);
-        const lotBlocks = employeeSummaries.map(emp => emp.lotSegments);
-
-        const goalDisplay = employeeSummaries
-            .map(emp => emp.metaDisplay || '-')
-            .join(' // ');
-
-        const lotDisplay = employeeSummaries
-            .map(emp => emp.lotDisplay || '-')
-            .join(' // ');
-
-        const productionDetails = employeeSummaries.flatMap(emp => emp.productionDetails);
-        const totalMeta = employeeSummaries.reduce((sum, emp) => sum + (emp.meta || 0), 0);
-        const totalProduced = employeeSummaries.reduce((sum, emp) => sum + (emp.produced || 0), 0);
-
-        const isValid = Boolean(
-            period &&
-            availableTime > 0 &&
-            employeeSummaries.every(emp => emp.valid)
-        );
-
-        return {
-            employeeSummaries,
-            goalDisplay,
-            lotDisplay,
-            isValid,
-            productionDetails,
-            totalMeta,
-            totalProduced,
-            goalBlocks,
-            lotBlocks,
-        };
-    }, [lots, productsForSelectedDate, traveteVariationLookup, products]);
-
-    const traveteComputedEntry = useMemo(() => {
-        if (!isTraveteDashboard) {
-            return {
-                employeeSummaries: [],
-                goalDisplay: '- // -',
-                lotDisplay: '- // -',
-                isValid: false,
-                productionDetails: [],
-                totalMeta: 0,
-                totalProduced: 0,
-                goalBlocks: [],
-                lotBlocks: [],
-            };
-        }
-
-        return summarizeTraveteEntry(traveteEntry);
-    }, [isTraveteDashboard, summarizeTraveteEntry, traveteEntry]);
-
-const traveteVariationLookup = useMemo(() => {
-    const lookup = new Map();
-    productsForSelectedDate.forEach(product => {
-        if (!product?.machineType) return;
-        const baseId = product.baseProductId || product.id;
-        if (!lookup.has(baseId)) {
-            lookup.set(baseId, new Map());
-        }
-        lookup.get(baseId).set(product.machineType, product);
-    });
-    return lookup;
-}, [productsForSelectedDate]);
-
-const travetePreviewPending = useMemo(() => {
-    if (!isTraveteDashboard) return false;
-    if (!traveteEntry?.period || parseFloat(traveteEntry.availableTime) <= 0) return false;
-
-    return traveteEntry.employeeEntries
-        ?.some(emp => (emp.products || [])
-        ?.some(item => item.lotId));
-}, [isTraveteDashboard, traveteEntry]);
-
-const validTraveteProducts = traveteEntry?.employeeEntries
-    ?.flatMap(emp => emp.products || [])
-    ?.map(p => {
-        const validTimeEntry = traveteVariationLookup[p?.machineType]?.find(
-            t => t.lotId === p?.lotId
-        );
-        if (!validTimeEntry) return null;
-        return { ...p, standardTime: validTimeEntry.time };
-    })
-    .filter(Boolean);
-
-const sortedProductsForSelectedDate = useMemo(() => {
-    if (!Array.isArray(productsForSelectedDate)) {
-        return [];
-    }
-
-    return [...productsForSelectedDate].sort((a, b) =>
-        a.name.localeCompare(b.name)
-    );
-}, [productsForSelectedDate]);
-    
-    const summarizeTraveteEntry = useCallback((entryDraft) => {
-        const defaultResult = {
-            employeeSummaries: [],
-            goalDisplay: '- // -',
-            lotDisplay: '- // -',
-            isValid: false,
-            productionDetails: [],
-            totalMeta: 0,
-            totalProduced: 0,
-            goalBlocks: [],
-            lotBlocks: [],
-        };
-
-        if (!entryDraft) {
-            return defaultResult;
-        }
-
-        const availableTime = parseFloat(entryDraft.availableTime) || 0;
-        const period = entryDraft.period;
-        const activeLots = getOrderedActiveLots(lots);
-
-        const employeeSummaries = (entryDraft.employeeEntries || []).map((emp) => {
-            const manualStandardTime = parseFloat(emp.standardTime);
-            let derivedStandardTime = 0;
-
-            const productSummaries = (emp.products || []).map(productItem => {
-                const lot = productItem.lotId ? (lots.find(l => l.id === productItem.lotId) || null) : null;
-                const produced = parseInt(productItem.produced, 10) || 0;
-                const variation = lot
-                    ? findTraveteVariationForLot(lot, emp.machineType, productsForSelectedDate, traveteVariationLookup)
-                    : null;
-                const baseProductId = lot ? resolveTraveteLotBaseId(lot, productsForSelectedDate) : null;
-                const variationStandardTime = variation && variation.standardTime
-                    ? parseFloat(variation.standardTime)
-                    : NaN;
-                if (!Number.isNaN(variationStandardTime) && variationStandardTime > 0 && derivedStandardTime <= 0) {
-                    derivedStandardTime = variationStandardTime;
-                }
-
-                const variationProductId = variation && variation.id ? variation.id : '';
-
-                return {
-                    lot,
-                    lotId: lot && lot.id ? lot.id : '',
-                    productId: variationProductId,
-                    productBaseId: baseProductId || '',
-                    produced,
-                    standardTime: (!Number.isNaN(variationStandardTime) && variationStandardTime > 0)
-                        ? variationStandardTime
-                        : 0,
-                };
-            });
-
-            const standardTimeValue = (!Number.isNaN(manualStandardTime) && manualStandardTime > 0)
-                ? manualStandardTime
-                : derivedStandardTime;
-
-            const produced = productSummaries.reduce((sum, item) => sum + (item.produced || 0), 0);
-            const meta = (standardTimeValue > 0 && availableTime > 0)
-                ? Math.round(availableTime / standardTimeValue)
-                : 0;
-            const efficiency = (standardTimeValue > 0 && availableTime > 0 && produced > 0)
-                ? parseFloat((((produced * standardTimeValue) / availableTime) * 100).toFixed(2))
-                : 0;
-
-            const productionDetails = productSummaries
-                .filter(item => item.produced > 0 && item.lotId)
-                .map(item => ({
-                    lotId: item.lotId,
-                    productId: item.productId,
-                    produced: item.produced,
-                    ...(item.productBaseId ? { productBaseId: item.productBaseId } : {}),
-                    standardTime: item.standardTime || standardTimeValue || 0,
-                }));
-
-            const productsForSave = productSummaries
-                .filter(item => item.produced > 0 && item.lotId)
-                .map(item => ({
-                    lotId: item.lotId,
-                    produced: item.produced,
-                    productId: item.productId,
-                    productBaseId: item.productBaseId || undefined,
-                    standardTime: item.standardTime || standardTimeValue || 0,
-                    lotName: item.lot ? formatTraveteLotDisplayName(item.lot, products) : '',
-                }));
-
-            const valid = Boolean(
-                period &&
-                availableTime > 0 &&
-                productionDetails.length > 0 &&
-                standardTimeValue > 0
-            );
-
-            const primaryLot = productSummaries.find(item => item.lot)?.lot || null;
-            const manualNextLotItem = productSummaries.slice(1).find(item => item.lot) || null;
-            const manualNextLot = (manualNextLotItem && manualNextLotItem.lot)
-                ? manualNextLotItem.lot
-                : null;
-
-            const currentLot = primaryLot || activeLots[0] || null;
-            let nextLotCandidate = manualNextLot || null;
-
-            if (!nextLotCandidate && currentLot) {
-                const currentIndex = activeLots.findIndex(l => l.id === currentLot.id);
-                if (currentIndex !== -1) {
-                    nextLotCandidate = activeLots.slice(currentIndex + 1).find(Boolean) || null;
-                }
+        return products
+            .map(p => {
+                if (!p.standardTimeHistory || p.standardTimeHistory.length === 0) return null;
+                const validTimeEntry = p.standardTimeHistory
+                    .filter(h => new Date(h.effectiveDate) <= targetDate)
+                    .pop();
+                if (!validTimeEntry) return null;
                 return { ...p, standardTime: validTimeEntry.time };
             })
             .filter(Boolean);
@@ -1946,7 +1747,7 @@ const sortedProductsForSelectedDate = useMemo(() => {
         };
 
     }, [user, currentDashboard]);
-    
+
     const dateKey = selectedDate.toISOString().slice(0, 10);
     const productionData = useMemo(() => allProductionData[dateKey] || [], [allProductionData, dateKey]);
     
@@ -4593,7 +4394,9 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         return products
             .map(p => {
                 if (!p.standardTimeHistory || p.standardTimeHistory.length === 0) return null;
-                const validTimeEntry = p.standardTimeHistory.filter(h => new Date(h.effectiveDate) <= targetDate).pop();
+                const validTimeEntry = p.standardTimeHistory
+                    .filter(h => new Date(h.effectiveDate) <= targetDate)
+                    .pop();
                 if (!validTimeEntry) return null;
                 return { ...p, standardTime: validTimeEntry.time };
             })
@@ -5257,27 +5060,41 @@ const AppContent = () => {
     const [dashboards, setDashboards] = useState([]);
     const [usersWithRoles, setUsersWithRoles] = useState([]);
     const [userPermissions, setUserPermissions] = useState({});
+    const [dashboardsLoading, setDashboardsLoading] = useState(true);
+    const [permissionsLoading, setPermissionsLoading] = useState(true);
+    const [dataError, setDataError] = useState(null);
 
     useEffect(() => {
         localStorage.setItem('lastDashboardIndex', currentDashboardIndex);
     }, [currentDashboardIndex]);
     
     useEffect(() => {
+        let unsubDashboards;
+        let isActive = true;
+
         if (!user) {
-            setUserPermissions({});
             setDashboards([]);
             setUsersWithRoles([]);
-            return;
+            setUserPermissions({});
+            setDashboardsLoading(false);
+            setPermissionsLoading(false);
+            setDataError(null);
+            return () => {};
         }
 
-        let unsubDashboards; 
+        setDashboards([]);
+        setUsersWithRoles([]);
+        setUserPermissions({});
+        setDashboardsLoading(true);
+        setPermissionsLoading(true);
+        setDataError(null);
 
         const setupDataAndListeners = async () => {
             try {
-                // --- Etapa 1: Verificar e criar dashboards iniciais (apenas uma vez) ---
                 const dashboardsQuery = query(collection(db, "dashboards"), orderBy("order"));
                 const initialDashboardsSnap = await getDocs(dashboardsQuery);
-                
+                if (!isActive) return;
+
                 if (initialDashboardsSnap.empty) {
                     console.log("Nenhum dashboard encontrado, criando dados iniciais...");
                     const batch = writeBatch(db);
@@ -5287,48 +5104,68 @@ const AppContent = () => {
                     });
                     await batch.commit();
                     console.log("Dashboards iniciais criados com sucesso.");
+                    if (!isActive) return;
+                    setDashboards(initialDashboards.map(dash => ({ ...dash })));
+                } else {
+                    const initialData = initialDashboardsSnap.docs.map(d => d.data());
+                    if (!isActive) return;
+                    setDashboards(initialData);
                 }
+                setDashboardsLoading(false);
 
-                // --- Etapa 2: Iniciar o listener em tempo real para dashboards ---
                 unsubDashboards = onSnapshot(dashboardsQuery, (snap) => {
+                    if (!isActive) return;
                     const fetchedDashboards = snap.docs.map(d => d.data());
                     setDashboards(fetchedDashboards);
+                    setDashboardsLoading(false);
                 }, (error) => {
                     console.error("Erro no listener de Dashboards:", error);
+                    if (!isActive) return;
+                    setDataError('Não foi possível carregar os dashboards em tempo real.');
+                    setDashboardsLoading(false);
                 });
 
-                // --- Etapa 3: Buscar dados de usuários e permissões (apenas uma vez) ---
                 const rolesSnap = await getDocs(collection(db, "roles"));
+                if (!isActive) return;
                 const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
 
                 const usersSnap = await getDocs(collection(db, "users"));
+                if (!isActive) return;
                 const usersData = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
-                
+
                 const combinedUsers = usersData.map(u => ({ ...u, permissions: rolesData.get(u.uid)?.permissions || [] }));
+                if (!isActive) return;
                 setUsersWithRoles(combinedUsers);
 
                 const currentUserPermissionsDoc = rolesData.get(user.uid);
                 let permissionsList = currentUserPermissionsDoc?.permissions || [];
-                
+
                 if (currentUserPermissionsDoc?.role === 'admin') {
-                     permissionsList = Object.keys(ALL_PERMISSIONS);
+                    permissionsList = Object.keys(ALL_PERMISSIONS);
                 }
-                
-                const permissionsMap = {};
-                for (const key in ALL_PERMISSIONS) {
-                    permissionsMap[key] = permissionsList.includes(key);
-                }
-                
+
+                const permissionsMap = Object.keys(ALL_PERMISSIONS).reduce((acc, key) => {
+                    acc[key] = permissionsList.includes(key);
+                    return acc;
+                }, {});
+
+                if (!isActive) return;
                 setUserPermissions(permissionsMap);
+                setPermissionsLoading(false);
 
             } catch (error) {
                 console.error("ERRO CRÍTICO AO CONFIGURAR DADOS:", error);
+                if (!isActive) return;
+                setDataError('Não foi possível carregar os dados do usuário.');
+                setDashboardsLoading(false);
+                setPermissionsLoading(false);
             }
         };
 
         setupDataAndListeners();
 
         return () => {
+            isActive = false;
             if (unsubDashboards) {
                 unsubDashboards();
             }
@@ -5347,8 +5184,32 @@ const AppContent = () => {
         return <LoginPage />;
     }
 
-    if (dashboards.length === 0 || Object.keys(userPermissions).length === 0) {
+    if (dashboardsLoading || permissionsLoading) {
         return <div className="min-h-screen bg-gray-100 dark:bg-black flex justify-center items-center"><p className="text-xl">Carregando dados do usuário...</p></div>;
+    }
+
+    if (dataError) {
+        return (
+            <div className="min-h-screen bg-gray-100 dark:bg-black flex flex-col justify-center items-center space-y-4 text-center">
+                <p className="text-xl font-semibold">Não foi possível carregar os dados do usuário.</p>
+                <p className="text-sm text-gray-600 dark:text-gray-300">{dataError}</p>
+                <button
+                    onClick={() => window.location.reload()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                    Tentar novamente
+                </button>
+            </div>
+        );
+    }
+
+    if (dashboards.length === 0) {
+        return (
+            <div className="min-h-screen bg-gray-100 dark:bg-black flex flex-col justify-center items-center space-y-2 text-center">
+                <p className="text-xl font-semibold">Nenhum dashboard configurado.</p>
+                <p className="text-sm text-gray-600 dark:text-gray-300">Verifique se você possui permissões para visualizar os quadros ou contate um administrador.</p>
+            </div>
+        );
     }
 
     if (tvMode && currentApp === 'cronoanalise') {
