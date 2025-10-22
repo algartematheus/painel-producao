@@ -5097,21 +5097,34 @@ const AppContent = () => {
         const dashboardsQuery = query(collection(db, "dashboards"), orderBy("order"));
 
         const setupDataAndListeners = async () => {
+            let dashboardsFetched = false;
             try {
                 const initialDashboardsSnap = await getDocs(dashboardsQuery);
+                dashboardsFetched = true;
                 if (!isActive) return;
 
                 if (initialDashboardsSnap.empty) {
                     console.log("Nenhum dashboard encontrado, criando dados iniciais...");
-                    const batch = writeBatch(db);
-                    initialDashboards.forEach(dash => {
-                        const docRef = doc(db, "dashboards", dash.id);
-                        batch.set(docRef, dash);
-                    });
-                    await batch.commit();
-                    console.log("Dashboards iniciais criados com sucesso.");
-                    if (!isActive) return;
-                    setDashboards(initialDashboards.map(dash => ({ ...dash })));
+                    try {
+                        const batch = writeBatch(db);
+                        initialDashboards.forEach(dash => {
+                            const docRef = doc(db, "dashboards", dash.id);
+                            batch.set(docRef, dash);
+                        });
+                        await batch.commit();
+                        console.log("Dashboards iniciais criados com sucesso.");
+                        if (!isActive) return;
+                        setDashboards(initialDashboards.map(dash => ({ ...dash })));
+                    } catch (error) {
+                        if (error?.code === 'permission-denied') {
+                            console.warn("Sem permissão para criar dashboards iniciais. Prosseguindo em modo somente leitura.", error);
+                            if (isActive) {
+                                setDashboards([]);
+                            }
+                        } else {
+                            throw error;
+                        }
+                    }
                 } else {
                     const initialData = initialDashboardsSnap.docs.map(d => d.data());
                     if (!isActive) return;
@@ -5121,10 +5134,18 @@ const AppContent = () => {
             } catch (error) {
                 console.error("ERRO CRÍTICO AO CARREGAR DASHBOARDS:", error);
                 if (!isActive) return;
-                setDataError('Não foi possível carregar os dashboards do usuário.');
-                setDashboardsLoading(false);
-                setPermissionsLoading(false);
-                return;
+
+                if (dashboardsFetched && error?.code === 'permission-denied') {
+                    console.warn("Sem permissão de escrita para criar dashboards padrão. Prosseguindo em modo somente leitura.", error);
+                    setDashboards([]);
+                    setDashboardsLoading(false);
+                    setPermissionsLoading(false);
+                } else {
+                    setDataError('Não foi possível carregar os dashboards do usuário.');
+                    setDashboardsLoading(false);
+                    setPermissionsLoading(false);
+                    return;
+                }
             }
 
             unsubDashboards = onSnapshot(dashboardsQuery, (snap) => {
