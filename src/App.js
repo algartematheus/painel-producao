@@ -5082,6 +5082,11 @@ const AppContent = () => {
             return () => {};
         }
 
+        const buildEmptyPermissionsMap = () => Object.keys(ALL_PERMISSIONS).reduce((acc, key) => {
+            acc[key] = false;
+            return acc;
+        }, {});
+
         setDashboards([]);
         setUsersWithRoles([]);
         setUserPermissions({});
@@ -5089,9 +5094,10 @@ const AppContent = () => {
         setPermissionsLoading(true);
         setDataError(null);
 
+        const dashboardsQuery = query(collection(db, "dashboards"), orderBy("order"));
+
         const setupDataAndListeners = async () => {
             try {
-                const dashboardsQuery = query(collection(db, "dashboards"), orderBy("order"));
                 const initialDashboardsSnap = await getDocs(dashboardsQuery);
                 if (!isActive) return;
 
@@ -5112,25 +5118,34 @@ const AppContent = () => {
                     setDashboards(initialData);
                 }
                 setDashboardsLoading(false);
-
-                unsubDashboards = onSnapshot(dashboardsQuery, (snap) => {
-                    if (!isActive) return;
-                    const fetchedDashboards = snap.docs.map(d => d.data());
-                    setDashboards(fetchedDashboards);
-                    setDashboardsLoading(false);
-                }, (error) => {
-                    console.error("Erro no listener de Dashboards:", error);
-                    if (!isActive) return;
-                    setDataError('Não foi possível carregar os dashboards em tempo real.');
-                    setDashboardsLoading(false);
-                });
-
-                const rolesSnap = await getDocs(collection(db, "roles"));
+            } catch (error) {
+                console.error("ERRO CRÍTICO AO CARREGAR DASHBOARDS:", error);
                 if (!isActive) return;
+                setDataError('Não foi possível carregar os dashboards do usuário.');
+                setDashboardsLoading(false);
+                setPermissionsLoading(false);
+                return;
+            }
+
+            unsubDashboards = onSnapshot(dashboardsQuery, (snap) => {
+                if (!isActive) return;
+                const fetchedDashboards = snap.docs.map(d => d.data());
+                setDashboards(fetchedDashboards);
+                setDashboardsLoading(false);
+            }, (error) => {
+                console.error("Erro no listener de Dashboards:", error);
+                if (!isActive) return;
+                setDashboardsLoading(false);
+            });
+
+            try {
+                const [rolesSnap, usersSnap] = await Promise.all([
+                    getDocs(collection(db, "roles")),
+                    getDocs(collection(db, "users")),
+                ]);
+                if (!isActive) return;
+
                 const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
-
-                const usersSnap = await getDocs(collection(db, "users"));
-                if (!isActive) return;
                 const usersData = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
 
                 const combinedUsers = usersData.map(u => ({ ...u, permissions: rolesData.get(u.uid)?.permissions || [] }));
@@ -5152,12 +5167,11 @@ const AppContent = () => {
                 if (!isActive) return;
                 setUserPermissions(permissionsMap);
                 setPermissionsLoading(false);
-
             } catch (error) {
-                console.error("ERRO CRÍTICO AO CONFIGURAR DADOS:", error);
+                console.error("Erro ao carregar permissões ou usuários:", error);
                 if (!isActive) return;
-                setDataError('Não foi possível carregar os dados do usuário.');
-                setDashboardsLoading(false);
+                setUsersWithRoles([]);
+                setUserPermissions(buildEmptyPermissionsMap());
                 setPermissionsLoading(false);
             }
         };
