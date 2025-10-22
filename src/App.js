@@ -5060,27 +5060,41 @@ const AppContent = () => {
     const [dashboards, setDashboards] = useState([]);
     const [usersWithRoles, setUsersWithRoles] = useState([]);
     const [userPermissions, setUserPermissions] = useState({});
+    const [dashboardsLoading, setDashboardsLoading] = useState(true);
+    const [permissionsLoading, setPermissionsLoading] = useState(true);
+    const [dataError, setDataError] = useState(null);
 
     useEffect(() => {
         localStorage.setItem('lastDashboardIndex', currentDashboardIndex);
     }, [currentDashboardIndex]);
     
     useEffect(() => {
+        let unsubDashboards;
+        let isActive = true;
+
         if (!user) {
-            setUserPermissions({});
             setDashboards([]);
             setUsersWithRoles([]);
-            return;
+            setUserPermissions({});
+            setDashboardsLoading(false);
+            setPermissionsLoading(false);
+            setDataError(null);
+            return () => {};
         }
 
-        let unsubDashboards; 
+        setDashboards([]);
+        setUsersWithRoles([]);
+        setUserPermissions({});
+        setDashboardsLoading(true);
+        setPermissionsLoading(true);
+        setDataError(null);
 
         const setupDataAndListeners = async () => {
             try {
-                // --- Etapa 1: Verificar e criar dashboards iniciais (apenas uma vez) ---
                 const dashboardsQuery = query(collection(db, "dashboards"), orderBy("order"));
                 const initialDashboardsSnap = await getDocs(dashboardsQuery);
-                
+                if (!isActive) return;
+
                 if (initialDashboardsSnap.empty) {
                     console.log("Nenhum dashboard encontrado, criando dados iniciais...");
                     const batch = writeBatch(db);
@@ -5090,48 +5104,68 @@ const AppContent = () => {
                     });
                     await batch.commit();
                     console.log("Dashboards iniciais criados com sucesso.");
+                    if (!isActive) return;
+                    setDashboards(initialDashboards.map(dash => ({ ...dash })));
+                } else {
+                    const initialData = initialDashboardsSnap.docs.map(d => d.data());
+                    if (!isActive) return;
+                    setDashboards(initialData);
                 }
+                setDashboardsLoading(false);
 
-                // --- Etapa 2: Iniciar o listener em tempo real para dashboards ---
                 unsubDashboards = onSnapshot(dashboardsQuery, (snap) => {
+                    if (!isActive) return;
                     const fetchedDashboards = snap.docs.map(d => d.data());
                     setDashboards(fetchedDashboards);
+                    setDashboardsLoading(false);
                 }, (error) => {
                     console.error("Erro no listener de Dashboards:", error);
+                    if (!isActive) return;
+                    setDataError('Não foi possível carregar os dashboards em tempo real.');
+                    setDashboardsLoading(false);
                 });
 
-                // --- Etapa 3: Buscar dados de usuários e permissões (apenas uma vez) ---
                 const rolesSnap = await getDocs(collection(db, "roles"));
+                if (!isActive) return;
                 const rolesData = new Map(rolesSnap.docs.map(d => [d.id, d.data()]));
 
                 const usersSnap = await getDocs(collection(db, "users"));
+                if (!isActive) return;
                 const usersData = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
-                
+
                 const combinedUsers = usersData.map(u => ({ ...u, permissions: rolesData.get(u.uid)?.permissions || [] }));
+                if (!isActive) return;
                 setUsersWithRoles(combinedUsers);
 
                 const currentUserPermissionsDoc = rolesData.get(user.uid);
                 let permissionsList = currentUserPermissionsDoc?.permissions || [];
-                
+
                 if (currentUserPermissionsDoc?.role === 'admin') {
-                     permissionsList = Object.keys(ALL_PERMISSIONS);
+                    permissionsList = Object.keys(ALL_PERMISSIONS);
                 }
-                
-                const permissionsMap = {};
-                for (const key in ALL_PERMISSIONS) {
-                    permissionsMap[key] = permissionsList.includes(key);
-                }
-                
+
+                const permissionsMap = Object.keys(ALL_PERMISSIONS).reduce((acc, key) => {
+                    acc[key] = permissionsList.includes(key);
+                    return acc;
+                }, {});
+
+                if (!isActive) return;
                 setUserPermissions(permissionsMap);
+                setPermissionsLoading(false);
 
             } catch (error) {
                 console.error("ERRO CRÍTICO AO CONFIGURAR DADOS:", error);
+                if (!isActive) return;
+                setDataError('Não foi possível carregar os dados do usuário.');
+                setDashboardsLoading(false);
+                setPermissionsLoading(false);
             }
         };
 
         setupDataAndListeners();
 
         return () => {
+            isActive = false;
             if (unsubDashboards) {
                 unsubDashboards();
             }
@@ -5150,8 +5184,32 @@ const AppContent = () => {
         return <LoginPage />;
     }
 
-    if (dashboards.length === 0 || Object.keys(userPermissions).length === 0) {
+    if (dashboardsLoading || permissionsLoading) {
         return <div className="min-h-screen bg-gray-100 dark:bg-black flex justify-center items-center"><p className="text-xl">Carregando dados do usuário...</p></div>;
+    }
+
+    if (dataError) {
+        return (
+            <div className="min-h-screen bg-gray-100 dark:bg-black flex flex-col justify-center items-center space-y-4 text-center">
+                <p className="text-xl font-semibold">Não foi possível carregar os dados do usuário.</p>
+                <p className="text-sm text-gray-600 dark:text-gray-300">{dataError}</p>
+                <button
+                    onClick={() => window.location.reload()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                    Tentar novamente
+                </button>
+            </div>
+        );
+    }
+
+    if (dashboards.length === 0) {
+        return (
+            <div className="min-h-screen bg-gray-100 dark:bg-black flex flex-col justify-center items-center space-y-2 text-center">
+                <p className="text-xl font-semibold">Nenhum dashboard configurado.</p>
+                <p className="text-sm text-gray-600 dark:text-gray-300">Verifique se você possui permissões para visualizar os quadros ou contate um administrador.</p>
+            </div>
+        );
     }
 
     if (tvMode && currentApp === 'cronoanalise') {
