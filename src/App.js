@@ -2808,6 +2808,24 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         return { completed, active, overallAverage };
     }, [lots, currentMonth]);
 
+    const filtersSummary = useMemo(() => ({
+        dashboardName: currentDashboard?.name || '',
+        selectedDate,
+        currentMonth,
+        calendarView,
+        lotFilter,
+        showUrgent,
+        isTraveteDashboard,
+    }), [
+        currentDashboard,
+        selectedDate,
+        currentMonth,
+        calendarView,
+        lotFilter,
+        showUrgent,
+        isTraveteDashboard,
+    ]);
+
     const handleExportDashboardReport = useCallback(async () => {
         if (!currentDashboard) return;
         try {
@@ -2817,6 +2835,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 selectedDate,
                 currentMonth,
                 isTraveteDashboard,
+                filtersSummary,
                 summary,
                 monthlySummary,
                 dailyEntries: processedData,
@@ -2830,7 +2849,19 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         } finally {
             setIsExportingReport(false);
         }
-    }, [currentDashboard, selectedDate, currentMonth, isTraveteDashboard, summary, monthlySummary, processedData, traveteProcessedData, lotSummaryForPdf, monthlyBreakdownForPdf]);
+    }, [
+        currentDashboard,
+        selectedDate,
+        currentMonth,
+        isTraveteDashboard,
+        filtersSummary,
+        summary,
+        monthlySummary,
+        processedData,
+        traveteProcessedData,
+        lotSummaryForPdf,
+        monthlyBreakdownForPdf,
+    ]);
 
     const traveteGroupedProducts = useMemo(() => {
         if (!isTraveteDashboard) return [];
