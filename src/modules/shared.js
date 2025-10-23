@@ -152,6 +152,108 @@ export const getLotStatusLabel = (status, fallback = '') => {
     return typeof status === 'string' ? status : fallback;
 };
 
+const CALENDAR_VIEW_LABELS = {
+    day: 'Dia',
+    month: 'Mês',
+    year: 'Ano',
+};
+
+const FILTER_LABELS_MAP = {
+    dashboardName: 'Dashboard',
+    selectedDate: 'Data selecionada',
+    currentMonth: 'Mês de referência',
+    calendarView: 'Visão do calendário',
+    lotFilter: 'Filtro de lotes',
+    showUrgent: 'Item fora de ordem ativo',
+    isTraveteDashboard: 'Dashboard Travete',
+};
+
+const tryParseDateValue = (value) => {
+    if (!value) {
+        return null;
+    }
+    if (value instanceof Date) {
+        return Number.isNaN(value.getTime()) ? null : value;
+    }
+    if (typeof value?.toDate === 'function') {
+        const asDate = value.toDate();
+        if (asDate instanceof Date && !Number.isNaN(asDate.getTime())) {
+            return asDate;
+        }
+    }
+    if (typeof value === 'string' || typeof value === 'number') {
+        const parsed = new Date(value);
+        if (!Number.isNaN(parsed.getTime())) {
+            return parsed;
+        }
+    }
+    return null;
+};
+
+const formatFiltersSummaryValue = (key, rawValue) => {
+    if (rawValue === undefined || rawValue === null) {
+        return '-';
+    }
+
+    if (typeof rawValue === 'boolean') {
+        return rawValue ? 'Sim' : 'Não';
+    }
+
+    if (key === 'calendarView') {
+        const normalized = String(rawValue).toLowerCase();
+        if (CALENDAR_VIEW_LABELS[normalized]) {
+            return CALENDAR_VIEW_LABELS[normalized];
+        }
+        return normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : '-';
+    }
+
+    if (key === 'lotFilter') {
+        return getLotStatusLabel(rawValue, '-');
+    }
+
+    if (key === 'currentMonth') {
+        const parsedMonth = tryParseDateValue(rawValue);
+        if (parsedMonth) {
+            return parsedMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+        }
+    }
+
+    if (key === 'selectedDate') {
+        const parsedDate = tryParseDateValue(rawValue);
+        if (parsedDate) {
+            return parsedDate.toLocaleDateString('pt-BR');
+        }
+    }
+
+    const parsedValueAsDate = tryParseDateValue(rawValue);
+    if (parsedValueAsDate) {
+        return parsedValueAsDate.toLocaleDateString('pt-BR');
+    }
+
+    if (typeof rawValue === 'number') {
+        return Number.isFinite(rawValue) ? rawValue.toLocaleString('pt-BR') : '-';
+    }
+
+    if (typeof rawValue === 'string') {
+        const trimmed = rawValue.trim();
+        return trimmed || '-';
+    }
+
+    return String(rawValue);
+};
+
+export const buildFiltersSummaryEntries = (filtersSummary = {}) => {
+    if (!filtersSummary || typeof filtersSummary !== 'object') {
+        return [];
+    }
+
+    return Object.entries(filtersSummary).map(([key, rawValue]) => ({
+        key,
+        label: FILTER_LABELS_MAP[key] || key,
+        value: formatFiltersSummaryValue(key, rawValue),
+    }));
+};
+
 export const generateId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
 export const DEFAULT_EXPORT_SETTINGS = {
@@ -680,6 +782,7 @@ const buildDashboardPerformanceData = (options = {}) => {
         selectedDate = new Date(),
         currentMonth = new Date(),
         isTraveteDashboard = false,
+        filtersSummary = {},
         summary = {},
         monthlySummary = {},
         dailyEntries = [],
@@ -917,6 +1020,10 @@ export const exportDashboardPerformancePDF = async (options = {}) => {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const centerX = pageWidth / 2;
+    const selectedDateLabel = selectedDate instanceof Date
+        ? selectedDate.toLocaleDateString('pt-BR')
+        : new Date(selectedDate).toLocaleDateString('pt-BR');
+    const generatedAt = now.toLocaleString('pt-BR');
 
     try {
         const logoDataUrl = await fetchOperationalLogoDataUrl();
@@ -926,13 +1033,53 @@ export const exportDashboardPerformancePDF = async (options = {}) => {
     }
 
     doc.setFontSize(16);
-    doc.text(`Relatório de Desempenho - ${metadata.dashboardName}`, centerX, 20, { align: 'center' });
-    doc.setFontSize(10);
-    doc.text(`Data selecionada: ${metadata.selectedDateLabel}`, 15, 30);
-    doc.text(`Mês de referência: ${metadata.monthLabel}`, 15, 36);
-    doc.text(`Gerado em: ${metadata.generatedAt}`, 15, 42);
+    doc.text(`Relatório de Desempenho - ${dashboardName}`, centerX, 20, { align: 'center' });
+    let currentY = 26;
 
-    let currentY = 48;
+    const filtersEntries = buildFiltersSummaryEntries({
+        dashboardName,
+        selectedDate,
+        currentMonth,
+        ...filtersSummary,
+    }).map(entry => [entry.label, entry.value]);
+
+    if (filtersEntries.length > 0) {
+        doc.autoTable({
+            startY: currentY,
+            head: [['Filtro', 'Valor']],
+            body: filtersEntries,
+            theme: 'grid',
+            styles: {
+                fontSize: 9,
+                halign: 'left',
+                lineColor: [0, 0, 0],
+                lineWidth: 0.1,
+            },
+            headStyles: {
+                fillColor: [0, 0, 0],
+                textColor: [255, 255, 255],
+                lineColor: [0, 0, 0],
+                lineWidth: 0.1,
+            },
+            bodyStyles: {
+                lineColor: [0, 0, 0],
+                lineWidth: 0.1,
+            },
+            columnStyles: {
+                0: { halign: 'left' },
+                1: { halign: 'left' },
+            },
+        });
+        currentY = (doc.lastAutoTable && doc.lastAutoTable.finalY)
+            ? doc.lastAutoTable.finalY + 6
+            : currentY + 10;
+    } else {
+        currentY += 4;
+    }
+
+    doc.setFontSize(10);
+    doc.text(`Gerado em: ${generatedAt}`, 15, currentY);
+    currentY += 8;
 
     const addTableSection = (section) => {
         if (!section.rows || section.rows.length === 0) {
