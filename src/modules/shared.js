@@ -92,11 +92,14 @@ const formatPercentageLabel = (value) => {
     return `${numeric.toFixed(2)}%`;
 };
 
+const DIACRITICS_REGEX = new RegExp(String.raw`[\u0300-\u036f]`, 'g');
+const INVALID_SHEET_CHARS_REGEX = new RegExp(String.raw`[\[\]\\*\\?\/\\:]`, 'g');
+
 const sanitizeForFilename = (value, fallback = 'arquivo') => {
     if (!value) return fallback;
     const stringValue = String(value);
     const normalized = typeof stringValue.normalize === 'function'
-        ? stringValue.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        ? stringValue.normalize('NFD').replace(DIACRITICS_REGEX, '')
         : stringValue;
     const sanitized = normalized
         .replace(/[^a-zA-Z0-9-_]+/g, '_')
@@ -107,9 +110,9 @@ const sanitizeForFilename = (value, fallback = 'arquivo') => {
 
 const sanitizeSheetTitle = (title, fallback = 'Aba') => {
     if (!title) return fallback;
-    const stringValue = String(title).replace(/[\[\]\*\?\/\\:]/g, ' ').trim();
+    const stringValue = String(title).replace(INVALID_SHEET_CHARS_REGEX, ' ').trim();
     const normalized = typeof stringValue.normalize === 'function'
-        ? stringValue.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        ? stringValue.normalize('NFD').replace(DIACRITICS_REGEX, '')
         : stringValue;
     const condensed = normalized.replace(/[^a-zA-Z0-9 ]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     const trimmed = condensed.slice(0, 31).trim();
