@@ -1404,6 +1404,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const [modalState, setModalState] = useState({ type: null, data: null });
     const [showUrgent, setShowUrgent] = useState(false);
     const [urgentProduction, setUrgentProduction] = useState({ productId: '', produced: '' });
+    const [exportFormat, setExportFormat] = useState('pdf');
     const [isExportingReport, setIsExportingReport] = useState(false);
     const [exportSettings, setExportSettings] = useState(() => ({ ...DEFAULT_EXPORT_SETTINGS }));
     const [isExportSettingsModalOpen, setIsExportSettingsModalOpen] = useState(false);
@@ -2816,7 +2817,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         if (!currentDashboard) return;
         try {
             setIsExportingReport(true);
-            await exportDashboardPerformancePDF({
+            const exportOptions = {
                 dashboardName: currentDashboard.name,
                 selectedDate,
                 currentMonth,
@@ -2830,8 +2831,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 exportSettings,
             });
         } catch (error) {
-            console.error('Erro ao exportar relatório do dashboard:', error);
-            alert('Não foi possível gerar o PDF do relatório. Verifique o console para mais detalhes.');
+            console.error(`Erro ao exportar relatório do dashboard (${exportFormat.toUpperCase()}):`, error);
+            alert('Não foi possível gerar o relatório. Verifique o console para mais detalhes.');
         } finally {
             setIsExportingReport(false);
         }
@@ -3452,6 +3453,20 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                         <Warehouse size={20} />
                         <span className="hidden sm:inline">Gerenciamento de Estoque</span>
                     </button>
+                    <div className="w-full sm:w-auto">
+                        <label htmlFor="export-format-select" className="sr-only">Formato de exportação</label>
+                        <select
+                            id="export-format-select"
+                            value={exportFormat}
+                            onChange={(event) => setExportFormat(event.target.value)}
+                            disabled={isExportingReport}
+                            className="p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 w-full sm:w-auto"
+                        >
+                            <option value="pdf">PDF</option>
+                            <option value="xlsx">Excel (.xlsx)</option>
+                            <option value="csv">CSV</option>
+                        </select>
+                    </div>
                     <button
                         onClick={() => setIsExportSettingsModalOpen(true)}
                         className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center"
