@@ -3510,13 +3510,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                         <span className="hidden sm:inline">Seções do Relatório</span>
                     </button>
                     <button
-                        onClick={() => setIsExportSettingsModalOpen(true)}
-                        className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center"
-                    >
-                        <SlidersHorizontal size={20} />
-                        <span className="hidden sm:inline">Seções do Relatório</span>
-                    </button>
-                    <button
                         onClick={handleExportDashboardReport}
                         disabled={isExportingReport}
                         className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center disabled:opacity-60 disabled:cursor-not-allowed"
