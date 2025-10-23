@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, doc, setDoc, deleteDoc, writeBatch, getDocs, query, orderBy, Timestamp, onSnapshot } from 'firebase/firestore';
 import { Layers, List, PlusCircle, Save, Trash2, Trash, Box, ArrowLeft, FileDown, FilePlus } from 'lucide-react';
 import { db } from '../firebase';
-import { TRAVETE_MACHINES } from './constants';
+import { TRAVETE_MACHINES, raceBullLogoUrl } from './constants';
 import { computeOperationalTimeBreakdown } from './travete';
 import {
   GlobalStyles,
@@ -697,19 +697,24 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
         <div className="responsive-root min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200">
             <GlobalStyles />
             <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div className="flex items-center gap-3">
-                    <button onClick={onNavigateToCrono} className="flex items-center gap-2 px-3 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700">
-                        <ArrowLeft size={18} /> Voltar para Quadros
-                    </button>
-                    {onNavigateToStock && (
-                        <button onClick={onNavigateToStock} className="flex items-center gap-2 px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600">
-                            <Box size={18} /> Estoque
-                        </button>
-                    )}
-                </div>
-                <div className="text-right">
-                    <h1 className="text-2xl font-bold">Sequência Operacional</h1>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Cadastre e mantenha as operações padrão por modelo.</p>
+                <div className="flex flex-wrap items-center gap-4 w-full">
+                    <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
+                    <div className="flex flex-col gap-3 flex-1 w-full md:flex-row md:items-center md:justify-between md:gap-6">
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto">
+                            <button onClick={onNavigateToCrono} className="flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 w-full sm:w-auto">
+                                <ArrowLeft size={18} /> Voltar para Quadros
+                            </button>
+                            {onNavigateToStock && (
+                                <button onClick={onNavigateToStock} className="flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 w-full sm:w-auto">
+                                    <Box size={18} /> Estoque
+                                </button>
+                            )}
+                        </div>
+                        <div className="text-left md:text-right">
+                            <h1 className="text-2xl font-bold">Sequência Operacional</h1>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">Cadastre e mantenha as operações padrão por modelo.</p>
+                        </div>
+                    </div>
                 </div>
             </header>
 
