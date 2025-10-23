@@ -184,6 +184,14 @@ export const getLotStatusLabel = (status, fallback = '') => {
 
 export const generateId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
+export const DEFAULT_EXPORT_SETTINGS = {
+    dailySummary: true,
+    monthlySummary: true,
+    periodDetails: true,
+    completedLots: true,
+    activeLots: true,
+};
+
 export async function sha256Hex(message) {
     const data = new TextEncoder().encode(message);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
@@ -708,18 +716,44 @@ const buildDashboardPerformanceData = (options = {}) => {
         traveteEntries = [],
         lotSummary = {},
         monthlyBreakdown = [],
+        exportSettings = DEFAULT_EXPORT_SETTINGS,
     } = options;
 
     const now = new Date();
-    const resolveDateInfo = (value, localeOptions, fallbackDate = now) => {
-        const candidate = value instanceof Date ? value : new Date(value);
-        if (candidate instanceof Date && !Number.isNaN(candidate.getTime())) {
-            return {
-                date: candidate,
-                label: localeOptions
-                    ? candidate.toLocaleDateString('pt-BR', localeOptions)
-                    : candidate.toLocaleDateString('pt-BR'),
-            };
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const centerX = pageWidth / 2;
+    const selectedDateLabel = selectedDate instanceof Date
+        ? selectedDate.toLocaleDateString('pt-BR')
+        : new Date(selectedDate).toLocaleDateString('pt-BR');
+    const monthLabel = currentMonth instanceof Date
+        ? currentMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+        : new Date(currentMonth).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    const generatedAt = now.toLocaleString('pt-BR');
+
+    const logoDataUrl = await fetchOperationalLogoDataUrl();
+    addRaceBullLogoToPdf(doc, logoDataUrl);
+
+    const settings = {
+        ...DEFAULT_EXPORT_SETTINGS,
+        ...(exportSettings || {}),
+    };
+
+    doc.setFontSize(16);
+    doc.text(`Relatório de Desempenho - ${dashboardName}`, centerX, 20, { align: 'center' });
+    doc.setFontSize(10);
+    doc.text(`Data selecionada: ${selectedDateLabel}`, 15, 30);
+    doc.text(`Mês de referência: ${monthLabel}`, 15, 36);
+    doc.text(`Gerado em: ${generatedAt}`, 15, 42);
+
+    let currentY = 48;
+
+    const addTableSection = (title, head, body, columnStyles = {}) => {
+        if (!body || body.length === 0) {
+            return;
+        }
+        if (currentY > doc.internal.pageSize.getHeight() - 40) {
+            doc.addPage();
+            currentY = 20;
         }
         const safeFallback = fallbackDate instanceof Date ? fallbackDate : new Date(fallbackDate);
         return {
@@ -743,132 +777,115 @@ const buildDashboardPerformanceData = (options = {}) => {
         safeDateLabel: sanitizeForFilename(selectedDateInfo.date.toISOString().split('T')[0], 'data'),
     };
 
-    const sections = [];
+    if (settings.dailySummary) {
+        const dailySummaryRows = [
+            ['Produção Acumulada (Dia)', formatLocaleNumber(summary.totalProduced)],
+            ['Meta Acumulada (Dia)', formatLocaleNumber(summary.totalGoal)],
+            ['Eficiência da Última Hora', formatPercentageLabel(summary.lastHourEfficiency)],
+            ['Média de Eficiência (Dia)', formatPercentageLabel(summary.averageEfficiency)],
+        ];
+        addTableSection('Resumo do Dia', [['Indicador', 'Valor']], dailySummaryRows, { 0: { halign: 'left' } });
 
-    const dailySummaryRows = [
-        ['Produção Acumulada (Dia)', formatLocaleNumber(summary.totalProduced)],
-        ['Meta Acumulada (Dia)', formatLocaleNumber(summary.totalGoal)],
-        ['Eficiência da Última Hora', formatPercentageLabel(summary.lastHourEfficiency)],
-        ['Média de Eficiência (Dia)', formatPercentageLabel(summary.averageEfficiency)],
-    ];
-    sections.push({
-        key: 'daily-summary',
-        title: 'Resumo do Dia',
-        header: ['Indicador', 'Valor'],
-        rows: dailySummaryRows,
-        columnStyles: { 0: { halign: 'left' } },
-    });
-
-    if (isTraveteDashboard && traveteEntries.length > 0) {
-        const lastEntry = traveteEntries[traveteEntries.length - 1] || {};
-        const employees = Array.isArray(lastEntry.employees) ? lastEntry.employees : [];
-        const individualRows = employees.map((emp, index) => ([
-            `Funcionário ${index + 1}`,
-            formatLocaleNumber(emp.cumulativeProduced),
-            formatLocaleNumber(emp.cumulativeMeta),
-            formatPercentageLabel(emp.cumulativeEfficiency),
-        ]));
-        if (individualRows.length > 0) {
-            sections.push({
-                key: 'travete-individual',
-                title: 'Resumo Individual do Dia (Travete)',
-                header: ['Operador', 'Produção Acum.', 'Meta Acum.', 'Eficiência Média'],
-                rows: individualRows,
-                columnStyles: { 0: { halign: 'left' } },
-            });
+        if (isTraveteDashboard && traveteEntries.length > 0) {
+            const lastEntry = traveteEntries[traveteEntries.length - 1] || {};
+            const employees = Array.isArray(lastEntry.employees) ? lastEntry.employees : [];
+            const individualRows = employees.map((emp, index) => ([
+                `Funcionário ${index + 1}`,
+                formatLocaleNumber(emp.cumulativeProduced),
+                formatLocaleNumber(emp.cumulativeMeta),
+                formatPercentageLabel(emp.cumulativeEfficiency),
+            ]));
+            addTableSection(
+                'Resumo Individual do Dia (Travete)',
+                [['Operador', 'Produção Acum.', 'Meta Acum.', 'Eficiência Média']],
+                individualRows,
+                { 0: { halign: 'left' } }
+            );
         }
     }
 
-    const monthlyRows = [
-        ['Produção do Mês', formatLocaleNumber(monthlySummary.totalProduction)],
-        ['Meta do Mês', formatLocaleNumber(monthlySummary.totalGoal)],
-        ['Eficiência Média Mensal', formatPercentageLabel(monthlySummary.averageEfficiency)],
-    ];
-    sections.push({
-        key: 'monthly-summary',
-        title: 'Resumo Mensal',
-        header: ['Indicador', 'Valor'],
-        rows: monthlyRows,
-        columnStyles: { 0: { halign: 'left' } },
-    });
+    if (settings.monthlySummary) {
+        const monthlyRows = [
+            ['Produção do Mês', formatLocaleNumber(monthlySummary.totalProduction)],
+            ['Meta do Mês', formatLocaleNumber(monthlySummary.totalGoal)],
+            ['Eficiência Média Mensal', formatPercentageLabel(monthlySummary.averageEfficiency)],
+        ];
+        addTableSection('Resumo Mensal', [['Indicador', 'Valor']], monthlyRows, { 0: { halign: 'left' } });
 
-    if (Array.isArray(monthlyBreakdown) && monthlyBreakdown.length > 0) {
-        const monthlyBody = monthlyBreakdown.map((item) => {
-            const dateLabel = item?.date instanceof Date
-                ? item.date.toLocaleDateString('pt-BR')
-                : (item?.dateLabel || (item?.date ? String(item.date) : '-'));
-            return [
-                dateLabel,
-                formatLocaleNumber(item?.totalProduction),
-                formatLocaleNumber(item?.totalGoal),
-                formatPercentageLabel(item?.averageEfficiency),
-            ];
-        });
-        sections.push({
-            key: 'monthly-breakdown',
-            title: 'Desempenho Diário no Mês',
-            header: ['Dia', 'Produção', 'Meta', 'Eficiência Média'],
-            rows: monthlyBody,
-            columnStyles: { 0: { halign: 'left' } },
-        });
+        if (monthlyBreakdown.length > 0) {
+            const monthlyBody = monthlyBreakdown.map((item) => {
+                const dateLabel = item.date instanceof Date
+                    ? item.date.toLocaleDateString('pt-BR')
+                    : (item.dateLabel || String(item.date || ''));
+                return [
+                    dateLabel,
+                    formatLocaleNumber(item.totalProduction),
+                    formatLocaleNumber(item.totalGoal),
+                    formatPercentageLabel(item.averageEfficiency),
+                ];
+            });
+            addTableSection(
+                'Desempenho Diário no Mês',
+                [['Dia', 'Produção', 'Meta', 'Eficiência Média']],
+                monthlyBody,
+                { 0: { halign: 'left' } }
+            );
+        }
     }
 
-    if (isTraveteDashboard) {
-        const traveteBody = traveteEntries.map((entry) => {
-            const employees = Array.isArray(entry.employees) ? entry.employees : [];
-            const empOne = employees[0] || {};
-            const empTwo = employees[1] || {};
-            return [
+    if (settings.periodDetails) {
+        if (isTraveteDashboard) {
+            const traveteBody = traveteEntries.map((entry) => {
+                const employees = Array.isArray(entry.employees) ? entry.employees : [];
+                const empOne = employees[0] || {};
+                const empTwo = employees[1] || {};
+                return [
+                    entry.period || '-',
+                    empOne.metaDisplay || formatLocaleNumber(empOne.meta),
+                    empOne.producedDisplay || formatLocaleNumber(empOne.produced),
+                    formatPercentageLabel(empOne.efficiency),
+                    empTwo.metaDisplay || formatLocaleNumber(empTwo.meta),
+                    empTwo.producedDisplay || formatLocaleNumber(empTwo.produced),
+                    formatPercentageLabel(empTwo.efficiency),
+                    entry.lotDisplay || '-',
+                    entry.observation || '-',
+                ];
+            });
+            addTableSection(
+                'Detalhamento por Período (Travete)',
+                [['Período', 'Meta F1', 'Prod. F1', 'Eficiência F1', 'Meta F2', 'Prod. F2', 'Eficiência F2', 'Lotes', 'Observação']],
+                traveteBody,
+                { 0: { halign: 'left' }, 7: { halign: 'left' }, 8: { halign: 'left' } }
+            );
+        } else if (dailyEntries.length > 0) {
+            const dailyBody = dailyEntries.map((entry) => ([
                 entry.period || '-',
-                empOne.metaDisplay || formatLocaleNumber(empOne.meta),
-                empOne.producedDisplay || formatLocaleNumber(empOne.produced),
-                formatPercentageLabel(empOne.efficiency),
-                empTwo.metaDisplay || formatLocaleNumber(empTwo.meta),
-                empTwo.producedDisplay || formatLocaleNumber(empTwo.produced),
-                formatPercentageLabel(empTwo.efficiency),
-                entry.lotDisplay || '-',
+                `${entry.people || 0} / ${(entry.availableTime || 0)} min`,
+                entry.goalForDisplay || entry.goal || '-',
+                entry.producedForDisplay || entry.produced || '-',
+                formatPercentageLabel(entry.efficiency),
+                formatLocaleNumber(entry.cumulativeGoal),
+                formatLocaleNumber(entry.cumulativeProduction),
+                formatPercentageLabel(entry.cumulativeEfficiency),
                 entry.observation || '-',
-            ];
-        });
-        if (traveteBody.length > 0) {
-            sections.push({
-                key: 'travete-detail',
-                title: 'Detalhamento por Período (Travete)',
-                header: ['Período', 'Meta F1', 'Prod. F1', 'Eficiência F1', 'Meta F2', 'Prod. F2', 'Eficiência F2', 'Lotes', 'Observação'],
-                rows: traveteBody,
-                columnStyles: { 0: { halign: 'left' }, 7: { halign: 'left' }, 8: { halign: 'left' } },
-            });
+            ]));
+            addTableSection(
+                'Detalhamento por Período',
+                [['Período', 'Pessoas / Tempo', 'Meta', 'Produção', 'Eficiência', 'Meta Acum.', 'Prod. Acum.', 'Efic. Acum.', 'Observação']],
+                dailyBody,
+                { 0: { halign: 'left' }, 1: { halign: 'left' }, 8: { halign: 'left' } }
+            );
         }
-    } else if (Array.isArray(dailyEntries) && dailyEntries.length > 0) {
-        const dailyBody = dailyEntries.map((entry) => ([
-            entry.period || '-',
-            `${entry.people || 0} / ${(entry.availableTime || 0)} min`,
-            entry.goalForDisplay || entry.goal || '-',
-            entry.producedForDisplay || entry.produced || '-',
-            formatPercentageLabel(entry.efficiency),
-            formatLocaleNumber(entry.cumulativeGoal),
-            formatLocaleNumber(entry.cumulativeProduction),
-            formatPercentageLabel(entry.cumulativeEfficiency),
-            entry.observation || '-',
-        ]));
-        sections.push({
-            key: 'daily-detail',
-            title: 'Detalhamento por Período',
-            header: ['Período', 'Pessoas / Tempo', 'Meta', 'Produção', 'Eficiência', 'Meta Acum.', 'Prod. Acum.', 'Efic. Acum.', 'Observação'],
-            rows: dailyBody,
-            columnStyles: { 0: { halign: 'left' }, 1: { halign: 'left' }, 8: { halign: 'left' } },
-        });
     }
 
-    const completedLots = Array.isArray(lotSummary?.completed) ? lotSummary.completed : [];
-    if (completedLots.length > 0) {
-        const completedRows = completedLots.map((lot) => ([
-            lot?.name || lot?.id || '-',
-            formatLocaleNumber(lot?.produced),
-            formatLocaleNumber(lot?.target),
-            formatPercentageLabel(lot?.efficiency),
-            lot?.duration ? Number(lot.duration).toFixed(1) : '-',
-            formatLocaleNumber(lot?.averageDaily),
+    if (settings.completedLots && lotSummary && Array.isArray(lotSummary.completed) && lotSummary.completed.length > 0) {
+        const completedBody = lotSummary.completed.map((lot) => ([
+            lot.name || lot.id || '-',
+            formatLocaleNumber(lot.produced),
+            formatLocaleNumber(lot.target),
+            formatPercentageLabel(lot.efficiency),
+            lot.duration ? lot.duration.toFixed(1) : '-',
+            formatLocaleNumber(lot.averageDaily),
         ]));
         const section = {
             key: 'completed-lots',
@@ -983,42 +1000,20 @@ export const exportDashboardPerformanceXLSX = async (options = {}) => {
         throw new Error('Não foi possível carregar o utilitário de planilhas.');
     }
 
-    const workbook = XLSX.utils.book_new();
-    const usedSheetNames = new Set();
-
-    const metadataSheetData = [
-        ['Relatório de Desempenho', metadata.dashboardName],
-        ['Data selecionada', metadata.selectedDateLabel],
-        ['Mês de referência', metadata.monthLabel],
-        ['Gerado em', metadata.generatedAt],
-        ['Tipo de Dashboard', metadata.isTraveteDashboard ? 'Travete' : 'Padrão'],
-    ];
-    const metadataSheet = XLSX.utils.aoa_to_sheet(metadataSheetData);
-    XLSX.utils.book_append_sheet(workbook, metadataSheet, getUniqueSheetName('Resumo', usedSheetNames));
-
-    sections.forEach((section) => {
-        if (!section.rows || section.rows.length === 0) {
-            return;
-        }
-        const sheetData = [section.header, ...section.rows];
-        if (section.footerNote) {
-            sheetData.push([]);
-            sheetData.push([section.footerNote]);
-        }
-        const sheet = XLSX.utils.aoa_to_sheet(sheetData);
-        const sheetName = getUniqueSheetName(section.title, usedSheetNames);
-        XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
-    });
-
-    XLSX.writeFile(workbook, `Relatorio_${metadata.safeDashboardName}_${metadata.safeDateLabel}.xlsx`);
-};
-
-export const exportDashboardPerformanceCSV = async (options = {}) => {
-    const { metadata, sections } = buildDashboardPerformanceData(options);
-    const XLSX = await ensureXlsxResources();
-
-    if (!XLSX || !XLSX.utils) {
-        throw new Error('Não foi possível carregar o utilitário de planilhas.');
+    if (settings.activeLots && lotSummary && Array.isArray(lotSummary.active) && lotSummary.active.length > 0) {
+        const activeBody = lotSummary.active.map((lot) => ([
+            lot.name || lot.id || '-',
+            formatLocaleNumber(lot.produced),
+            formatLocaleNumber(lot.target),
+            formatPercentageLabel(lot.efficiency),
+            getLotStatusLabel(lot.status, '-'),
+        ]));
+        addTableSection(
+            'Lotes Ativos',
+            [['Lote', 'Produzido', 'Meta', 'Eficiência', 'Status']],
+            activeBody,
+            { 0: { halign: 'left' }, 4: { halign: 'left' } }
+        );
     }
 
     const metadataSheetData = [

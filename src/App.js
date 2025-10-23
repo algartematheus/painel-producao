@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Trash, FileDown } from 'lucide-react';
+import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Trash, FileDown, SlidersHorizontal } from 'lucide-react';
 import { db } from './firebase';
 import { AuthProvider, useAuth, LoginPage } from './modules/auth';
 import {
@@ -35,9 +35,9 @@ import {
   resolveProductReference,
   resolveEmployeeStandardTime,
   exportDashboardPerformancePDF,
-  exportDashboardPerformanceXLSX,
-  exportDashboardPerformanceCSV
+  DEFAULT_EXPORT_SETTINGS
 } from './modules/shared';
+import ExportSettingsModal from './components/ExportSettingsModal';
 import {
   getOrderedActiveLots,
   getLotRemainingPieces,
@@ -1406,6 +1406,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const [urgentProduction, setUrgentProduction] = useState({ productId: '', produced: '' });
     const [exportFormat, setExportFormat] = useState('pdf');
     const [isExportingReport, setIsExportingReport] = useState(false);
+    const [exportSettings, setExportSettings] = useState(() => ({ ...DEFAULT_EXPORT_SETTINGS }));
+    const [isExportSettingsModalOpen, setIsExportSettingsModalOpen] = useState(false);
     const [isNavOpen, setIsNavOpen] = useState(false);
     const navRef = useRef();
     useClickOutside(navRef, () => setIsNavOpen(false));
@@ -2826,22 +2828,15 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 traveteEntries: traveteProcessedData,
                 lotSummary: lotSummaryForPdf,
                 monthlyBreakdown: monthlyBreakdownForPdf,
-            };
-
-            if (exportFormat === 'xlsx') {
-                await exportDashboardPerformanceXLSX(exportOptions);
-            } else if (exportFormat === 'csv') {
-                await exportDashboardPerformanceCSV(exportOptions);
-            } else {
-                await exportDashboardPerformancePDF(exportOptions);
-            }
+                exportSettings,
+            });
         } catch (error) {
             console.error(`Erro ao exportar relatório do dashboard (${exportFormat.toUpperCase()}):`, error);
             alert('Não foi possível gerar o relatório. Verifique o console para mais detalhes.');
         } finally {
             setIsExportingReport(false);
         }
-    }, [currentDashboard, selectedDate, currentMonth, isTraveteDashboard, summary, monthlySummary, processedData, traveteProcessedData, lotSummaryForPdf, monthlyBreakdownForPdf, exportFormat]);
+    }, [currentDashboard, selectedDate, currentMonth, isTraveteDashboard, summary, monthlySummary, processedData, traveteProcessedData, lotSummaryForPdf, monthlyBreakdownForPdf, exportSettings]);
 
     const traveteGroupedProducts = useMemo(() => {
         if (!isTraveteDashboard) return [];
@@ -3409,6 +3404,12 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             <ReasonModal isOpen={modalState.type === 'reason'} onClose={closeModal} onConfirm={modalState.data?.onConfirm} />
             <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={roles} />
             <TvSelectorModal isOpen={modalState.type === 'tvSelector'} onClose={closeModal} onSelect={startTvMode} onStartCarousel={startTvMode} dashboards={dashboards} />
+            <ExportSettingsModal
+                isOpen={isExportSettingsModalOpen}
+                onClose={() => setIsExportSettingsModalOpen(false)}
+                settings={exportSettings}
+                onSave={(nextSettings) => setExportSettings({ ...DEFAULT_EXPORT_SETTINGS, ...nextSettings })}
+            />
 
             <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between sticky top-0 z-20">
                 <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
@@ -3466,6 +3467,13 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                             <option value="csv">CSV</option>
                         </select>
                     </div>
+                    <button
+                        onClick={() => setIsExportSettingsModalOpen(true)}
+                        className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center"
+                    >
+                        <SlidersHorizontal size={20} />
+                        <span className="hidden sm:inline">Seções do Relatório</span>
+                    </button>
                     <button
                         onClick={handleExportDashboardReport}
                         disabled={isExportingReport}
