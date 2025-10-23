@@ -2821,7 +2821,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         if (!currentDashboard) return;
         try {
             setIsExportingReport(true);
-            const exportOptions = {
+            await exportDashboardPerformancePDF({
                 dashboardName: currentDashboard.name,
                 selectedDate,
                 currentMonth,
@@ -2840,7 +2840,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         } finally {
             setIsExportingReport(false);
         }
-    }, [currentDashboard, selectedDate, currentMonth, isTraveteDashboard, summary, monthlySummary, processedData, traveteProcessedData, lotSummaryForPdf, monthlyBreakdownForPdf, resolvedExportSettings]);
+    }, [currentDashboard, selectedDate, currentMonth, isTraveteDashboard, summary, monthlySummary, processedData, traveteProcessedData, lotSummaryForPdf, monthlyBreakdownForPdf, resolvedExportSettings, exportFormat]);
 
     const traveteGroupedProducts = useMemo(() => {
         if (!isTraveteDashboard) return [];
