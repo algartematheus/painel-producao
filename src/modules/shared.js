@@ -71,6 +71,38 @@ const formatPercentageLabel = (value) => {
     return `${numeric.toFixed(2)}%`;
 };
 
+const LOT_STATUS_LABELS = {
+    future: 'Na Fila',
+    ongoing: 'Em Andamento',
+    completed: 'Concluído',
+    completed_missing: 'Concluído (com Falta)',
+    completed_exceeding: 'Concluído (com Sobra)',
+};
+
+export const getLotStatusLabel = (status, fallback = '') => {
+    if (!status) {
+        return fallback;
+    }
+
+    const normalized = String(status).toLowerCase();
+
+    if (LOT_STATUS_LABELS[normalized]) {
+        return LOT_STATUS_LABELS[normalized];
+    }
+
+    if (normalized.startsWith('completed')) {
+        if (normalized.includes('missing')) {
+            return LOT_STATUS_LABELS.completed_missing;
+        }
+        if (normalized.includes('exceeding')) {
+            return LOT_STATUS_LABELS.completed_exceeding;
+        }
+        return LOT_STATUS_LABELS.completed;
+    }
+
+    return typeof status === 'string' ? status : fallback;
+};
+
 export const generateId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
 export async function sha256Hex(message) {
@@ -442,6 +474,31 @@ const fetchOperationalLogoDataUrl = async () => {
     return '';
 };
 
+const addRaceBullLogoToPdf = (doc, logoDataUrl, options = {}) => {
+    if (!logoDataUrl) {
+        return;
+    }
+
+    const {
+        align = 'left',
+        margin = 15,
+        y = 12,
+        width = 42,
+        height = 18,
+    } = options;
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    let x = margin;
+
+    if (align === 'right') {
+        x = pageWidth - margin - width;
+    } else if (align === 'center') {
+        x = (pageWidth - width) / 2;
+    }
+
+    doc.addImage(logoDataUrl, getImageFormatFromDataUrl(logoDataUrl), x, y, width, height);
+};
+
 const deriveOperationMinutesForPdf = (operation) => {
     if (!operation) return 0;
     if (operation.tempoMinutos !== undefined) {
@@ -478,15 +535,7 @@ export const exportSequenciaOperacionalPDF = async (modelo, incluirDados = true,
     const sanitizedBlankLineCount = Math.max(1, Math.floor(Number(blankLineCount) || 0) || 25);
 
     const logoDataUrl = await fetchOperationalLogoDataUrl();
-    if (logoDataUrl) {
-        const logoWidth = 32;
-        const logoHeight = 32;
-        const marginRight = 12;
-        const pdfWidth = doc.internal.pageSize.getWidth();
-        const x = pdfWidth - marginRight - logoWidth;
-        const y = 10;
-        doc.addImage(logoDataUrl, getImageFormatFromDataUrl(logoDataUrl), x, y, logoWidth, logoHeight);
-    }
+    addRaceBullLogoToPdf(doc, logoDataUrl);
 
     doc.setFontSize(14);
     const pageCenterX = doc.internal.pageSize.getWidth() / 2;
@@ -597,14 +646,7 @@ export const exportDashboardPerformancePDF = async (options = {}) => {
     const generatedAt = now.toLocaleString('pt-BR');
 
     const logoDataUrl = await fetchOperationalLogoDataUrl();
-    if (logoDataUrl) {
-        const logoWidth = 32;
-        const logoHeight = 32;
-        const marginRight = 12;
-        const x = pageWidth - marginRight - logoWidth;
-        const y = 10;
-        doc.addImage(logoDataUrl, getImageFormatFromDataUrl(logoDataUrl), x, y, logoWidth, logoHeight);
-    }
+    addRaceBullLogoToPdf(doc, logoDataUrl);
 
     doc.setFontSize(16);
     doc.text(`Relatório de Desempenho - ${dashboardName}`, centerX, 20, { align: 'center' });
@@ -781,7 +823,7 @@ export const exportDashboardPerformancePDF = async (options = {}) => {
             formatLocaleNumber(lot.produced),
             formatLocaleNumber(lot.target),
             formatPercentageLabel(lot.efficiency),
-            (lot.status || '-').toUpperCase(),
+            getLotStatusLabel(lot.status, '-'),
         ]));
         addTableSection(
             'Lotes Ativos',
