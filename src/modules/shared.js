@@ -190,6 +190,12 @@ const tryParseDateValue = (value) => {
     return null;
 };
 
+const isPlainObject = (value) => (
+    value !== null
+    && typeof value === 'object'
+    && Object.prototype.toString.call(value) === '[object Object]'
+);
+
 const formatFiltersSummaryValue = (key, rawValue) => {
     if (rawValue === undefined || rawValue === null) {
         return '-';
@@ -778,9 +784,9 @@ export const exportSequenciaOperacionalPDF = async (modelo, incluirDados = true,
 
 const buildDashboardPerformanceData = (options = {}) => {
     const {
-        dashboardName = 'Dashboard',
-        selectedDate = new Date(),
-        currentMonth = new Date(),
+        dashboardName: rawDashboardName,
+        selectedDate: rawSelectedDate,
+        currentMonth: rawCurrentMonth,
         isTraveteDashboard = false,
         filtersSummary = {},
         summary = {},
@@ -789,8 +795,15 @@ const buildDashboardPerformanceData = (options = {}) => {
         traveteEntries = [],
         lotSummary = {},
         monthlyBreakdown = [],
-        exportSettings = DEFAULT_EXPORT_SETTINGS,
-    } = options;
+    } = options || {};
+
+    const filtersSummary = isPlainObject(options?.filtersSummary)
+        ? options.filtersSummary
+        : {};
+
+    const dashboardName = rawDashboardName || 'Dashboard';
+    const selectedDate = rawSelectedDate ?? new Date();
+    const currentMonth = rawCurrentMonth ?? new Date();
 
     const now = new Date();
 
@@ -1042,6 +1055,44 @@ export const exportDashboardPerformancePDF = async (options = {}) => {
         currentMonth,
         ...filtersSummary,
     }).map(entry => [entry.label, entry.value]);
+
+    if (filtersEntries.length > 0) {
+        doc.autoTable({
+            startY: currentY,
+            head: [['Filtro', 'Valor']],
+            body: filtersEntries,
+            theme: 'grid',
+            styles: {
+                fontSize: 9,
+                halign: 'left',
+                lineColor: [0, 0, 0],
+                lineWidth: 0.1,
+            },
+            headStyles: {
+                fillColor: [0, 0, 0],
+                textColor: [255, 255, 255],
+                lineColor: [0, 0, 0],
+                lineWidth: 0.1,
+            },
+            bodyStyles: {
+                lineColor: [0, 0, 0],
+                lineWidth: 0.1,
+            },
+            columnStyles: {
+                0: { halign: 'left' },
+                1: { halign: 'left' },
+            },
+        });
+        currentY = (doc.lastAutoTable && doc.lastAutoTable.finalY)
+            ? doc.lastAutoTable.finalY + 6
+            : currentY + 10;
+    } else {
+        currentY += 4;
+    }
+
+    doc.setFontSize(10);
+    doc.text(`Gerado em: ${generatedAt}`, 15, currentY);
+    currentY += 8;
 
     if (filtersEntries.length > 0) {
         doc.autoTable({
