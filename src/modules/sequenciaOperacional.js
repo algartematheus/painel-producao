@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, doc, setDoc, deleteDoc, writeBatch, getDocs, query, orderBy, Timestamp, onSnapshot } from 'firebase/firestore';
 import { Layers, List, PlusCircle, Save, Trash2, Trash, Box, ArrowLeft, FileDown, FilePlus } from 'lucide-react';
 import { db } from '../firebase';
+import HeaderContainer from '../components/HeaderContainer';
 import { TRAVETE_MACHINES, raceBullLogoUrl } from './constants';
 import { computeOperationalTimeBreakdown } from './travete';
 import {
@@ -696,7 +697,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
     return (
         <div className="responsive-root min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200">
             <GlobalStyles />
-            <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <HeaderContainer>
                 <div className="flex flex-wrap items-center gap-4 w-full">
                     <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
                     <div className="flex flex-col gap-3 flex-1 w-full md:flex-row md:items-center md:justify-between md:gap-6">
@@ -716,7 +717,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
                         </div>
                     </div>
                 </div>
-            </header>
+            </HeaderContainer>
 
             <main className="responsive-main py-6 space-y-6">
                 <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr] gap-6">

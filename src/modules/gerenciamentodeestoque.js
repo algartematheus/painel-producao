@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useContext, createCon
 import { collection, doc, setDoc, updateDoc, onSnapshot, writeBatch, query, orderBy, Timestamp } from 'firebase/firestore';
 import { PlusCircle, MinusCircle, Edit, Trash2, Home, LogOut, ArrowUpDown, Box, Trash, ChevronLeft, ChevronRight } from 'lucide-react';
 import { db } from '../firebase';
+import HeaderContainer from '../components/HeaderContainer';
 import { useAuth } from './auth';
 import { raceBullLogoUrl } from './constants';
 import {
@@ -205,7 +206,7 @@ export const useStock = () => useContext(StockContext);
 const StockHeader = ({ onNavigateToCrono }) => {
     const { logout } = useAuth();
     return (
-        <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between sticky top-0 z-40">
+        <HeaderContainer zIndexClass="z-40">
             <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
                 <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
                 <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white">Painel de Estoque</h1>
@@ -220,7 +221,7 @@ const StockHeader = ({ onNavigateToCrono }) => {
                     <span className="hidden sm:inline">Sair</span>
                 </button>
             </div>
-        </header>
+        </HeaderContainer>
     );
 };
 
