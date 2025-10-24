@@ -66,17 +66,22 @@ const ensureXlsxResources = async () => {
     if (xlsxLoaderPromise) {
         return xlsxLoaderPromise;
     }
+
     xlsxLoaderPromise = (async () => {
         if (typeof window === 'undefined') {
             throw new Error('Exportação de planilhas disponível apenas no navegador.');
         }
+
         await loadScriptOnce(XLSX_CDN_URL);
-        const XLSX = window.XLSX;
-        if (!XLSX || !XLSX.utils) {
-            throw new Error('Não foi possível carregar o módulo XLSX.');
+        const globalXlsx = window.XLSX;
+
+        if (!globalXlsx || !globalXlsx.utils || !globalXlsx.write) {
+            throw new Error('Não foi possível carregar a biblioteca XLSX.');
         }
-        return XLSX;
+
+        return globalXlsx;
     })();
+
     return xlsxLoaderPromise;
 };
 
@@ -92,32 +97,35 @@ const formatPercentageLabel = (value) => {
     return `${numeric.toFixed(2)}%`;
 };
 
-const DIACRITICS_REGEX = new RegExp(String.raw`[\u0300-\u036f]`, 'g');
-const sanitizeForFilename = (value, fallback = 'arquivo') => {
-    if (!value) return fallback;
-    const stringValue = String(value);
-    const normalized = typeof stringValue.normalize === 'function'
-        ? stringValue.normalize('NFD').replace(DIACRITICS_REGEX, '')
-        : stringValue;
-    const sanitized = normalized
+const sanitizeForFilename = (value, fallback = 'Arquivo') => {
+    if (value === null || value === undefined) {
+        return fallback;
+    }
+
+    const normalized = value
+        .toString()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
         .replace(/[^a-zA-Z0-9-_]+/g, '_')
-        .replace(/_{2,}/g, '_')
-        .replace(/^_|_$/g, '');
-    return sanitized || fallback;
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '');
+
+    return normalized || fallback;
 };
 
 const downloadBlob = (blob, filename) => {
-    if (typeof window === 'undefined' || typeof document === 'undefined') {
+    if (typeof window === 'undefined') {
         throw new Error('Download disponível apenas no navegador.');
     }
+
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
 };
 
 const LOT_STATUS_LABELS = {
@@ -258,6 +266,248 @@ export const buildFiltersSummaryEntries = (filtersSummary = {}) => {
         label: FILTER_LABELS_MAP[key] || key,
         value: formatFiltersSummaryValue(key, rawValue),
     }));
+};
+
+const normalizeFiltersSummary = (filtersSummary) => (isPlainObject(filtersSummary) ? filtersSummary : {});
+
+const formatDateForFilename = (value) => {
+    if (!value) {
+        return 'Data';
+    }
+
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return sanitizeForFilename(value, 'Data');
+    }
+
+    return date.toLocaleDateString('pt-BR').replace(/[\\/]/g, '-');
+};
+
+const buildDashboardFiltersRows = ({
+    dashboardName,
+    selectedDate,
+    currentMonth,
+    filtersSummary,
+}) => buildFiltersSummaryEntries({
+    dashboardName,
+    selectedDate,
+    currentMonth,
+    ...normalizeFiltersSummary(filtersSummary),
+}).map(entry => [entry.label, entry.value]);
+
+const buildDashboardReportSections = ({
+    summary = {},
+    monthlySummary = {},
+    monthlyBreakdown = [],
+    isTraveteDashboard = false,
+    traveteEntries = [],
+    dailyEntries = [],
+    lotSummary = {},
+}) => {
+    const sections = [];
+
+    const dailySummaryRows = [
+        ['Produção Acumulada (Dia)', formatLocaleNumber(summary.totalProduced)],
+        ['Meta Acumulada (Dia)', formatLocaleNumber(summary.totalGoal)],
+        ['Eficiência da Última Hora', formatPercentageLabel(summary.lastHourEfficiency)],
+        ['Média de Eficiência (Dia)', formatPercentageLabel(summary.averageEfficiency)],
+    ];
+
+    sections.push({
+        key: 'dailySummary',
+        title: 'Resumo do Dia',
+        header: ['Indicador', 'Valor'],
+        rows: dailySummaryRows,
+        columnStyles: { 0: { halign: 'left' } },
+    });
+
+    if (isTraveteDashboard) {
+        const lastEntry = traveteEntries.length > 0 ? traveteEntries[traveteEntries.length - 1] : null;
+        const employees = Array.isArray(lastEntry?.employees) ? lastEntry.employees : [];
+        const individualRows = employees.map((emp, index) => ([
+            `Funcionário ${index + 1}`,
+            formatLocaleNumber(emp.cumulativeProduced),
+            formatLocaleNumber(emp.cumulativeMeta),
+            formatPercentageLabel(emp.cumulativeEfficiency),
+        ]));
+
+        if (individualRows.length > 0) {
+            sections.push({
+                key: 'traveteIndividual',
+                title: 'Resumo Individual do Dia (Travete)',
+                header: ['Operador', 'Produção Acum.', 'Meta Acum.', 'Eficiência Média'],
+                rows: individualRows,
+                columnStyles: { 0: { halign: 'left' } },
+            });
+        }
+    }
+
+    const monthlyRows = [
+        ['Produção do Mês', formatLocaleNumber(monthlySummary.totalProduction)],
+        ['Meta do Mês', formatLocaleNumber(monthlySummary.totalGoal)],
+        ['Eficiência Média Mensal', formatPercentageLabel(monthlySummary.averageEfficiency)],
+    ];
+
+    sections.push({
+        key: 'monthlySummary',
+        title: 'Resumo Mensal',
+        header: ['Indicador', 'Valor'],
+        rows: monthlyRows,
+        columnStyles: { 0: { halign: 'left' } },
+    });
+
+    if (Array.isArray(monthlyBreakdown) && monthlyBreakdown.length > 0) {
+        const monthlyBody = monthlyBreakdown.map((item) => {
+            const dateLabel = item.date instanceof Date
+                ? item.date.toLocaleDateString('pt-BR')
+                : (item.dateLabel || String(item.date || ''));
+            return [
+                dateLabel,
+                formatLocaleNumber(item.totalProduction),
+                formatLocaleNumber(item.totalGoal),
+                formatPercentageLabel(item.averageEfficiency),
+            ];
+        });
+
+        if (monthlyBody.length > 0) {
+            sections.push({
+                key: 'monthlyBreakdown',
+                title: 'Desempenho Diário no Mês',
+                header: ['Dia', 'Produção', 'Meta', 'Eficiência Média'],
+                rows: monthlyBody,
+                columnStyles: { 0: { halign: 'left' } },
+            });
+        }
+    }
+
+    if (isTraveteDashboard) {
+        const traveteBody = traveteEntries.map((entry) => {
+            const employees = Array.isArray(entry.employees) ? entry.employees : [];
+            const empOne = employees[0] || {};
+            const empTwo = employees[1] || {};
+            return [
+                entry.period || '-',
+                empOne.metaDisplay || formatLocaleNumber(empOne.meta),
+                empOne.producedDisplay || formatLocaleNumber(empOne.produced),
+                formatPercentageLabel(empOne.efficiency),
+                empTwo.metaDisplay || formatLocaleNumber(empTwo.meta),
+                empTwo.producedDisplay || formatLocaleNumber(empTwo.produced),
+                formatPercentageLabel(empTwo.efficiency),
+                entry.lotDisplay || '-',
+                entry.observation || '-',
+            ];
+        });
+
+        if (traveteBody.length > 0) {
+            sections.push({
+                key: 'traveteDetails',
+                title: 'Detalhamento por Período (Travete)',
+                header: [
+                    'Período',
+                    'Meta F1',
+                    'Prod. F1',
+                    'Eficiência F1',
+                    'Meta F2',
+                    'Prod. F2',
+                    'Eficiência F2',
+                    'Lotes',
+                    'Observação',
+                ],
+                rows: traveteBody,
+                columnStyles: { 0: { halign: 'left' }, 7: { halign: 'left' }, 8: { halign: 'left' } },
+            });
+        }
+    } else if (Array.isArray(dailyEntries) && dailyEntries.length > 0) {
+        const dailyBody = dailyEntries.map((entry) => ([
+            entry.period || '-',
+            `${entry.people || 0} / ${(entry.availableTime || 0)} min`,
+            entry.goalForDisplay || entry.goal || '-',
+            entry.producedForDisplay || entry.produced || '-',
+            formatPercentageLabel(entry.efficiency),
+            formatLocaleNumber(entry.cumulativeGoal),
+            formatLocaleNumber(entry.cumulativeProduction),
+            formatPercentageLabel(entry.cumulativeEfficiency),
+            entry.observation || '-',
+        ]));
+
+        sections.push({
+            key: 'dailyDetails',
+            title: 'Detalhamento por Período',
+            header: [
+                'Período',
+                'Pessoas / Tempo',
+                'Meta',
+                'Produção',
+                'Eficiência',
+                'Meta Acum.',
+                'Prod. Acum.',
+                'Efic. Acum.',
+                'Observação',
+            ],
+            rows: dailyBody,
+            columnStyles: { 0: { halign: 'left' }, 1: { halign: 'left' }, 8: { halign: 'left' } },
+        });
+    }
+
+    if (lotSummary && Array.isArray(lotSummary.completed) && lotSummary.completed.length > 0) {
+        const completedBody = lotSummary.completed.map((lot) => ([
+            lot.name || lot.id || '-',
+            formatLocaleNumber(lot.produced),
+            formatLocaleNumber(lot.target),
+            formatPercentageLabel(lot.efficiency),
+            lot.duration ? lot.duration.toFixed(1) : '-',
+            formatLocaleNumber(lot.averageDaily),
+        ]));
+
+        sections.push({
+            key: 'completedLots',
+            title: 'Lotes Concluídos no Mês',
+            header: ['Lote', 'Produzido', 'Meta', 'Eficiência', 'Duração (dias)', 'Média Diária'],
+            rows: completedBody,
+            columnStyles: { 0: { halign: 'left' } },
+            footerText: (Number.isFinite(lotSummary.overallAverage) && lotSummary.overallAverage > 0)
+                ? `Média diária combinada dos lotes concluídos: ${formatLocaleNumber(lotSummary.overallAverage)} peças`
+                : null,
+        });
+    }
+
+    if (lotSummary && Array.isArray(lotSummary.active) && lotSummary.active.length > 0) {
+        const activeBody = lotSummary.active.map((lot) => ([
+            lot.name || lot.id || '-',
+            formatLocaleNumber(lot.produced),
+            formatLocaleNumber(lot.target),
+            formatPercentageLabel(lot.efficiency),
+            getLotStatusLabel(lot.status, '-'),
+        ]));
+
+        sections.push({
+            key: 'activeLots',
+            title: 'Lotes Ativos',
+            header: ['Lote', 'Produzido', 'Meta', 'Eficiência', 'Status'],
+            rows: activeBody,
+            columnStyles: { 0: { halign: 'left' }, 4: { halign: 'left' } },
+        });
+    }
+
+    return sections;
+};
+
+const buildDashboardReportFilename = (dashboardName, selectedDate, extension) => {
+    const safeDashboardName = sanitizeForFilename(dashboardName || 'Dashboard', 'Dashboard');
+    const safeDateLabel = formatDateForFilename(selectedDate);
+    return `Relatorio_${safeDashboardName}_${safeDateLabel}.${extension}`;
+};
+
+const escapeCsvValue = (value) => {
+    if (value === null || value === undefined) {
+        return '';
+    }
+
+    const stringValue = value.toString();
+    if (stringValue.includes('"') || stringValue.includes(';') || stringValue.includes('\n')) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+    }
+    return stringValue;
 };
 
 export const generateId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -798,13 +1048,30 @@ export const exportDashboardPerformancePDF = (options = {}) => {
         filtersSummary: providedFiltersSummary = null,
     } = options || {};
 
-    const normalizedFiltersSummary = isPlainObject(providedFiltersSummary)
-        ? providedFiltersSummary
-        : {};
+    const normalizedFiltersSummary = normalizeFiltersSummary(providedFiltersSummary);
 
     const dashboardName = rawDashboardName || 'Dashboard';
     const selectedDate = rawSelectedDate ?? new Date();
     const currentMonth = rawCurrentMonth ?? new Date();
+
+    const filtersRows = buildDashboardFiltersRows({
+        dashboardName,
+        selectedDate,
+        currentMonth,
+        filtersSummary: normalizedFiltersSummary,
+    });
+
+    const reportSections = buildDashboardReportSections({
+        summary,
+        monthlySummary,
+        monthlyBreakdown,
+        isTraveteDashboard,
+        traveteEntries,
+        dailyEntries,
+        lotSummary,
+    });
+
+    const reportFilename = buildDashboardReportFilename(dashboardName, selectedDate, 'pdf');
 
     return ensureJsPdfResources().then((globalJsPdf) => (
         fetchOperationalLogoDataUrl().then((logoDataUrl) => {
@@ -813,9 +1080,6 @@ export const exportDashboardPerformancePDF = (options = {}) => {
             const now = new Date();
             const pageWidth = doc.internal.pageSize.getWidth();
             const centerX = pageWidth / 2;
-            const selectedDateLabel = selectedDate instanceof Date
-                ? selectedDate.toLocaleDateString('pt-BR')
-                : new Date(selectedDate).toLocaleDateString('pt-BR');
             const generatedAt = now.toLocaleString('pt-BR');
 
             addRaceBullLogoToPdf(doc, logoDataUrl);
@@ -824,18 +1088,11 @@ export const exportDashboardPerformancePDF = (options = {}) => {
             doc.text(`Relatório de Desempenho - ${dashboardName}`, centerX, 20, { align: 'center' });
             let currentY = 26;
 
-            const filtersEntries = buildFiltersSummaryEntries({
-                dashboardName,
-                selectedDate,
-                currentMonth,
-                ...normalizedFiltersSummary,
-            }).map(entry => [entry.label, entry.value]);
-
-            if (filtersEntries.length > 0) {
+            if (filtersRows.length > 0) {
                 doc.autoTable({
                     startY: currentY,
                     head: [['Filtro', 'Valor']],
-                    body: filtersEntries,
+                    body: filtersRows,
                     theme: 'grid',
                     styles: {
                         fontSize: 9,
@@ -869,21 +1126,22 @@ export const exportDashboardPerformancePDF = (options = {}) => {
             doc.text(`Gerado em: ${generatedAt}`, 15, currentY);
             currentY += 8;
 
-            const addTableSection = (title, head, body, columnStyles = {}) => {
-                if (!body || body.length === 0) {
+            const addTableSection = (section) => {
+                if (!section || !section.rows || section.rows.length === 0) {
                     return;
                 }
                 if (currentY > doc.internal.pageSize.getHeight() - 40) {
                     doc.addPage();
                     currentY = 20;
                 }
-                doc.setFontSize(12);
-                doc.text(title, 15, currentY);
-                currentY += 4;
-                doc.autoTable({
+                if (section.title) {
+                    doc.setFontSize(12);
+                    doc.text(section.title, 15, currentY);
+                    currentY += 4;
+                }
+                const tableConfig = {
                     startY: currentY,
-                    head,
-                    body,
+                    body: section.rows,
                     theme: 'grid',
                     styles: {
                         fontSize: 9,
@@ -901,157 +1159,186 @@ export const exportDashboardPerformancePDF = (options = {}) => {
                         lineColor: [0, 0, 0],
                         lineWidth: 0.1,
                     },
-                    columnStyles,
-                });
+                    columnStyles: section.columnStyles || {},
+                };
+
+                if (section.header && section.header.length > 0) {
+                    tableConfig.head = [section.header];
+                }
+
+                doc.autoTable(tableConfig);
                 currentY = (doc.lastAutoTable && doc.lastAutoTable.finalY)
                     ? doc.lastAutoTable.finalY + 8
                     : currentY + 8;
-            };
 
-            const dailySummaryRows = [
-                ['Produção Acumulada (Dia)', formatLocaleNumber(summary.totalProduced)],
-                ['Meta Acumulada (Dia)', formatLocaleNumber(summary.totalGoal)],
-                ['Eficiência da Última Hora', formatPercentageLabel(summary.lastHourEfficiency)],
-                ['Média de Eficiência (Dia)', formatPercentageLabel(summary.averageEfficiency)],
-            ];
-            addTableSection('Resumo do Dia', [['Indicador', 'Valor']], dailySummaryRows, { 0: { halign: 'left' } });
-
-            if (isTraveteDashboard && traveteEntries.length > 0) {
-                const lastEntry = traveteEntries[traveteEntries.length - 1] || {};
-                const employees = Array.isArray(lastEntry.employees) ? lastEntry.employees : [];
-                const individualRows = employees.map((emp, index) => ([
-                    `Funcionário ${index + 1}`,
-                    formatLocaleNumber(emp.cumulativeProduced),
-                    formatLocaleNumber(emp.cumulativeMeta),
-                    formatPercentageLabel(emp.cumulativeEfficiency),
-                ]));
-                addTableSection(
-                    'Resumo Individual do Dia (Travete)',
-                    [['Operador', 'Produção Acum.', 'Meta Acum.', 'Eficiência Média']],
-                    individualRows,
-                    { 0: { halign: 'left' } }
-                );
-            }
-
-            const monthlyRows = [
-                ['Produção do Mês', formatLocaleNumber(monthlySummary.totalProduction)],
-                ['Meta do Mês', formatLocaleNumber(monthlySummary.totalGoal)],
-                ['Eficiência Média Mensal', formatPercentageLabel(monthlySummary.averageEfficiency)],
-            ];
-            addTableSection('Resumo Mensal', [['Indicador', 'Valor']], monthlyRows, { 0: { halign: 'left' } });
-
-            if (monthlyBreakdown.length > 0) {
-                const monthlyBody = monthlyBreakdown.map((item) => {
-                    const dateLabel = item.date instanceof Date
-                        ? item.date.toLocaleDateString('pt-BR')
-                        : (item.dateLabel || String(item.date || ''));
-                    return [
-                        dateLabel,
-                        formatLocaleNumber(item.totalProduction),
-                        formatLocaleNumber(item.totalGoal),
-                        formatPercentageLabel(item.averageEfficiency),
-                    ];
-                });
-                addTableSection(
-                    'Desempenho Diário no Mês',
-                    [['Dia', 'Produção', 'Meta', 'Eficiência Média']],
-                    monthlyBody,
-                    { 0: { halign: 'left' } }
-                );
-            }
-
-            if (isTraveteDashboard) {
-                const traveteBody = traveteEntries.map((entry) => {
-                    const employees = Array.isArray(entry.employees) ? entry.employees : [];
-                    const empOne = employees[0] || {};
-                    const empTwo = employees[1] || {};
-                    return [
-                        entry.period || '-',
-                        empOne.metaDisplay || formatLocaleNumber(empOne.meta),
-                        empOne.producedDisplay || formatLocaleNumber(empOne.produced),
-                        formatPercentageLabel(empOne.efficiency),
-                        empTwo.metaDisplay || formatLocaleNumber(empTwo.meta),
-                        empTwo.producedDisplay || formatLocaleNumber(empTwo.produced),
-                        formatPercentageLabel(empTwo.efficiency),
-                        entry.lotDisplay || '-',
-                        entry.observation || '-',
-                    ];
-                });
-                addTableSection(
-                    'Detalhamento por Período (Travete)',
-                    [['Período', 'Meta F1', 'Prod. F1', 'Eficiência F1', 'Meta F2', 'Prod. F2', 'Eficiência F2', 'Lotes', 'Observação']],
-                    traveteBody,
-                    { 0: { halign: 'left' }, 7: { halign: 'left' }, 8: { halign: 'left' } }
-                );
-            } else if (dailyEntries.length > 0) {
-                const dailyBody = dailyEntries.map((entry) => ([
-                    entry.period || '-',
-                    `${entry.people || 0} / ${(entry.availableTime || 0)} min`,
-                    entry.goalForDisplay || entry.goal || '-',
-                    entry.producedForDisplay || entry.produced || '-',
-                    formatPercentageLabel(entry.efficiency),
-                    formatLocaleNumber(entry.cumulativeGoal),
-                    formatLocaleNumber(entry.cumulativeProduction),
-                    formatPercentageLabel(entry.cumulativeEfficiency),
-                    entry.observation || '-',
-                ]));
-                addTableSection(
-                    'Detalhamento por Período',
-                    [['Período', 'Pessoas / Tempo', 'Meta', 'Produção', 'Eficiência', 'Meta Acum.', 'Prod. Acum.', 'Efic. Acum.', 'Observação']],
-                    dailyBody,
-                    { 0: { halign: 'left' }, 1: { halign: 'left' }, 8: { halign: 'left' } }
-                );
-            }
-
-            if (lotSummary && Array.isArray(lotSummary.completed) && lotSummary.completed.length > 0) {
-                const completedBody = lotSummary.completed.map((lot) => ([
-                    lot.name || lot.id || '-',
-                    formatLocaleNumber(lot.produced),
-                    formatLocaleNumber(lot.target),
-                    formatPercentageLabel(lot.efficiency),
-                    lot.duration ? lot.duration.toFixed(1) : '-',
-                    formatLocaleNumber(lot.averageDaily),
-                ]));
-                addTableSection(
-                    'Lotes Concluídos no Mês',
-                    [['Lote', 'Produzido', 'Meta', 'Eficiência', 'Duração (dias)', 'Média Diária']],
-                    completedBody,
-                    { 0: { halign: 'left' } }
-                );
-                if (Number.isFinite(lotSummary.overallAverage) && lotSummary.overallAverage > 0) {
+                if (section.footerText) {
+                    if (currentY > doc.internal.pageSize.getHeight() - 20) {
+                        doc.addPage();
+                        currentY = 20;
+                    }
                     doc.setFontSize(10);
-                    doc.text(
-                        `Média diária combinada dos lotes concluídos: ${formatLocaleNumber(lotSummary.overallAverage)} peças`,
-                        15,
-                        currentY
-                    );
+                    doc.text(section.footerText, 15, currentY);
                     currentY += 8;
                 }
-            }
+            };
 
-            if (lotSummary && Array.isArray(lotSummary.active) && lotSummary.active.length > 0) {
-                const activeBody = lotSummary.active.map((lot) => ([
-                    lot.name || lot.id || '-',
-                    formatLocaleNumber(lot.produced),
-                    formatLocaleNumber(lot.target),
-                    formatPercentageLabel(lot.efficiency),
-                    getLotStatusLabel(lot.status, '-'),
-                ]));
-                addTableSection(
-                    'Lotes Ativos',
-                    [['Lote', 'Produzido', 'Meta', 'Eficiência', 'Status']],
-                    activeBody,
-                    { 0: { halign: 'left' }, 4: { halign: 'left' } }
-                );
-            }
+            reportSections.forEach(addTableSection);
 
-            const selectedDateLabelSafe = selectedDateLabel
-                .replace(/\//g, '-')
-                .replace(/\\/g, '-');
-            const safeDashboardName = dashboardName ? dashboardName.replace(/\s+/g, '_') : 'Dashboard';
-            doc.save(`Relatorio_${safeDashboardName}_${selectedDateLabelSafe}.pdf`);
+            doc.save(reportFilename);
         })
     ));
+};
+
+export const exportDashboardPerformanceXLSX = async (options = {}) => {
+    const {
+        dashboardName: rawDashboardName,
+        selectedDate: rawSelectedDate,
+        currentMonth: rawCurrentMonth,
+        isTraveteDashboard = false,
+        summary = {},
+        monthlySummary = {},
+        dailyEntries = [],
+        traveteEntries = [],
+        lotSummary = {},
+        monthlyBreakdown = [],
+        filtersSummary: providedFiltersSummary = null,
+    } = options || {};
+
+    const normalizedFiltersSummary = normalizeFiltersSummary(providedFiltersSummary);
+    const dashboardName = rawDashboardName || 'Dashboard';
+    const selectedDate = rawSelectedDate ?? new Date();
+    const currentMonth = rawCurrentMonth ?? new Date();
+
+    const filtersRows = buildDashboardFiltersRows({
+        dashboardName,
+        selectedDate,
+        currentMonth,
+        filtersSummary: normalizedFiltersSummary,
+    });
+
+    const reportSections = buildDashboardReportSections({
+        summary,
+        monthlySummary,
+        monthlyBreakdown,
+        isTraveteDashboard,
+        traveteEntries,
+        dailyEntries,
+        lotSummary,
+    });
+
+    const xlsx = await ensureXlsxResources();
+    const workbook = xlsx.utils.book_new();
+    const sheetData = [];
+
+    if (filtersRows.length > 0) {
+        sheetData.push(['Filtro', 'Valor']);
+        filtersRows.forEach(row => sheetData.push(row));
+        sheetData.push([]);
+    }
+
+    reportSections.forEach((section) => {
+        if (!section.rows || section.rows.length === 0) {
+            return;
+        }
+
+        sheetData.push([section.title || '']);
+        if (section.header && section.header.length > 0) {
+            sheetData.push(section.header);
+        }
+        section.rows.forEach(row => sheetData.push(row));
+        if (section.footerText) {
+            sheetData.push([section.footerText]);
+        }
+        sheetData.push([]);
+    });
+
+    if (sheetData.length === 0) {
+        sheetData.push(['Sem dados para exportar']);
+    }
+
+    const sheet = xlsx.utils.aoa_to_sheet(sheetData);
+    xlsx.utils.book_append_sheet(workbook, sheet, 'Relatório');
+
+    const arrayBuffer = xlsx.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([arrayBuffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+
+    downloadBlob(blob, buildDashboardReportFilename(dashboardName, selectedDate, 'xlsx'));
+};
+
+export const exportDashboardPerformanceCSV = (options = {}) => {
+    const {
+        dashboardName: rawDashboardName,
+        selectedDate: rawSelectedDate,
+        currentMonth: rawCurrentMonth,
+        isTraveteDashboard = false,
+        summary = {},
+        monthlySummary = {},
+        dailyEntries = [],
+        traveteEntries = [],
+        lotSummary = {},
+        monthlyBreakdown = [],
+        filtersSummary: providedFiltersSummary = null,
+    } = options || {};
+
+    const normalizedFiltersSummary = normalizeFiltersSummary(providedFiltersSummary);
+    const dashboardName = rawDashboardName || 'Dashboard';
+    const selectedDate = rawSelectedDate ?? new Date();
+    const currentMonth = rawCurrentMonth ?? new Date();
+
+    const filtersRows = buildDashboardFiltersRows({
+        dashboardName,
+        selectedDate,
+        currentMonth,
+        filtersSummary: normalizedFiltersSummary,
+    });
+
+    const reportSections = buildDashboardReportSections({
+        summary,
+        monthlySummary,
+        monthlyBreakdown,
+        isTraveteDashboard,
+        traveteEntries,
+        dailyEntries,
+        lotSummary,
+    });
+
+    const lines = [];
+
+    if (filtersRows.length > 0) {
+        lines.push(['Filtro', 'Valor'].map(escapeCsvValue).join(';'));
+        filtersRows.forEach(row => {
+            lines.push(row.map(escapeCsvValue).join(';'));
+        });
+        lines.push('');
+    }
+
+    reportSections.forEach((section) => {
+        if (!section.rows || section.rows.length === 0) {
+            return;
+        }
+        lines.push(escapeCsvValue(section.title || ''));
+        if (section.header && section.header.length > 0) {
+            lines.push(section.header.map(escapeCsvValue).join(';'));
+        }
+        section.rows.forEach(row => {
+            lines.push(row.map(escapeCsvValue).join(';'));
+        });
+        if (section.footerText) {
+            lines.push(escapeCsvValue(section.footerText));
+        }
+        lines.push('');
+    });
+
+    if (lines.length === 0) {
+        lines.push('Sem dados para exportar');
+    }
+
+    const csvContent = lines.join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+
+    downloadBlob(blob, buildDashboardReportFilename(dashboardName, selectedDate, 'csv'));
 };
 
 export const getEmployeeProducts = (employee) => {
