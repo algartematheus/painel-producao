@@ -36,7 +36,8 @@ import {
   resolveEmployeeStandardTime,
   exportDashboardPerformancePDF,
   exportDashboardPerformanceXLSX,
-  exportDashboardPerformanceCSV
+  exportDashboardPerformanceCSV,
+  DEFAULT_EXPORT_SETTINGS
 } from './modules/shared';
 import ExportSettingsModal from './components/ExportSettingsModal';
 import {
@@ -1405,9 +1406,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const [modalState, setModalState] = useState({ type: null, data: null });
     const [showUrgent, setShowUrgent] = useState(false);
     const [urgentProduction, setUrgentProduction] = useState({ productId: '', produced: '' });
-    const [exportFormat, setExportFormat] = useState('pdf');
     const [isExportingReport, setIsExportingReport] = useState(false);
     const [selectedExportFormat, setSelectedExportFormat] = useState('pdf');
+    const [exportSettings, setExportSettings] = useState(() => ({ ...DEFAULT_EXPORT_SETTINGS }));
+    const [isExportSettingsModalOpen, setIsExportSettingsModalOpen] = useState(false);
     const [isNavOpen, setIsNavOpen] = useState(false);
     const navRef = useRef();
     useClickOutside(navRef, () => setIsNavOpen(false));
@@ -2832,8 +2834,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     ]);
 
     const resolvedExportSettings = useMemo(() => ({
+        ...DEFAULT_EXPORT_SETTINGS,
+        ...(exportSettings || {}),
         format: selectedExportFormat,
-    }), [selectedExportFormat]);
+    }), [exportSettings, selectedExportFormat]);
 
     const handleExportDashboardReport = useCallback(async () => {
         if (!currentDashboard) return;
@@ -2851,6 +2855,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 traveteEntries: traveteProcessedData,
                 lotSummary: lotSummaryForPdf,
                 monthlyBreakdown: monthlyBreakdownForPdf,
+                exportSettings: resolvedExportSettings,
             };
 
             if (resolvedExportSettings.format === 'xlsx') {
@@ -3514,6 +3519,17 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     >
                         <FileDown size={20} />
                         <span className="hidden sm:inline">{isExportingReport ? 'Gerando...' : 'Exportar Relatório'}</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setIsExportSettingsModalOpen(true)}
+                        disabled={isExportingReport}
+                        title="Configurar seções do relatório"
+                        aria-label="Configurar seções do relatório"
+                        className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                        <SlidersHorizontal size={20} />
+                        <span className="hidden sm:inline">Seções do Relatório</span>
                     </button>
                     <span className='text-sm text-gray-500 dark:text-gray-400 hidden md:block'>{user.email}</span>
                     <button onClick={logout} title="Sair" className="p-2 rounded-full bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/50 dark:text-red-400 dark:hover:bg-red-900"><LogOut size={20} /></button>
