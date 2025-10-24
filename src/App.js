@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Trash, FileDown } from 'lucide-react';
+import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Trash, FileDown, SlidersHorizontal } from 'lucide-react';
 import { db } from './firebase';
 import { AuthProvider, useAuth, LoginPage } from './modules/auth';
 import {
@@ -38,6 +38,7 @@ import {
   exportDashboardPerformanceXLSX,
   exportDashboardPerformanceCSV
 } from './modules/shared';
+import ExportSettingsModal from './components/ExportSettingsModal';
 import {
   getOrderedActiveLots,
   getLotRemainingPieces,
@@ -1404,6 +1405,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const [modalState, setModalState] = useState({ type: null, data: null });
     const [showUrgent, setShowUrgent] = useState(false);
     const [urgentProduction, setUrgentProduction] = useState({ productId: '', produced: '' });
+    const [exportFormat, setExportFormat] = useState('pdf');
     const [isExportingReport, setIsExportingReport] = useState(false);
     const [exportFormat, setExportFormat] = useState('pdf');
     const [isNavOpen, setIsNavOpen] = useState(false);
@@ -3445,6 +3447,12 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             <ReasonModal isOpen={modalState.type === 'reason'} onClose={closeModal} onConfirm={modalState.data?.onConfirm} />
             <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={roles} />
             <TvSelectorModal isOpen={modalState.type === 'tvSelector'} onClose={closeModal} onSelect={startTvMode} onStartCarousel={startTvMode} dashboards={dashboards} />
+            <ExportSettingsModal
+                isOpen={isExportSettingsModalOpen}
+                onClose={() => setIsExportSettingsModalOpen(false)}
+                settings={resolvedExportSettings}
+                onSave={(nextSettings) => setExportSettings({ ...DEFAULT_EXPORT_SETTINGS, ...nextSettings })}
+            />
 
             <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between sticky top-0 z-20">
                 <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
