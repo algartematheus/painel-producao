@@ -1407,7 +1407,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const [urgentProduction, setUrgentProduction] = useState({ productId: '', produced: '' });
     const [exportFormat, setExportFormat] = useState('pdf');
     const [isExportingReport, setIsExportingReport] = useState(false);
-    const [exportFormat, setExportFormat] = useState('pdf');
+    const [selectedExportFormat, setSelectedExportFormat] = useState('pdf');
     const [isNavOpen, setIsNavOpen] = useState(false);
     const navRef = useRef();
     useClickOutside(navRef, () => setIsNavOpen(false));
@@ -2832,8 +2832,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     ]);
 
     const resolvedExportSettings = useMemo(() => ({
-        format: exportFormat,
-    }), [exportFormat]);
+        format: selectedExportFormat,
+    }), [selectedExportFormat]);
 
     const handleExportDashboardReport = useCallback(async () => {
         if (!currentDashboard) return;
@@ -3497,8 +3497,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                         <span className="hidden sm:inline">Gerenciamento de Estoque</span>
                     </button>
                     <select
-                        value={exportFormat}
-                        onChange={(event) => setExportFormat(event.target.value)}
+                        value={selectedExportFormat}
+                        onChange={(event) => setSelectedExportFormat(event.target.value)}
                         disabled={isExportingReport}
                         aria-label="Selecionar formato do relatório"
                         className="p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200"
