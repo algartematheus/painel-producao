@@ -3,6 +3,7 @@ import { collection, doc, setDoc, deleteDoc, writeBatch, getDocs, query, orderBy
 import { Layers, List, PlusCircle, Save, Trash2, Trash, Box, ArrowLeft, FileDown, FilePlus } from 'lucide-react';
 import { db } from '../firebase';
 import HeaderContainer from '../components/HeaderContainer';
+import GlobalNavigation from '../components/GlobalNavigation';
 import { TRAVETE_MACHINES, raceBullLogoUrl } from './constants';
 import { computeOperationalTimeBreakdown } from './travete';
 import {
@@ -16,6 +17,7 @@ import {
   createDefaultOperationDestinations,
   normalizeOperationDestinations
 } from './shared';
+import { useAuth } from './auth';
 
 const TRAVETE_VARIATION_CONFIGS = [
     { machineType: 'Travete 2 Agulhas', suffix: '2 Agulhas', defaultMultiplier: 1, idSuffix: '2agulhas' },
@@ -38,6 +40,22 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
     });
     const [operations, setOperations] = useState([createOperationalSequenceOperation({ numero: '1' })]);
     const [isSaving, setIsSaving] = useState(false);
+    const { logout } = useAuth();
+    const [theme, setTheme] = useState(() => {
+        if (typeof window === 'undefined') return 'light';
+        return localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    });
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const root = window.document.documentElement;
+        root.classList.toggle('dark', theme === 'dark');
+        localStorage.setItem('theme', theme);
+    }, [theme]);
+
+    const toggleTheme = useCallback(() => {
+        setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
+    }, []);
 
     useEffect(() => {
         const sequencesQuery = query(collection(db, 'sequenciasOperacionais'), orderBy('modelo'));
@@ -694,29 +712,48 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
 
     const selectedProduct = useMemo(() => findProductOptionByProductId(formState.productId), [findProductOptionByProductId, formState.productId]);
 
+    const navigationButtons = useMemo(() => {
+        const items = [];
+        if (onNavigateToCrono) {
+            items.push({
+                key: 'crono',
+                label: 'Voltar para Quadros',
+                icon: ArrowLeft,
+                onClick: onNavigateToCrono,
+                baseClassName: 'px-3 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-2 w-full sm:w-auto justify-center',
+                alwaysShowLabel: true,
+            });
+        }
+        if (onNavigateToStock) {
+            items.push({
+                key: 'stock',
+                label: 'Estoque',
+                icon: Box,
+                onClick: onNavigateToStock,
+                baseClassName: 'px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 flex items-center gap-2 w-full sm:w-auto justify-center',
+                alwaysShowLabel: true,
+            });
+        }
+        return items;
+    }, [onNavigateToCrono, onNavigateToStock]);
+
     return (
         <div className="responsive-root min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200">
             <GlobalStyles />
             <HeaderContainer>
-                <div className="flex flex-wrap items-center gap-4 w-full">
-                    <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
-                    <div className="flex flex-col gap-3 flex-1 w-full md:flex-row md:items-center md:justify-between md:gap-6">
-                        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto">
-                            <button onClick={onNavigateToCrono} className="flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 w-full sm:w-auto">
-                                <ArrowLeft size={18} /> Voltar para Quadros
-                            </button>
-                            {onNavigateToStock && (
-                                <button onClick={onNavigateToStock} className="flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 w-full sm:w-auto">
-                                    <Box size={18} /> Estoque
-                                </button>
-                            )}
-                        </div>
-                        <div className="text-left md:text-right">
-                            <h1 className="text-2xl font-bold">Sequência Operacional</h1>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">Cadastre e mantenha as operações padrão por modelo.</p>
-                        </div>
-                    </div>
-                </div>
+                <GlobalNavigation
+                    logoSrc={raceBullLogoUrl}
+                    title="Sequência Operacional"
+                    subtitle="Cadastre e mantenha as operações padrão por modelo."
+                    navigationButtons={navigationButtons}
+                    userEmail={user?.email}
+                    onLogout={logout}
+                    logoutLabel="Sair"
+                    logoutButtonClassName="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 text-red-500 w-full sm:w-auto justify-center"
+                    hideLogoutLabelOnMobile={true}
+                    theme={theme}
+                    onToggleTheme={toggleTheme}
+                />
             </HeaderContainer>
 
             <main className="responsive-main py-6 space-y-6">
