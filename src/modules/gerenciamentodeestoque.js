@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback, useContext, createContext, useRef } from 'react';
 import { collection, doc, setDoc, updateDoc, onSnapshot, writeBatch, query, orderBy, Timestamp } from 'firebase/firestore';
-import { PlusCircle, MinusCircle, Edit, Trash2, Home, LogOut, ArrowUpDown, Box, Trash, ChevronLeft, ChevronRight } from 'lucide-react';
+import { PlusCircle, MinusCircle, Edit, Trash2, Home, ArrowUpDown, Box, Trash, ChevronLeft, ChevronRight } from 'lucide-react';
 import { db } from '../firebase';
 import HeaderContainer from '../components/HeaderContainer';
+import GlobalNavigation from '../components/GlobalNavigation';
 import { useAuth } from './auth';
 import { raceBullLogoUrl } from './constants';
 import {
@@ -203,24 +204,33 @@ export const StockProvider = ({ children }) => {
 
 export const useStock = () => useContext(StockContext);
 
-const StockHeader = ({ onNavigateToCrono }) => {
-    const { logout } = useAuth();
+const StockHeader = ({ onNavigateToCrono, theme, toggleTheme }) => {
+    const { user, logout } = useAuth();
+    const navigationButtons = useMemo(() => ([
+        onNavigateToCrono
+            ? {
+                key: 'crono',
+                label: 'Quadro de Produção',
+                icon: Home,
+                onClick: onNavigateToCrono,
+            }
+            : null,
+    ].filter(Boolean)), [onNavigateToCrono]);
+
     return (
         <HeaderContainer zIndexClass="z-40">
-            <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
-                <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
-                <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white">Painel de Estoque</h1>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full md:w-auto md:justify-end">
-                <button onClick={onNavigateToCrono} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center">
-                    <Home size={20} />
-                    <span className="hidden sm:inline">Quadro de Produção</span>
-                </button>
-                <button onClick={logout} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 text-red-500 w-full sm:w-auto justify-center">
-                    <LogOut size={20} />
-                    <span className="hidden sm:inline">Sair</span>
-                </button>
-            </div>
+            <GlobalNavigation
+                logoSrc={raceBullLogoUrl}
+                title="Painel de Estoque"
+                navigationButtons={navigationButtons}
+                userEmail={user?.email}
+                onLogout={logout}
+                logoutLabel="Sair"
+                logoutButtonClassName="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 text-red-500 w-full sm:w-auto justify-center"
+                hideLogoutLabelOnMobile={true}
+                theme={theme}
+                onToggleTheme={toggleTheme}
+            />
         </HeaderContainer>
     );
 };
@@ -896,6 +906,21 @@ const StockTrashPage = () => {
 export const StockManagementApp = ({ onNavigateToCrono }) => {
     const [activePage, setActivePage] = useState('dashboard');
     const [confirmation, setConfirmation] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
+    const [theme, setTheme] = useState(() => {
+        if (typeof window === 'undefined') return 'light';
+        return localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    });
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const root = window.document.documentElement;
+        root.classList.toggle('dark', theme === 'dark');
+        localStorage.setItem('theme', theme);
+    }, [theme]);
+
+    const toggleTheme = useCallback(() => {
+        setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
+    }, []);
 
     const renderPage = () => {
         const props = { setConfirmation };
@@ -925,7 +950,7 @@ export const StockManagementApp = ({ onNavigateToCrono }) => {
                     title={confirmation.title}
                     message={confirmation.message}
                 />
-                <StockHeader onNavigateToCrono={onNavigateToCrono} />
+                <StockHeader onNavigateToCrono={onNavigateToCrono} theme={theme} toggleTheme={toggleTheme} />
                 <div className="flex flex-col lg:flex-row flex-grow">
                     <StockSidebar activePage={activePage} setActivePage={setActivePage} />
                     <main className="flex-grow bg-gray-50 dark:bg-gray-800/50 responsive-main">

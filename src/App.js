@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Sun, Moon, PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, LogOut, Settings, ChevronDown as ChevronDownIcon, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Trash, FileDown, SlidersHorizontal } from 'lucide-react';
+import { PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, Settings, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Trash, FileDown, SlidersHorizontal } from 'lucide-react';
 import { db } from './firebase';
 import { AuthProvider, useAuth, LoginPage } from './modules/auth';
 import {
@@ -41,6 +41,8 @@ import {
 } from './modules/shared';
 import ExportSettingsModal from './components/ExportSettingsModal';
 import SummaryCard from './components/SummaryCard';
+import HeaderContainer from './components/HeaderContainer';
+import GlobalNavigation from './components/GlobalNavigation';
 import {
   getOrderedActiveLots,
   getLotRemainingPieces,
@@ -2292,7 +2294,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         await batch.commit();
     };
     
-    const handleSelectTvMode = () => setModalState({ type: 'tvSelector', data: null });
+    const handleSelectTvMode = useCallback(() => {
+        setModalState({ type: 'tvSelector', data: null });
+    }, []);
     
     useEffect(() => {
         const validProducts = productsForSelectedDate;
@@ -3428,17 +3432,106 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             const swapIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
             const currentLot = sorted[currentIndex];
             const swapLot = sorted[swapIndex];
-            
+
             const batch = writeBatch(db);
             batch.update(doc(db, `dashboards/${currentDashboard.id}/lots`, currentLot.id), { order: swapLot.order });
             batch.update(doc(db, `dashboards/${currentDashboard.id}/lots`, swapLot.id), { order: currentLot.order });
             await batch.commit();
         }
     };
-        
+
+    const navigationButtons = useMemo(() => {
+        return [
+            onNavigateToOperationalSequence
+                ? {
+                    key: 'operational-sequence',
+                    label: 'Sequência Operacional',
+                    icon: Layers,
+                    onClick: onNavigateToOperationalSequence,
+                }
+                : null,
+            onNavigateToStock
+                ? {
+                    key: 'stock-management',
+                    label: 'Gerenciamento de Estoque',
+                    icon: Warehouse,
+                    onClick: onNavigateToStock,
+                }
+                : null,
+        ].filter(Boolean);
+    }, [onNavigateToOperationalSequence, onNavigateToStock]);
+
+    const userActionButtons = useMemo(() => {
+        const actions = [];
+        actions.push({
+            key: 'tv-mode',
+            icon: Monitor,
+            onClick: handleSelectTvMode,
+            title: 'Modo TV',
+            ariaLabel: 'Modo TV',
+            baseClassName: 'p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700',
+        });
+
+        if (permissions.MANAGE_SETTINGS) {
+            actions.push({
+                key: 'settings',
+                icon: Settings,
+                onClick: () => setModalState({ type: 'adminSettings' }),
+                title: 'Configurações',
+                ariaLabel: 'Configurações',
+            });
+        }
+
+        return actions;
+    }, [handleSelectTvMode, permissions.MANAGE_SETTINGS, setModalState]);
+
     if (!currentDashboard) {
         return <div className="min-h-screen bg-gray-100 dark:bg-black flex justify-center items-center"><p className="text-xl">Carregando quadros...</p></div>;
     }
+
+    const handleToggleDashboardNav = () => {
+        setIsNavOpen(prev => !prev);
+    };
+
+    const handleSelectDashboardFromNav = (dash, index) => {
+        setCurrentDashboardIndex(index);
+        setIsNavOpen(false);
+    };
+
+    const handleRenameDashboardRequest = (dash) => {
+        setIsNavOpen(false);
+        setModalState({
+            type: 'dashboardAction',
+            data: {
+                mode: 'rename',
+                initialName: dash.name,
+                onConfirm: (newName) => handleRenameDashboard(dash.id, newName),
+            },
+        });
+    };
+
+    const handleDeleteDashboardRequest = (dash) => {
+        setIsNavOpen(false);
+        setModalState({
+            type: 'confirmation',
+            data: {
+                title: 'Confirmar Exclusão',
+                message: `Tem certeza que deseja excluir o quadro "${dash.name}"?`,
+                onConfirm: () => handleDeleteDashboard(dash.id),
+            },
+        });
+    };
+
+    const handleCreateDashboardRequest = () => {
+        setIsNavOpen(false);
+        setModalState({
+            type: 'dashboardAction',
+            data: {
+                mode: 'create',
+                onConfirm: handleAddDashboard,
+            },
+        });
+    };
 
     return (
         <div className="responsive-root min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans">
@@ -3470,48 +3563,27 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 onSave={(nextSettings) => setExportSettings({ ...DEFAULT_EXPORT_SETTINGS, ...nextSettings })}
             />
 
-            <header className="bg-white dark:bg-gray-900 shadow-md p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between sticky top-0 z-20">
-                <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
-                    <img src={raceBullLogoUrl} alt="Race Bull Logo" className="h-12 w-auto dark:invert" />
-                    <div ref={navRef} className="relative w-full md:w-auto">
-                        <button onClick={() => setIsNavOpen(!isNavOpen)} title="Mudar Quadro" className="flex w-full items-center justify-between gap-2 p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">
-                            <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white tracking-wider text-center">{currentDashboard.name}</h1>
-                            <ChevronDownIcon size={20} className={`transition-transform ${isNavOpen ? 'rotate-180' : ''}`} />
-                        </button>
-                        {isNavOpen && (
-                            <div className="absolute top-full mt-2 w-72 bg-white dark:bg-gray-800 rounded-lg shadow-xl py-2 z-30 dropdown-content">
-                                {dashboards.map((dash, index) => (
-                                    <div key={dash.id} className="flex items-center justify-between px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">
-                                        <div className="flex items-center gap-2">
-                                            {permissions.MANAGE_DASHBOARDS && (
-                                                <div className="flex flex-col">
-                                                    <button onClick={() => handleMoveDashboard(dash.id, 'up')} disabled={index === 0} className="disabled:opacity-20"><ChevronUp size={16} /></button>
-                                                    <button onClick={() => handleMoveDashboard(dash.id, 'down')} disabled={index === dashboards.length - 1} className="disabled:opacity-20"><ChevronDown size={16} /></button>
-                                                </div>
-                                            )}
-                                            <button onClick={() => { setCurrentDashboardIndex(index); setIsNavOpen(false); }} className="flex-grow text-left">{dash.name}</button>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            {permissions.MANAGE_DASHBOARDS && <button onClick={() => { setIsNavOpen(false); setModalState({ type: 'dashboardAction', data: { mode: 'rename', initialName: dash.name, onConfirm: (newName) => handleRenameDashboard(dash.id, newName) } }); }} title="Renomear Quadro"><Edit size={16} className="text-yellow-500 hover:text-yellow-400" /></button>}
-                                            {permissions.MANAGE_DASHBOARDS && <button onClick={() => { setIsNavOpen(false); setModalState({ type: 'confirmation', data: { title: 'Confirmar Exclusão', message: `Tem certeza que deseja excluir o quadro "${dash.name}"?`, onConfirm: () => handleDeleteDashboard(dash.id) } }); }} title="Excluir Quadro"><Trash2 size={16} className="text-red-500 hover:text-red-400" /></button>}
-                                        </div>
-                                    </div>
-                                ))}
-                                <div className="border-t my-2 dark:border-gray-600"></div>
-                                {permissions.MANAGE_DASHBOARDS && <button onClick={() => { setIsNavOpen(false); setModalState({ type: 'dashboardAction', data: { mode: 'create', onConfirm: handleAddDashboard } }); }} className="w-full text-left px-4 py-2 text-sm text-blue-600 dark:text-blue-400 font-semibold hover:bg-gray-100 dark:hover:bg-gray-700">+ Criar Novo Quadro</button>}
-                            </div>
-                        )}
-                    </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full md:w-auto md:justify-end">
-                    <button onClick={onNavigateToOperationalSequence} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center">
-                        <Layers size={20} />
-                        <span className="hidden sm:inline">Sequência Operacional</span>
-                    </button>
-                    <button onClick={onNavigateToStock} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center">
-                        <Warehouse size={20} />
-                        <span className="hidden sm:inline">Gerenciamento de Estoque</span>
-                    </button>
+            <HeaderContainer>
+                <GlobalNavigation
+                    logoSrc={raceBullLogoUrl}
+                    currentDashboard={currentDashboard}
+                    dashboards={dashboards}
+                    navRef={navRef}
+                    isNavOpen={isNavOpen}
+                    onToggleNav={handleToggleDashboardNav}
+                    onSelectDashboard={handleSelectDashboardFromNav}
+                    onMoveDashboard={(dash, direction) => handleMoveDashboard(dash.id, direction)}
+                    onRenameDashboard={handleRenameDashboardRequest}
+                    onDeleteDashboard={handleDeleteDashboardRequest}
+                    onCreateDashboard={permissions.MANAGE_DASHBOARDS ? handleCreateDashboardRequest : undefined}
+                    canManageDashboards={permissions.MANAGE_DASHBOARDS}
+                    navigationButtons={navigationButtons}
+                    userEmail={user.email}
+                    onLogout={logout}
+                    userActions={userActionButtons}
+                    theme={theme}
+                    onToggleTheme={toggleTheme}
+                >
                     <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
                         <select
                             value={selectedExportFormat}
@@ -3544,13 +3616,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                             <span className="hidden sm:inline">Seções do Relatório</span>
                         </button>
                     </div>
-                    <span className='text-sm text-gray-500 dark:text-gray-400 hidden md:block'>{user.email}</span>
-                    <button onClick={logout} title="Sair" className="p-2 rounded-full bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/50 dark:text-red-400 dark:hover:bg-red-900"><LogOut size={20} /></button>
-                    <button onClick={handleSelectTvMode} title="Modo TV" className="p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700"><Monitor size={20} /></button>
-                    {permissions.MANAGE_SETTINGS && <button onClick={() => setModalState({ type: 'adminSettings' })} title="Configurações" className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"><Settings size={20} /></button>}
-                    <button onClick={toggleTheme} title={theme === 'light' ? "Mudar para Tema Escuro" : "Mudar para Tema Claro"} className="p-2 rounded-full bg-gray-200 dark:bg-gray-700">{theme === 'light' ? <Moon size={20}/> : <Sun size={20}/>}</button>
-                </div>
-            </header>
+                </GlobalNavigation>
+            </HeaderContainer>
             
             <main className="p-4 md:p-8 grid grid-cols-1 gap-8 responsive-main">
                  <section className="grid grid-cols-1 lg:grid-cols-3 gap-8">
