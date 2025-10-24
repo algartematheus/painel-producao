@@ -40,6 +40,7 @@ import {
   DEFAULT_EXPORT_SETTINGS
 } from './modules/shared';
 import ExportSettingsModal from './components/ExportSettingsModal';
+import SummaryCard from './components/SummaryCard';
 import {
   getOrderedActiveLots,
   getLotRemainingPieces,
@@ -1125,10 +1126,17 @@ const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboard
 const StatCard = ({ title, value, unit = '', isEfficiency = false }) => {
     const valueColor = isEfficiency ? (value < 65 ? 'text-red-500' : 'text-green-600') : 'text-gray-800 dark:text-white';
     return (
-        <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg">
-            <h3 className="text-lg font-medium text-gray-500 dark:text-gray-400">{title}</h3>
-            <p className={`text-4xl font-bold ${valueColor} mt-2`}>{value}<span className="text-2xl ml-2">{unit}</span></p>
-        </div>
+        <SummaryCard
+            title={title}
+            className="text-center"
+            titleClassName="text-base font-medium text-gray-500 dark:text-gray-400"
+            contentClassName="flex-1 flex flex-col items-center justify-center mt-4"
+        >
+            <p className={`text-4xl font-bold ${valueColor}`}>
+                {value}
+                {unit && <span className="text-2xl ml-2">{unit}</span>}
+            </p>
+        </SummaryCard>
     );
 };
 
@@ -3549,9 +3557,13 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                      <div className="lg:col-span-1">
                          <CalendarView selectedDate={selectedDate} setSelectedDate={setSelectedDate} currentMonth={currentMonth} setCurrentMonth={setCurrentMonth} calendarView={calendarView} setCalendarView={setCalendarView} allProductionData={allProductionData} />
                      </div>
-                    <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 content-start">
-                        <div className="bg-white dark:bg-gray-900 p-4 rounded-2xl shadow-lg text-center">
-                            <h3 className="font-semibold">Resumo Mensal</h3>
+                    <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 sm:auto-rows-fr">
+                        <SummaryCard
+                            title="Resumo Mensal"
+                            className="text-center"
+                            titleClassName="text-lg font-semibold text-gray-700 dark:text-gray-200"
+                            contentClassName="flex-1 mt-4 space-y-2 text-sm text-gray-600 dark:text-gray-300"
+                        >
                             {isTraveteDashboard ? (
                                 <>
                                     <p>Produção Total: {monthlySummary.totalProduction.toLocaleString('pt-BR')} un.</p>
@@ -3565,9 +3577,13 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                     <p>Eficiência Média: {monthlySummary.averageEfficiency}%</p>
                                 </>
                             )}
-                        </div>
-                        <div className="bg-white dark:bg-gray-900 p-4 rounded-2xl shadow-lg text-center">
-                            <h3 className="font-semibold">Resumo do Dia</h3>
+                        </SummaryCard>
+                        <SummaryCard
+                            title="Resumo do Dia"
+                            className="text-center"
+                            titleClassName="text-lg font-semibold text-gray-700 dark:text-gray-200"
+                            contentClassName="flex-1 mt-4 space-y-2 text-sm text-gray-600 dark:text-gray-300"
+                        >
                             {isTraveteDashboard ? (
                                 <>
                                     <p>Produção Combinada: {summary.totalProduced.toLocaleString('pt-BR')} un.</p>
@@ -3581,12 +3597,12 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                     <p>Eficiência Média: {summary.averageEfficiency}%</p>
                                 </>
                             )}
-                        </div>
+                        </SummaryCard>
                     </div>
                  </section>
                  <h2 className="text-2xl font-bold border-b-2 border-blue-500 pb-2">Resultados de: {selectedDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })}</h2>
                  <LotReport lots={lots} products={productsForSelectedDate}/>
-                <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 auto-rows-fr">
                     <StatCard title="Produção Acumulada (Dia)" value={summary.totalProduced.toLocaleString('pt-BR')} unit="un." />
                     <StatCard title="Meta Acumulada (Dia)" value={summary.totalGoal.toLocaleString('pt-BR')} unit="un." />
                     <StatCard title="Eficiência da Última Hora" value={summary.lastHourEfficiency} unit="%" isEfficiency />
