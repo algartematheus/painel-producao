@@ -1410,6 +1410,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const [selectedExportFormat, setSelectedExportFormat] = useState('pdf');
     const [exportSettings, setExportSettings] = useState(() => ({ ...DEFAULT_EXPORT_SETTINGS }));
     const [isExportSettingsModalOpen, setIsExportSettingsModalOpen] = useState(false);
+    const openExportSettingsModal = useCallback(() => {
+        setIsExportSettingsModalOpen(true);
+    }, [setIsExportSettingsModalOpen]);
     const [isNavOpen, setIsNavOpen] = useState(false);
     const navRef = useRef();
     useClickOutside(navRef, () => setIsNavOpen(false));
@@ -3501,36 +3504,38 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                         <Warehouse size={20} />
                         <span className="hidden sm:inline">Gerenciamento de Estoque</span>
                     </button>
-                    <select
-                        value={selectedExportFormat}
-                        onChange={(event) => setSelectedExportFormat(event.target.value)}
-                        disabled={isExportingReport}
-                        aria-label="Selecionar formato do relatório"
-                        className="p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200"
-                    >
-                        <option value="pdf">PDF</option>
-                        <option value="xlsx">Excel (.xlsx)</option>
-                        <option value="csv">CSV</option>
-                    </select>
-                    <button
-                        onClick={handleExportDashboardReport}
-                        disabled={isExportingReport}
-                        className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                        <FileDown size={20} />
-                        <span className="hidden sm:inline">{isExportingReport ? 'Gerando...' : 'Exportar Relatório'}</span>
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setIsExportSettingsModalOpen(true)}
-                        disabled={isExportingReport}
-                        title="Configurar seções do relatório"
-                        aria-label="Configurar seções do relatório"
-                        className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                        <SlidersHorizontal size={20} />
-                        <span className="hidden sm:inline">Seções do Relatório</span>
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                        <select
+                            value={selectedExportFormat}
+                            onChange={(event) => setSelectedExportFormat(event.target.value)}
+                            disabled={isExportingReport}
+                            aria-label="Selecionar formato do relatório"
+                            className="p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200"
+                        >
+                            <option value="pdf">PDF</option>
+                            <option value="xlsx">Excel (.xlsx)</option>
+                            <option value="csv">CSV</option>
+                        </select>
+                        <button
+                            onClick={handleExportDashboardReport}
+                            disabled={isExportingReport}
+                            className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                            <FileDown size={20} />
+                            <span className="hidden sm:inline">{isExportingReport ? 'Gerando...' : 'Exportar Relatório'}</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={openExportSettingsModal}
+                            disabled={isExportingReport}
+                            title="Configurar seções do relatório"
+                            aria-label="Configurar seções do relatório"
+                            className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                            <SlidersHorizontal size={20} />
+                            <span className="hidden sm:inline">Seções do Relatório</span>
+                        </button>
+                    </div>
                     <span className='text-sm text-gray-500 dark:text-gray-400 hidden md:block'>{user.email}</span>
                     <button onClick={logout} title="Sair" className="p-2 rounded-full bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/50 dark:text-red-400 dark:hover:bg-red-900"><LogOut size={20} /></button>
                     <button onClick={handleSelectTvMode} title="Modo TV" className="p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700"><Monitor size={20} /></button>
