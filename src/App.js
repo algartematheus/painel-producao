@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, Settings, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Trash, FileDown, SlidersHorizontal } from 'lucide-react';
+import { PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, Settings, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Trash } from 'lucide-react';
 import { db } from './firebase';
 import { AuthProvider, useAuth, LoginPage } from './modules/auth';
 import {
@@ -43,6 +43,7 @@ import ExportSettingsModal from './components/ExportSettingsModal';
 import SummaryCard from './components/SummaryCard';
 import HeaderContainer from './components/HeaderContainer';
 import GlobalNavigation from './components/GlobalNavigation';
+import ReportActionsDropdown from './components/ReportActionsDropdown';
 import {
   getOrderedActiveLots,
   getLotRemainingPieces,
@@ -3584,38 +3585,14 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     theme={theme}
                     onToggleTheme={toggleTheme}
                 >
-                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
-                        <select
-                            value={selectedExportFormat}
-                            onChange={(event) => setSelectedExportFormat(event.target.value)}
-                            disabled={isExportingReport}
-                            aria-label="Selecionar formato do relatório"
-                            className="p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200"
-                        >
-                            <option value="pdf">PDF</option>
-                            <option value="xlsx">Excel (.xlsx)</option>
-                            <option value="csv">CSV</option>
-                        </select>
-                        <button
-                            onClick={handleExportDashboardReport}
-                            disabled={isExportingReport}
-                            className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                            <FileDown size={20} />
-                            <span className="hidden sm:inline">{isExportingReport ? 'Gerando...' : 'Exportar Relatório'}</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={openExportSettingsModal}
-                            disabled={isExportingReport}
-                            title="Configurar seções do relatório"
-                            aria-label="Configurar seções do relatório"
-                            className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2 w-full sm:w-auto justify-center disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                            <SlidersHorizontal size={20} />
-                            <span className="hidden sm:inline">Seções do Relatório</span>
-                        </button>
-                    </div>
+                    <ReportActionsDropdown
+                        selectedFormat={selectedExportFormat}
+                        onChangeFormat={setSelectedExportFormat}
+                        onExport={handleExportDashboardReport}
+                        onOpenSettings={openExportSettingsModal}
+                        isExporting={isExportingReport}
+                        disableWhileExporting
+                    />
                 </GlobalNavigation>
             </HeaderContainer>
             
