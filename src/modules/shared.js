@@ -1050,7 +1050,6 @@ export const exportDashboardPerformancePDF = (options = {}) => {
         selectedDate: rawSelectedDate,
         currentMonth: rawCurrentMonth,
         isTraveteDashboard = false,
-        filtersSummary = {},
         summary = {},
         monthlySummary = {},
         dailyEntries = [],
