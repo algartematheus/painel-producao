@@ -512,6 +512,14 @@ const escapeCsvValue = (value) => {
 
 export const generateId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
+export const DEFAULT_EXPORT_SETTINGS = {
+    dailySummary: true,
+    monthlySummary: true,
+    periodDetails: true,
+    completedLots: true,
+    activeLots: true,
+};
+
 export async function sha256Hex(message) {
     const data = new TextEncoder().encode(message);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
@@ -1030,6 +1038,7 @@ export const exportDashboardPerformancePDF = (options = {}) => {
         selectedDate: rawSelectedDate,
         currentMonth: rawCurrentMonth,
         isTraveteDashboard = false,
+        filtersSummary = {},
         summary = {},
         monthlySummary = {},
         dailyEntries = [],
