@@ -5,6 +5,7 @@ import { TRAVETE_MACHINES, raceBullLogoUrl } from './constants';
 
 const JSPDF_CDN_URL = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
 const JSPDF_AUTOTABLE_CDN_URL = 'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.1/dist/jspdf.plugin.autotable.min.js';
+const XLSX_CDN_URL = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
 
 const loadScriptOnce = (src) => new Promise((resolve, reject) => {
     if (typeof document === 'undefined') {
@@ -59,6 +60,26 @@ const ensureJsPdfResources = async () => {
     return jsPdfLoaderPromise;
 };
 
+let xlsxLoaderPromise = null;
+
+const ensureXlsxResources = async () => {
+    if (xlsxLoaderPromise) {
+        return xlsxLoaderPromise;
+    }
+    xlsxLoaderPromise = (async () => {
+        if (typeof window === 'undefined') {
+            throw new Error('Exportação de planilhas disponível apenas no navegador.');
+        }
+        await loadScriptOnce(XLSX_CDN_URL);
+        const XLSX = window.XLSX;
+        if (!XLSX || !XLSX.utils) {
+            throw new Error('Não foi possível carregar o módulo XLSX.');
+        }
+        return XLSX;
+    })();
+    return xlsxLoaderPromise;
+};
+
 const formatLocaleNumber = (value) => {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return '-';
@@ -69,6 +90,34 @@ const formatPercentageLabel = (value) => {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return '0,00%';
     return `${numeric.toFixed(2)}%`;
+};
+
+const DIACRITICS_REGEX = new RegExp(String.raw`[\u0300-\u036f]`, 'g');
+const sanitizeForFilename = (value, fallback = 'arquivo') => {
+    if (!value) return fallback;
+    const stringValue = String(value);
+    const normalized = typeof stringValue.normalize === 'function'
+        ? stringValue.normalize('NFD').replace(DIACRITICS_REGEX, '')
+        : stringValue;
+    const sanitized = normalized
+        .replace(/[^a-zA-Z0-9-_]+/g, '_')
+        .replace(/_{2,}/g, '_')
+        .replace(/^_|_$/g, '');
+    return sanitized || fallback;
+};
+
+const downloadBlob = (blob, filename) => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+        throw new Error('Download disponível apenas no navegador.');
+    }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
 };
 
 const LOT_STATUS_LABELS = {
@@ -212,6 +261,14 @@ export const buildFiltersSummaryEntries = (filtersSummary = {}) => {
 };
 
 export const generateId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+export const DEFAULT_EXPORT_SETTINGS = {
+    dailySummary: true,
+    monthlySummary: true,
+    periodDetails: true,
+    completedLots: true,
+    activeLots: true,
+};
 
 export async function sha256Hex(message) {
     const data = new TextEncoder().encode(message);
@@ -731,6 +788,7 @@ export const exportDashboardPerformancePDF = (options = {}) => {
         selectedDate: rawSelectedDate,
         currentMonth: rawCurrentMonth,
         isTraveteDashboard = false,
+        filtersSummary = {},
         summary = {},
         monthlySummary = {},
         dailyEntries = [],
