@@ -149,29 +149,20 @@ const GlobalNavigation = ({
     };
 
     return (
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between w-full">
-            <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
+        <div className="flex w-full flex-col gap-4 md:grid md:grid-cols-[auto,1fr,auto] md:items-center md:gap-6">
+            <div className="flex flex-wrap items-center gap-4 md:flex-nowrap">
                 {logoSrc && <img src={logoSrc} alt={logoAlt} className="h-12 w-auto dark:invert" />}
                 {renderDashboardDropdown()}
             </div>
-            <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full md:w-auto md:justify-end">
+
+            <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 md:justify-center">
                 {renderNavigationButtons()}
                 {children}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-start gap-2 sm:gap-3 md:justify-end">
                 {userEmail && (
-                    <span className="text-sm text-gray-500 dark:text-gray-400 hidden md:block">{userEmail}</span>
-                )}
-                {onLogout && (
-                    <button
-                        onClick={onLogout}
-                        className={`${logoutButtonClassName}`}
-                        title={logoutLabel || 'Sair'}
-                        aria-label={logoutLabel || 'Sair'}
-                    >
-                        <LogoutIcon size={20} />
-                        {logoutLabel && (
-                            <span className={hideLogoutLabelOnMobile ? 'hidden sm:inline' : ''}>{logoutLabel}</span>
-                        )}
-                    </button>
+                    <span className="hidden text-sm text-gray-500 dark:text-gray-400 md:inline">{userEmail}</span>
                 )}
                 {userActions.map(({ key, icon: ActionIcon, label, onClick, className = '', baseClassName = 'p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600', title, ariaLabel, disabled, hideLabelOnMobile = true }) => (
                     <button
@@ -196,6 +187,19 @@ const GlobalNavigation = ({
                         aria-label={theme === 'light' ? 'Mudar para Tema Escuro' : 'Mudar para Tema Claro'}
                     >
                         {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+                    </button>
+                )}
+                {onLogout && (
+                    <button
+                        onClick={onLogout}
+                        className={`${logoutButtonClassName}`}
+                        title={logoutLabel || 'Sair'}
+                        aria-label={logoutLabel || 'Sair'}
+                    >
+                        <LogoutIcon size={20} />
+                        {logoutLabel && (
+                            <span className={hideLogoutLabelOnMobile ? 'hidden sm:inline' : ''}>{logoutLabel}</span>
+                        )}
                     </button>
                 )}
             </div>
