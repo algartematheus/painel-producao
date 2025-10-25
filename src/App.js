@@ -43,7 +43,7 @@ import ExportSettingsModal from './components/ExportSettingsModal';
 import SummaryCard from './components/SummaryCard';
 import HeaderContainer from './components/HeaderContainer';
 import GlobalNavigation from './components/GlobalNavigation';
-import ReportActionsDropdown from './components/ReportActionsDropdown';
+import ReportExportControls, { DEFAULT_REPORT_FORMATS } from './components/ReportExportControls';
 import {
   getOrderedActiveLots,
   getLotRemainingPieces,
@@ -2855,10 +2855,12 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         format: selectedExportFormat,
     }), [exportSettings, selectedExportFormat]);
 
-    const handleExportDashboardReport = useCallback(async () => {
+    const handleExportDashboardReport = useCallback(async (formatOverride) => {
         if (!currentDashboard) return;
         try {
             setIsExportingReport(true);
+            const effectiveFormat = formatOverride || resolvedExportSettings.format;
+            const exportSettingsWithFormat = { ...resolvedExportSettings, format: effectiveFormat };
             const exportOptions = {
                 dashboardName: currentDashboard.name,
                 selectedDate,
@@ -2871,12 +2873,12 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 traveteEntries: traveteProcessedData,
                 lotSummary: lotSummaryForPdf,
                 monthlyBreakdown: monthlyBreakdownForPdf,
-                exportSettings: resolvedExportSettings,
+                exportSettings: exportSettingsWithFormat,
             };
 
-            if (resolvedExportSettings.format === 'xlsx') {
+            if (effectiveFormat === 'xlsx') {
                 await exportDashboardPerformanceXLSX(exportOptions);
-            } else if (resolvedExportSettings.format === 'csv') {
+            } else if (effectiveFormat === 'csv') {
                 await exportDashboardPerformanceCSV(exportOptions);
             } else {
                 await exportDashboardPerformancePDF(exportOptions);
@@ -3585,9 +3587,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     theme={theme}
                     onToggleTheme={toggleTheme}
                 >
-                    <ReportActionsDropdown
+                    <ReportExportControls
                         selectedFormat={selectedExportFormat}
-                        onChangeFormat={setSelectedExportFormat}
+                        formats={DEFAULT_REPORT_FORMATS}
+                        onFormatChange={setSelectedExportFormat}
                         onExport={handleExportDashboardReport}
                         onOpenSettings={openExportSettingsModal}
                         isExporting={isExportingReport}
