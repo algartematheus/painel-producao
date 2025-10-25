@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, doc, setDoc, deleteDoc, writeBatch, getDocs, query, orderBy, Timestamp, onSnapshot } from 'firebase/firestore';
-import { Layers, List, PlusCircle, Save, Trash2, Trash, Box, ArrowLeft, FileDown, FilePlus } from 'lucide-react';
+import { Layers, List, PlusCircle, Save, Trash2, Trash, Box, ArrowLeft } from 'lucide-react';
 import { db } from '../firebase';
 import HeaderContainer from '../components/HeaderContainer';
 import GlobalNavigation from '../components/GlobalNavigation';
+import ReportExportControls from '../components/ReportExportControls';
 import { TRAVETE_MACHINES, raceBullLogoUrl } from './constants';
 import { computeOperationalTimeBreakdown } from './travete';
 import {
@@ -40,6 +41,8 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
     });
     const [operations, setOperations] = useState([createOperationalSequenceOperation({ numero: '1' })]);
     const [isSaving, setIsSaving] = useState(false);
+    const [sequenceExportFormat, setSequenceExportFormat] = useState('pdf');
+    const [isExportingSequence, setIsExportingSequence] = useState(false);
     const { logout } = useAuth();
     const [theme, setTheme] = useState(() => {
         if (typeof window === 'undefined') return 'light';
@@ -434,34 +437,51 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
         await exportSequenciaOperacionalPDF(sequencePayload, false, { blankLineCount: sanitizedLineCount });
     }, [formState.empresa, formState.modelo, operations.length]);
 
-    const handleExportSequence = useCallback(async (includeData) => {
-        if (!includeData) {
-            await exportBlankSequence();
-            return;
-        }
-
-        const sequencePayload = {
-            empresa: formState.empresa || 'Race Bull',
-            modelo: formState.modelo || '',
-            operacoes: buildOperationsForPdf(),
-        };
-
-        const hasFilledOperation = sequencePayload.operacoes.some(op => {
-            const hasTime = Number.isFinite(op.tempoMinutos) && op.tempoMinutos > 0;
-            return hasTime || op.descricao || op.maquina;
-        });
-
-        if (!hasFilledOperation) {
-            const proceed = window.confirm('Nenhuma operação preenchida. Deseja gerar a folha em branco?');
-            if (!proceed) {
+    const handleExportSequence = useCallback(async (format = 'pdf') => {
+        setIsExportingSequence(true);
+        try {
+            if (format === 'blank') {
+                await exportBlankSequence();
                 return;
             }
-            await exportBlankSequence(sequencePayload.modelo);
-            return;
-        }
 
-        await exportSequenciaOperacionalPDF(sequencePayload, true);
-    }, [buildOperationsForPdf, exportBlankSequence, formState.empresa, formState.modelo]);
+            const sequencePayload = {
+                empresa: formState.empresa || 'Race Bull',
+                modelo: formState.modelo || '',
+                operacoes: buildOperationsForPdf(),
+            };
+
+            const hasFilledOperation = sequencePayload.operacoes.some(op => {
+                const hasTime = Number.isFinite(op.tempoMinutos) && op.tempoMinutos > 0;
+                return hasTime || op.descricao || op.maquina;
+            });
+
+            if (!hasFilledOperation) {
+                const proceed = typeof window !== 'undefined'
+                    ? window.confirm('Nenhuma operação preenchida. Deseja gerar a folha em branco?')
+                    : true;
+                if (!proceed) {
+                    return;
+                }
+                await exportBlankSequence(sequencePayload.modelo);
+                return;
+            }
+
+            await exportSequenciaOperacionalPDF(sequencePayload, true);
+        } catch (error) {
+            console.error('Erro ao exportar sequência operacional:', error);
+            if (typeof window !== 'undefined') {
+                window.alert('Não foi possível exportar a sequência. Verifique o console para mais detalhes.');
+            }
+        } finally {
+            setIsExportingSequence(false);
+        }
+    }, [
+        buildOperationsForPdf,
+        exportBlankSequence,
+        formState.empresa,
+        formState.modelo,
+    ]);
 
     const handleSelectSequence = useCallback((sequence) => {
         if (!sequence) return;
@@ -737,6 +757,17 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
         return items;
     }, [onNavigateToCrono, onNavigateToStock]);
 
+    const sequenceExportOptions = useMemo(() => ([
+        { value: 'pdf', label: 'Sequência Preenchida (PDF)' },
+        { value: 'blank', label: 'Folha em Branco' },
+    ]), []);
+
+    const sequenceExportTranslations = useMemo(() => ({
+        formatLabel: 'Tipo de Exportação',
+        exportButton: 'Gerar PDF',
+        exportingButton: 'Gerando PDF...',
+    }), []);
+
     return (
         <div className="responsive-root min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200">
             <GlobalStyles />
@@ -983,21 +1014,17 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, d
                                 </div>
                             </div>
 
-                            <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
-                                <button
-                                    type="button"
-                                    onClick={() => handleExportSequence(false)}
-                                    className="px-4 py-2 rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200"
-                                >
-                                    <span className="flex items-center justify-center gap-2"><FilePlus size={18} /> Folha em Branco</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleExportSequence(true)}
-                                    className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700"
-                                >
-                                    <span className="flex items-center justify-center gap-2"><FileDown size={18} /> Exportar PDF</span>
-                                </button>
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+                                <ReportExportControls
+                                    variant="inline"
+                                    selectedFormat={sequenceExportFormat}
+                                    formats={sequenceExportOptions}
+                                    onFormatChange={setSequenceExportFormat}
+                                    onExport={handleExportSequence}
+                                    isExporting={isExportingSequence}
+                                    translations={sequenceExportTranslations}
+                                    className="justify-start sm:justify-end"
+                                />
                                 <button
                                     type="button"
                                     onClick={resetForm}

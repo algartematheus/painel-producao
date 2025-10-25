@@ -4,6 +4,7 @@ import { PlusCircle, MinusCircle, Edit, Trash2, Home, ArrowUpDown, Box, Trash, C
 import { db } from '../firebase';
 import HeaderContainer from '../components/HeaderContainer';
 import GlobalNavigation from '../components/GlobalNavigation';
+import ReportExportControls, { DEFAULT_REPORT_FORMATS } from '../components/ReportExportControls';
 import { useAuth } from './auth';
 import { raceBullLogoUrl } from './constants';
 import {
@@ -204,7 +205,17 @@ export const StockProvider = ({ children }) => {
 
 export const useStock = () => useContext(StockContext);
 
-const StockHeader = ({ onNavigateToCrono, theme, toggleTheme }) => {
+const StockHeader = ({
+    onNavigateToCrono,
+    theme,
+    toggleTheme,
+    exportFormat,
+    onChangeExportFormat,
+    onExportReport,
+    isExportingReport,
+    exportTranslations,
+    exportFormats = DEFAULT_REPORT_FORMATS,
+}) => {
     const { user, logout } = useAuth();
     const navigationButtons = useMemo(() => ([
         onNavigateToCrono
@@ -230,7 +241,17 @@ const StockHeader = ({ onNavigateToCrono, theme, toggleTheme }) => {
                 hideLogoutLabelOnMobile={true}
                 theme={theme}
                 onToggleTheme={toggleTheme}
-            />
+            >
+                <ReportExportControls
+                    selectedFormat={exportFormat}
+                    formats={exportFormats}
+                    onFormatChange={onChangeExportFormat}
+                    onExport={onExportReport}
+                    isExporting={isExportingReport}
+                    translations={exportTranslations}
+                    disableWhileExporting
+                />
+            </GlobalNavigation>
         </HeaderContainer>
     );
 };
@@ -910,6 +931,15 @@ export const StockManagementApp = ({ onNavigateToCrono }) => {
         if (typeof window === 'undefined') return 'light';
         return localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     });
+    const [stockExportFormat, setStockExportFormat] = useState(DEFAULT_REPORT_FORMATS[0]?.value || 'pdf');
+    const [isExportingStockReport, setIsExportingStockReport] = useState(false);
+
+    const stockExportTranslations = useMemo(() => ({
+        triggerLabel: 'Relatórios',
+        exportButton: 'Exportar',
+        exportingButton: 'Gerando...',
+        formatLabel: 'Formato do relatório',
+    }), []);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -921,6 +951,21 @@ export const StockManagementApp = ({ onNavigateToCrono }) => {
     const toggleTheme = useCallback(() => {
         setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
     }, []);
+
+    const handleExportStockReport = useCallback(async (format = stockExportFormat) => {
+        setIsExportingStockReport(true);
+        try {
+            const message = 'A exportação de estoque estará disponível em breve.';
+            if (typeof window !== 'undefined') {
+                window.alert(message);
+            } else {
+                console.info(message);
+            }
+            console.info('Stock report export requested', { format });
+        } finally {
+            setIsExportingStockReport(false);
+        }
+    }, [stockExportFormat]);
 
     const renderPage = () => {
         const props = { setConfirmation };
@@ -943,14 +988,24 @@ export const StockManagementApp = ({ onNavigateToCrono }) => {
     return (
         <StockProvider>
             <div className="responsive-root min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans flex flex-col">
-                <ConfirmationModal 
+                <ConfirmationModal
                     isOpen={confirmation.isOpen}
                     onClose={() => setConfirmation({ isOpen: false, title: '', message: '', onConfirm: () => {} })}
                     onConfirm={handleConfirm}
                     title={confirmation.title}
                     message={confirmation.message}
                 />
-                <StockHeader onNavigateToCrono={onNavigateToCrono} theme={theme} toggleTheme={toggleTheme} />
+                <StockHeader
+                    onNavigateToCrono={onNavigateToCrono}
+                    theme={theme}
+                    toggleTheme={toggleTheme}
+                    exportFormat={stockExportFormat}
+                    onChangeExportFormat={setStockExportFormat}
+                    onExportReport={handleExportStockReport}
+                    isExportingReport={isExportingStockReport}
+                    exportTranslations={stockExportTranslations}
+                    exportFormats={DEFAULT_REPORT_FORMATS}
+                />
                 <div className="flex flex-col lg:flex-row flex-grow">
                     <StockSidebar activePage={activePage} setActivePage={setActivePage} />
                     <main className="flex-grow bg-gray-50 dark:bg-gray-800/50 responsive-main">
