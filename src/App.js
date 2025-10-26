@@ -18,6 +18,7 @@ import {
 } from 'firebase/firestore';
 import { StockManagementApp } from './modules/gerenciamentodeestoque';
 import { OperationalSequenceApp } from './modules/sequenciaOperacional';
+import ReportsModule from './modules/relatorios';
 import { raceBullLogoUrl, initialDashboards, FIXED_PERIODS, TRAVETE_MACHINES, ALL_PERMISSIONS, defaultRoles } from './modules/constants';
 import {
   generateId,
@@ -1366,7 +1367,7 @@ const LotReport = ({ lots, products }) => {
 // #                                                                   #
 // #####################################################################
 
-const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSequence, user, permissions, startTvMode, dashboards, users, roles, currentDashboardIndex, setCurrentDashboardIndex }) => {
+const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSequence, onNavigateToReports, user, permissions, startTvMode, dashboards, users, roles, currentDashboardIndex, setCurrentDashboardIndex }) => {
     const { logout } = useAuth();
     const [theme, setTheme] = useState(() => localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
     useEffect(() => {
@@ -3461,8 +3462,16 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     onClick: onNavigateToStock,
                 }
                 : null,
+            onNavigateToReports
+                ? {
+                    key: 'reports',
+                    label: 'Relatórios',
+                    icon: BarChart,
+                    onClick: onNavigateToReports,
+                }
+                : null,
         ].filter(Boolean);
-    }, [onNavigateToOperationalSequence, onNavigateToStock]);
+    }, [onNavigateToOperationalSequence, onNavigateToStock, onNavigateToReports]);
 
     const userActionButtons = useMemo(() => {
         const actions = [];
@@ -5402,7 +5411,12 @@ const AppContent = () => {
     }
 
     if (currentApp === 'stock') {
-        return <StockManagementApp onNavigateToCrono={() => setCurrentApp('cronoanalise')} />;
+        return (
+            <StockManagementApp
+                onNavigateToCrono={() => setCurrentApp('cronoanalise')}
+                onNavigateToReports={() => setCurrentApp('reports')}
+            />
+        );
     }
 
     if (currentApp === 'sequencia-operacional') {
@@ -5410,8 +5424,20 @@ const AppContent = () => {
             <OperationalSequenceApp
                 onNavigateToCrono={() => setCurrentApp('cronoanalise')}
                 onNavigateToStock={() => setCurrentApp('stock')}
+                onNavigateToReports={() => setCurrentApp('reports')}
                 dashboards={dashboards}
                 user={user}
+            />
+        );
+    }
+
+    if (currentApp === 'reports') {
+        return (
+            <ReportsModule
+                dashboards={dashboards}
+                onNavigateToCrono={() => setCurrentApp('cronoanalise')}
+                onNavigateToStock={() => setCurrentApp('stock')}
+                onNavigateToOperationalSequence={() => setCurrentApp('sequencia-operacional')}
             />
         );
     }
@@ -5419,6 +5445,7 @@ const AppContent = () => {
     return <CronoanaliseDashboard
         onNavigateToStock={() => setCurrentApp('stock')}
         onNavigateToOperationalSequence={() => setCurrentApp('sequencia-operacional')}
+        onNavigateToReports={() => setCurrentApp('reports')}
         user={user}
         permissions={userPermissions}
         startTvMode={startTvMode}
