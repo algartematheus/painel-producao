@@ -35,16 +35,10 @@ import {
   findFirstProductDetail,
   resolveProductReference,
   resolveEmployeeStandardTime,
-  exportDashboardPerformancePDF,
-  exportDashboardPerformanceXLSX,
-  exportDashboardPerformanceCSV,
-  DEFAULT_EXPORT_SETTINGS
 } from './modules/shared';
-import ExportSettingsModal from './components/ExportSettingsModal';
 import SummaryCard from './components/SummaryCard';
 import HeaderContainer from './components/HeaderContainer';
 import GlobalNavigation from './components/GlobalNavigation';
-import ReportExportControls, { DEFAULT_REPORT_FORMATS } from './components/ReportExportControls';
 import {
   getOrderedActiveLots,
   getLotRemainingPieces,
@@ -1418,13 +1412,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const [modalState, setModalState] = useState({ type: null, data: null });
     const [showUrgent, setShowUrgent] = useState(false);
     const [urgentProduction, setUrgentProduction] = useState({ productId: '', produced: '' });
-    const [isExportingReport, setIsExportingReport] = useState(false);
-    const [selectedExportFormat, setSelectedExportFormat] = useState('pdf');
-    const [exportSettings, setExportSettings] = useState(() => ({ ...DEFAULT_EXPORT_SETTINGS }));
-    const [isExportSettingsModalOpen, setIsExportSettingsModalOpen] = useState(false);
-    const openExportSettingsModal = useCallback(() => {
-        setIsExportSettingsModalOpen(true);
-    }, [setIsExportSettingsModalOpen]);
     const [isNavOpen, setIsNavOpen] = useState(false);
     const navRef = useRef();
     useClickOutside(navRef, () => setIsNavOpen(false));
@@ -2832,79 +2819,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         return { completed, active, overallAverage };
     }, [lots, currentMonth]);
 
-    const filtersSummary = useMemo(() => ({
-        dashboardName: currentDashboard?.name || '',
-        selectedDate,
-        currentMonth,
-        calendarView,
-        lotFilter,
-        showUrgent,
-        isTraveteDashboard,
-    }), [
-        currentDashboard,
-        selectedDate,
-        currentMonth,
-        calendarView,
-        lotFilter,
-        showUrgent,
-        isTraveteDashboard,
-    ]);
-
-    const resolvedExportSettings = useMemo(() => ({
-        ...DEFAULT_EXPORT_SETTINGS,
-        ...(exportSettings || {}),
-        format: selectedExportFormat,
-    }), [exportSettings, selectedExportFormat]);
-
-    const handleExportDashboardReport = useCallback(async (formatOverride) => {
-        if (!currentDashboard) return;
-        try {
-            setIsExportingReport(true);
-            const effectiveFormat = formatOverride || resolvedExportSettings.format;
-            const exportSettingsWithFormat = { ...resolvedExportSettings, format: effectiveFormat };
-            const exportOptions = {
-                dashboardName: currentDashboard.name,
-                selectedDate,
-                currentMonth,
-                isTraveteDashboard,
-                filtersSummary,
-                summary,
-                monthlySummary,
-                dailyEntries: processedData,
-                traveteEntries: traveteProcessedData,
-                lotSummary: lotSummaryForPdf,
-                monthlyBreakdown: monthlyBreakdownForPdf,
-                exportSettings: exportSettingsWithFormat,
-            };
-
-            if (effectiveFormat === 'xlsx') {
-                await exportDashboardPerformanceXLSX(exportOptions);
-            } else if (effectiveFormat === 'csv') {
-                await exportDashboardPerformanceCSV(exportOptions);
-            } else {
-                await exportDashboardPerformancePDF(exportOptions);
-            }
-        } catch (error) {
-            console.error('Erro ao exportar relatório do dashboard:', error);
-            alert('Não foi possível gerar o relatório. Verifique o console para mais detalhes.');
-        } finally {
-            setIsExportingReport(false);
-        }
-    }, [
-        currentDashboard,
-        selectedDate,
-        currentMonth,
-        isTraveteDashboard,
-        filtersSummary,
-        summary,
-        monthlySummary,
-        processedData,
-        traveteProcessedData,
-        lotSummaryForPdf,
-        monthlyBreakdownForPdf,
-        resolvedExportSettings,
-    ]);
-
     const traveteGroupedProducts = useMemo(() => {
         if (!isTraveteDashboard) return [];
         const groups = new Map();
@@ -3568,13 +3482,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             <ReasonModal isOpen={modalState.type === 'reason'} onClose={closeModal} onConfirm={modalState.data?.onConfirm} />
             <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={roles} />
             <TvSelectorModal isOpen={modalState.type === 'tvSelector'} onClose={closeModal} onSelect={startTvMode} onStartCarousel={startTvMode} dashboards={dashboards} />
-            <ExportSettingsModal
-                isOpen={isExportSettingsModalOpen}
-                onClose={() => setIsExportSettingsModalOpen(false)}
-                settings={resolvedExportSettings}
-                onSave={(nextSettings) => setExportSettings({ ...DEFAULT_EXPORT_SETTINGS, ...nextSettings })}
-            />
-
             <HeaderContainer>
                 <GlobalNavigation
                     logoSrc={raceBullLogoUrl}
@@ -3595,18 +3502,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     userActions={userActionButtons}
                     theme={theme}
                     onToggleTheme={toggleTheme}
-                >
-                    <ReportExportControls
-                        selectedFormat={selectedExportFormat}
-                        formats={DEFAULT_REPORT_FORMATS}
-                        onFormatChange={setSelectedExportFormat}
-                        onExport={handleExportDashboardReport}
-                        onOpenSettings={openExportSettingsModal}
-                        isExporting={isExportingReport}
-                        disableWhileExporting
-                    />
-                </GlobalNavigation>
+                />
             </HeaderContainer>
+
             
             <main className="p-4 md:p-8 grid grid-cols-1 gap-8 responsive-main">
                  <section className="grid grid-cols-1 lg:grid-cols-3 gap-8">

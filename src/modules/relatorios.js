@@ -15,7 +15,6 @@ import {
     exportStockReportPDF,
     exportStockReportXLSX,
     exportStockReportCSV,
-    exportSequenciaOperacionalPDF,
 } from './shared';
 import {
     fetchDashboardPerformanceIndicators,
@@ -161,10 +160,8 @@ const ReportsModule = ({
     const [selectedDashboardId, setSelectedDashboardId] = useState(() => dashboards[0]?.id || '');
     const [productionFormat, setProductionFormat] = useState(DEFAULT_REPORT_FORMATS[0]?.value || 'pdf');
     const [stockFormat, setStockFormat] = useState(DEFAULT_REPORT_FORMATS[0]?.value || 'pdf');
-    const [sequenceFormat, setSequenceFormat] = useState('pdf');
     const [isExportingProduction, setIsExportingProduction] = useState(false);
     const [isExportingStock, setIsExportingStock] = useState(false);
-    const [isExportingSequence, setIsExportingSequence] = useState(false);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [exportSettings, setExportSettings] = useState(DEFAULT_EXPORT_SETTINGS);
     const [selectedProductIds, setSelectedProductIds] = useState([]);
@@ -484,48 +481,6 @@ const ReportsModule = ({
             setIsExportingStock(false);
         }
     }, [stockCategoryOptions, stockFilters, stockFormat]);
-
-    const handleExportSequenceReport = useCallback(async (format = sequenceFormat) => {
-        setIsExportingSequence(true);
-        try {
-            if (format === 'blank') {
-                await exportSequenciaOperacionalPDF(
-                    {
-                        empresa: 'Race Bull',
-                        modelo: '__________',
-                        operacoes: [],
-                    },
-                    false,
-                    { blankLineCount: 25 }
-                );
-                return;
-            }
-
-            await exportSequenciaOperacionalPDF(
-                {
-                    empresa: 'Race Bull',
-                    modelo: 'Modelo Exemplo',
-                    operacoes: [
-                        { numero: 1, descricao: 'Operação Exemplo', maquina: 'Máquina Padrão', tempoMinutos: 1.5 },
-                        { numero: 2, descricao: 'Inspeção', maquina: 'Bancada', tempoMinutos: 0.75 },
-                    ],
-                },
-                true
-            );
-        } catch (error) {
-            console.error('Erro ao exportar sequência operacional:', error);
-            if (typeof window !== 'undefined') {
-                window.alert('Não foi possível gerar o relatório da sequência operacional.');
-            }
-        } finally {
-            setIsExportingSequence(false);
-        }
-    }, [sequenceFormat]);
-
-    const sequenceFormats = useMemo(() => ([
-        { value: 'pdf', label: 'Sequência Preenchida (PDF)' },
-        { value: 'blank', label: 'Folha em Branco' },
-    ]), []);
 
     return (
         <div className="responsive-root min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200">
@@ -872,27 +827,6 @@ const ReportsModule = ({
                     </div>
                 </section>
 
-                <section className="rounded-2xl bg-white p-6 shadow-lg dark:bg-gray-900">
-                    <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                            <h2 className="text-xl font-semibold">Relatórios de Sequência Operacional</h2>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">Gere PDFs preenchidos ou folhas em branco para as sequências.</p>
-                        </div>
-                    </header>
-
-                    <div className="mt-6">
-                        <ReportExportControls
-                            variant="inline"
-                            selectedFormat={sequenceFormat}
-                            formats={sequenceFormats}
-                            onFormatChange={setSequenceFormat}
-                            onExport={handleExportSequenceReport}
-                            isExporting={isExportingSequence}
-                            disableWhileExporting
-                            showFormatLabel={false}
-                        />
-                    </div>
-                </section>
             </main>
 
             <ExportSettingsModal
