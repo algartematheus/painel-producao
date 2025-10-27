@@ -1370,6 +1370,335 @@ export const exportDashboardPerformanceCSV = (options = {}) => {
     downloadBlob(blob, buildDashboardReportFilename(dashboardName, selectedDate, 'csv'));
 };
 
+const buildStockFiltersRows = (filtersSummary = {}) => (
+    buildFiltersSummaryEntries(filtersSummary || {})
+);
+
+const buildStockReportFilename = ({ periodLabel = '', format = 'pdf', generatedAt = new Date() } = {}) => {
+    const normalizedDate = generatedAt instanceof Date && !Number.isNaN(generatedAt.getTime())
+        ? generatedAt
+        : new Date();
+    const dateLabel = formatDateForFilename(normalizedDate);
+    const safePeriodLabel = sanitizeForFilename(periodLabel, 'Periodo');
+    const baseName = safePeriodLabel ? `Relatorio_Estoque_${safePeriodLabel}` : 'Relatorio_Estoque';
+    return `${baseName}_${dateLabel}.${format}`;
+};
+
+const buildStockSummaryRows = (summary = {}) => ([
+    ['Entradas Totais', formatLocaleNumber(summary.totalIncoming)],
+    ['Saídas Totais', formatLocaleNumber(summary.totalOutgoing)],
+    ['Saldo do Período', formatLocaleNumber(summary.totalBalance)],
+    ['Estoque Atual', formatLocaleNumber(summary.totalCurrentStock)],
+]);
+
+export const exportStockReportPDF = async (options = {}) => {
+    const {
+        filtersSummary = {},
+        categorySummaries = [],
+        periodSummaries = [],
+        summary = {},
+        periodLabel = '',
+        generatedAt = new Date(),
+    } = options || {};
+
+    const filtersRows = buildStockFiltersRows(filtersSummary);
+    const filterTableRows = filtersRows.map((row) => [row.label, row.value]);
+    const categoryRows = categorySummaries.map((entry) => ([
+        entry.categoryName,
+        formatLocaleNumber(entry.incoming),
+        formatLocaleNumber(entry.outgoing),
+        formatLocaleNumber(entry.balance),
+        formatLocaleNumber(entry.currentStock),
+    ]));
+
+    if (categorySummaries.length > 0) {
+        categoryRows.push([
+            'Totais',
+            formatLocaleNumber(summary.totalIncoming),
+            formatLocaleNumber(summary.totalOutgoing),
+            formatLocaleNumber(summary.totalBalance),
+            formatLocaleNumber(summary.totalCurrentStock),
+        ]);
+    }
+
+    const periodRows = periodSummaries.map((entry) => ([
+        entry.label,
+        formatLocaleNumber(entry.incoming),
+        formatLocaleNumber(entry.outgoing),
+        formatLocaleNumber(entry.balance),
+    ]));
+
+    const generatedAtDate = generatedAt instanceof Date && !Number.isNaN(generatedAt.getTime())
+        ? generatedAt
+        : new Date();
+
+    const globalJsPdf = await ensureJsPdfResources();
+    const logoDataUrl = await fetchOperationalLogoDataUrl();
+    const { jsPDF } = globalJsPdf;
+    const doc = new jsPDF();
+    const centerX = doc.internal.pageSize.getWidth() / 2;
+
+    addRaceBullLogoToPdf(doc, logoDataUrl);
+
+    doc.setFontSize(16);
+    doc.text('Relatório de Estoque', centerX, 20, { align: 'center' });
+    doc.setFontSize(10);
+    doc.text(`Gerado em: ${generatedAtDate.toLocaleString('pt-BR')}`, 15, 28);
+
+    let currentY = 34;
+
+    const ensureSpace = (nextHeight = 40) => {
+        const pageHeight = doc.internal.pageSize.getHeight();
+        if (currentY + nextHeight > pageHeight - 20) {
+            doc.addPage();
+            currentY = 20;
+        }
+    };
+
+    if (filterTableRows.length > 0) {
+        ensureSpace(30);
+        doc.autoTable({
+            startY: currentY,
+            head: [['Filtro', 'Valor']],
+            body: filterTableRows,
+            theme: 'grid',
+            styles: {
+                fontSize: 9,
+                halign: 'left',
+                lineColor: [0, 0, 0],
+                lineWidth: 0.1,
+            },
+            headStyles: {
+                fillColor: [0, 0, 0],
+                textColor: [255, 255, 255],
+            },
+        });
+        currentY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 8 : currentY + 12;
+    }
+
+    ensureSpace(24);
+    doc.setFontSize(12);
+    doc.text('Resumo Geral', 15, currentY);
+    currentY += 4;
+    doc.autoTable({
+        startY: currentY,
+        head: [['Indicador', 'Valor']],
+        body: buildStockSummaryRows(summary),
+        theme: 'grid',
+        styles: {
+            fontSize: 9,
+            halign: 'left',
+            lineColor: [0, 0, 0],
+            lineWidth: 0.1,
+        },
+        headStyles: {
+            fillColor: [0, 0, 0],
+            textColor: [255, 255, 255],
+        },
+    });
+    currentY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 8 : currentY + 12;
+
+    if (categoryRows.length > 0) {
+        ensureSpace(30);
+        doc.setFontSize(12);
+        doc.text('Totais por Categoria', 15, currentY);
+        currentY += 4;
+        doc.autoTable({
+            startY: currentY,
+            head: [['Categoria', 'Entradas', 'Saídas', 'Saldo', 'Estoque Atual']],
+            body: categoryRows,
+            theme: 'grid',
+            styles: {
+                fontSize: 9,
+                halign: 'center',
+                lineColor: [0, 0, 0],
+                lineWidth: 0.1,
+            },
+            headStyles: {
+                fillColor: [0, 0, 0],
+                textColor: [255, 255, 255],
+            },
+            columnStyles: {
+                0: { halign: 'left' },
+                3: { halign: 'right' },
+                4: { halign: 'right' },
+            },
+        });
+        currentY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 8 : currentY + 12;
+    }
+
+    if (periodRows.length > 0) {
+        ensureSpace(30);
+        doc.setFontSize(12);
+        doc.text('Totais por Período', 15, currentY);
+        currentY += 4;
+        doc.autoTable({
+            startY: currentY,
+            head: [['Período', 'Entradas', 'Saídas', 'Saldo']],
+            body: periodRows,
+            theme: 'grid',
+            styles: {
+                fontSize: 9,
+                halign: 'center',
+                lineColor: [0, 0, 0],
+                lineWidth: 0.1,
+            },
+            headStyles: {
+                fillColor: [0, 0, 0],
+                textColor: [255, 255, 255],
+            },
+            columnStyles: {
+                0: { halign: 'left' },
+                3: { halign: 'right' },
+            },
+        });
+        currentY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 8 : currentY + 12;
+    }
+
+    doc.setFontSize(8);
+    doc.text('Gerado automaticamente pelo Sistema Race Bull', 15, Math.min(currentY + 10, doc.internal.pageSize.getHeight() - 10));
+
+    doc.save(buildStockReportFilename({ periodLabel, format: 'pdf', generatedAt: generatedAtDate }));
+};
+
+export const exportStockReportXLSX = async (options = {}) => {
+    const {
+        filtersSummary = {},
+        categorySummaries = [],
+        periodSummaries = [],
+        summary = {},
+        periodLabel = '',
+        generatedAt = new Date(),
+    } = options || {};
+
+    const xlsx = await ensureXlsxResources();
+    const workbook = xlsx.utils.book_new();
+
+    const summarySheet = xlsx.utils.aoa_to_sheet([
+        ['Indicador', 'Valor'],
+        ...buildStockSummaryRows(summary),
+    ]);
+    xlsx.utils.book_append_sheet(workbook, summarySheet, 'Resumo');
+
+    if (categorySummaries.length > 0) {
+        const categorySheetData = [
+            ['Categoria', 'Entradas', 'Saídas', 'Saldo', 'Estoque Atual'],
+            ...categorySummaries.map((entry) => ([
+                entry.categoryName,
+                entry.incoming,
+                entry.outgoing,
+                entry.balance,
+                entry.currentStock,
+            ])),
+            ['Totais', summary.totalIncoming, summary.totalOutgoing, summary.totalBalance, summary.totalCurrentStock],
+        ];
+        const categorySheet = xlsx.utils.aoa_to_sheet(categorySheetData);
+        xlsx.utils.book_append_sheet(workbook, categorySheet, 'Categorias');
+    }
+
+    if (periodSummaries.length > 0) {
+        const periodSheetData = [
+            ['Período', 'Entradas', 'Saídas', 'Saldo'],
+            ...periodSummaries.map((entry) => ([
+                entry.label,
+                entry.incoming,
+                entry.outgoing,
+                entry.balance,
+            ])),
+        ];
+        const periodSheet = xlsx.utils.aoa_to_sheet(periodSheetData);
+        xlsx.utils.book_append_sheet(workbook, periodSheet, 'Períodos');
+    }
+
+    const filtersRows = buildStockFiltersRows(filtersSummary);
+    if (filtersRows.length > 0) {
+        const filtersSheetData = [
+            ['Filtro', 'Valor'],
+            ...filtersRows.map((row) => [row.label, row.value]),
+        ];
+        const filtersSheet = xlsx.utils.aoa_to_sheet(filtersSheetData);
+        xlsx.utils.book_append_sheet(workbook, filtersSheet, 'Filtros');
+    }
+
+    const arrayBuffer = xlsx.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([arrayBuffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+
+    downloadBlob(blob, buildStockReportFilename({ periodLabel, format: 'xlsx', generatedAt }));
+};
+
+export const exportStockReportCSV = (options = {}) => {
+    const {
+        filtersSummary = {},
+        categorySummaries = [],
+        periodSummaries = [],
+        summary = {},
+        periodLabel = '',
+        generatedAt = new Date(),
+    } = options || {};
+
+    const lines = [];
+
+    lines.push(escapeCsvValue('Resumo Geral'));
+    lines.push(['Indicador', 'Valor'].map(escapeCsvValue).join(';'));
+    buildStockSummaryRows(summary).forEach((row) => {
+        lines.push(row.map(escapeCsvValue).join(';'));
+    });
+    lines.push('');
+
+    if (categorySummaries.length > 0) {
+        lines.push(escapeCsvValue('Totais por Categoria'));
+        lines.push(['Categoria', 'Entradas', 'Saídas', 'Saldo', 'Estoque Atual'].map(escapeCsvValue).join(';'));
+        categorySummaries.forEach((entry) => {
+            lines.push([
+                entry.categoryName,
+                formatLocaleNumber(entry.incoming),
+                formatLocaleNumber(entry.outgoing),
+                formatLocaleNumber(entry.balance),
+                formatLocaleNumber(entry.currentStock),
+            ].map(escapeCsvValue).join(';'));
+        });
+        lines.push([
+            'Totais',
+            formatLocaleNumber(summary.totalIncoming),
+            formatLocaleNumber(summary.totalOutgoing),
+            formatLocaleNumber(summary.totalBalance),
+            formatLocaleNumber(summary.totalCurrentStock),
+        ].map(escapeCsvValue).join(';'));
+        lines.push('');
+    }
+
+    if (periodSummaries.length > 0) {
+        lines.push(escapeCsvValue('Totais por Período'));
+        lines.push(['Período', 'Entradas', 'Saídas', 'Saldo'].map(escapeCsvValue).join(';'));
+        periodSummaries.forEach((entry) => {
+            lines.push([
+                entry.label,
+                formatLocaleNumber(entry.incoming),
+                formatLocaleNumber(entry.outgoing),
+                formatLocaleNumber(entry.balance),
+            ].map(escapeCsvValue).join(';'));
+        });
+        lines.push('');
+    }
+
+    const filtersRows = buildStockFiltersRows(filtersSummary);
+    if (filtersRows.length > 0) {
+        lines.push(escapeCsvValue('Filtros Aplicados'));
+        lines.push(['Filtro', 'Valor'].map(escapeCsvValue).join(';'));
+        filtersRows.forEach((row) => {
+            lines.push([row.label, row.value].map(escapeCsvValue).join(';'));
+        });
+        lines.push('');
+    }
+
+    const csvContent = lines.join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+
+    downloadBlob(blob, buildStockReportFilename({ periodLabel, format: 'csv', generatedAt }));
+};
+
 export const getEmployeeProducts = (employee) => {
     if (Array.isArray(employee.products) && employee.products.length > 0) {
         return employee.products;
