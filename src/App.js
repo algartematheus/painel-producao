@@ -35,16 +35,10 @@ import {
   findFirstProductDetail,
   resolveProductReference,
   resolveEmployeeStandardTime,
-  exportDashboardPerformancePDF,
-  exportDashboardPerformanceXLSX,
-  exportDashboardPerformanceCSV,
-  DEFAULT_EXPORT_SETTINGS
 } from './modules/shared';
-import ExportSettingsModal from './components/ExportSettingsModal';
 import SummaryCard from './components/SummaryCard';
 import HeaderContainer from './components/HeaderContainer';
 import GlobalNavigation from './components/GlobalNavigation';
-import ReportExportControls, { DEFAULT_REPORT_FORMATS } from './components/ReportExportControls';
 import {
   getOrderedActiveLots,
   getLotRemainingPieces,
@@ -1418,13 +1412,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const [modalState, setModalState] = useState({ type: null, data: null });
     const [showUrgent, setShowUrgent] = useState(false);
     const [urgentProduction, setUrgentProduction] = useState({ productId: '', produced: '' });
-    const [isExportingReport, setIsExportingReport] = useState(false);
-    const [selectedExportFormat, setSelectedExportFormat] = useState('pdf');
-    const [exportSettings, setExportSettings] = useState(() => ({ ...DEFAULT_EXPORT_SETTINGS }));
-    const [isExportSettingsModalOpen, setIsExportSettingsModalOpen] = useState(false);
-    const openExportSettingsModal = useCallback(() => {
-        setIsExportSettingsModalOpen(true);
-    }, [setIsExportSettingsModalOpen]);
     const [isNavOpen, setIsNavOpen] = useState(false);
     const navRef = useRef();
     useClickOutside(navRef, () => setIsNavOpen(false));
@@ -2665,246 +2652,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         return { totalProduction: totalMonthlyProduction, totalGoal: totalMonthlyGoal, averageEfficiency: averageMonthlyEfficiency };
     }, [isTraveteDashboard, allProductionData, currentMonth, products]);
 
-    const monthlyBreakdownForPdf = useMemo(() => {
-        const breakdown = [];
-        const year = currentMonth.getFullYear();
-        const month = currentMonth.getMonth();
-
-        Object.entries(allProductionData || {}).forEach(([dateStr, entries]) => {
-            const dayEntries = Array.isArray(entries) ? entries : [];
-            if (dayEntries.length === 0) return;
-            const referenceDate = new Date(`${dateStr}T00:00:00`);
-            if (referenceDate.getFullYear() !== year || referenceDate.getMonth() !== month) return;
-
-            if (isTraveteDashboard) {
-                const productsForDateMap = new Map(products
-                    .map(p => {
-                        const validTimeEntry = p.standardTimeHistory?.filter(h => new Date(h.effectiveDate) <= referenceDate).pop();
-                        if (!validTimeEntry) return null;
-                        return [p.id, { ...p, standardTime: validTimeEntry.time }];
-                    })
-                    .filter(Boolean));
-
-                const dayMetaPerEmployee = [];
-                const dayProductionPerEmployee = [];
-                let efficiencyTotal = 0;
-                let efficiencySamples = 0;
-
-                dayEntries.forEach(entry => {
-                    (entry.employeeEntries || []).forEach((emp, index) => {
-                        const productsArray = getEmployeeProducts(emp);
-                        const produced = sumProducedQuantities(productsArray, emp.produced);
-                        const firstProduct = findFirstProductDetail(productsArray, emp);
-                        const { product } = resolveProductReference(emp, firstProduct, productsForDateMap);
-                        const standardTime = resolveEmployeeStandardTime(emp, firstProduct, product);
-                        const availableTime = entry.availableTime || 0;
-                        const meta = computeMetaFromStandardTime(standardTime, availableTime);
-                        const efficiency = computeEfficiencyPercentage(produced, standardTime, availableTime);
-
-                        dayMetaPerEmployee[index] = (dayMetaPerEmployee[index] || 0) + meta;
-                        dayProductionPerEmployee[index] = (dayProductionPerEmployee[index] || 0) + produced;
-                        if (efficiency > 0) {
-                            efficiencyTotal += efficiency;
-                            efficiencySamples += 1;
-                        }
-                    });
-                });
-
-                if (dayMetaPerEmployee.length > 0 || dayProductionPerEmployee.length > 0) {
-                    breakdown.push({
-                        date: referenceDate,
-                        totalGoal: dayMetaPerEmployee.reduce((sum, value) => sum + (value || 0), 0),
-                        totalProduction: dayProductionPerEmployee.reduce((sum, value) => sum + (value || 0), 0),
-                        averageEfficiency: efficiencySamples > 0 ? parseFloat((efficiencyTotal / efficiencySamples).toFixed(2)) : 0,
-                    });
-                }
-            } else {
-                const productsForDateMap = new Map(products
-                    .map(p => {
-                        const validTimeEntry = p.standardTimeHistory?.filter(h => new Date(h.effectiveDate) <= referenceDate).pop();
-                        if (!validTimeEntry) return null;
-                        return [p.id, { ...p, standardTime: validTimeEntry.time }];
-                    })
-                    .filter(Boolean));
-
-                let dailyProduction = 0;
-                let dailyGoal = 0;
-                let efficiencyTotal = 0;
-                let efficiencySamples = 0;
-
-                dayEntries.forEach(item => {
-                    let periodProduction = 0;
-                    let totalTimeValue = 0;
-                    (item.productionDetails || []).forEach(detail => {
-                        const produced = detail.produced || 0;
-                        periodProduction += produced;
-                        const product = productsForDateMap.get(detail.productId);
-                        if (product?.standardTime) {
-                            totalTimeValue += produced * product.standardTime;
-                        }
-                    });
-                    if (item.goalDisplay) {
-                        dailyGoal += sumGoalDisplay(item.goalDisplay);
-                    }
-                    dailyProduction += periodProduction;
-                    const totalAvailableTime = (item.people || 0) * (item.availableTime || 0);
-                    if (totalAvailableTime > 0) {
-                        efficiencyTotal += (totalTimeValue / totalAvailableTime) * 100;
-                        efficiencySamples += 1;
-                    }
-                });
-
-                breakdown.push({
-                    date: referenceDate,
-                    totalGoal: dailyGoal,
-                    totalProduction: dailyProduction,
-                    averageEfficiency: efficiencySamples > 0 ? parseFloat((efficiencyTotal / efficiencySamples).toFixed(2)) : 0,
-                });
-            }
-        });
-
-        breakdown.sort((a, b) => a.date - b.date);
-        return breakdown;
-    }, [isTraveteDashboard, allProductionData, currentMonth, products]);
-
-    const lotSummaryForPdf = useMemo(() => {
-        if (!Array.isArray(lots) || lots.length === 0) {
-            return { completed: [], active: [], overallAverage: 0 };
-        }
-        const year = currentMonth.getFullYear();
-        const month = currentMonth.getMonth();
-        const isDateInCurrentMonth = (value) => {
-            if (!value) return false;
-            const parsed = new Date(value);
-            return parsed.getFullYear() === year && parsed.getMonth() === month;
-        };
-
-        const completed = [];
-        const active = [];
-        let totalPieces = 0;
-        let totalDays = 0;
-
-        lots.forEach(lot => {
-            const produced = Number(lot.produced) || 0;
-            const target = Number(lot.target) || 0;
-            const efficiency = target > 0 ? (produced / target) * 100 : 0;
-            const baseName = lot.customName
-                ? `${lot.productName || lot.baseProductName || lot.name || lot.id} - ${lot.customName}`
-                : (lot.productName || lot.baseProductName || lot.name || lot.id || lot.id);
-
-            if (lot.status?.startsWith('completed') && isDateInCurrentMonth(lot.endDate)) {
-                let duration = 0;
-                if (lot.startDate && lot.endDate) {
-                    const start = new Date(lot.startDate);
-                    const end = new Date(lot.endDate);
-                    duration = Math.max(1, (end - start) / (1000 * 60 * 60 * 24));
-                }
-                const averageDaily = duration > 0 ? produced / duration : 0;
-                completed.push({
-                    id: lot.id,
-                    name: baseName,
-                    produced,
-                    target,
-                    efficiency,
-                    duration,
-                    averageDaily,
-                    endDate: lot.endDate || '',
-                });
-                if (duration > 0) {
-                    totalPieces += produced;
-                    totalDays += duration;
-                }
-            } else if (lot.status === 'ongoing' || lot.status === 'future') {
-                active.push({
-                    id: lot.id,
-                    name: baseName,
-                    produced,
-                    target,
-                    efficiency,
-                    status: lot.status,
-                });
-            }
-        });
-
-        completed.sort((a, b) => (a.endDate || '').localeCompare(b.endDate || ''));
-        active.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-        const overallAverage = totalDays > 0 ? totalPieces / totalDays : 0;
-        return { completed, active, overallAverage };
-    }, [lots, currentMonth]);
-
-    const filtersSummary = useMemo(() => ({
-        dashboardName: currentDashboard?.name || '',
-        selectedDate,
-        currentMonth,
-        calendarView,
-        lotFilter,
-        showUrgent,
-        isTraveteDashboard,
-    }), [
-        currentDashboard,
-        selectedDate,
-        currentMonth,
-        calendarView,
-        lotFilter,
-        showUrgent,
-        isTraveteDashboard,
-    ]);
-
-    const resolvedExportSettings = useMemo(() => ({
-        ...DEFAULT_EXPORT_SETTINGS,
-        ...(exportSettings || {}),
-        format: selectedExportFormat,
-    }), [exportSettings, selectedExportFormat]);
-
-    const handleExportDashboardReport = useCallback(async (formatOverride) => {
-        if (!currentDashboard) return;
-        try {
-            setIsExportingReport(true);
-            const effectiveFormat = formatOverride || resolvedExportSettings.format;
-            const exportSettingsWithFormat = { ...resolvedExportSettings, format: effectiveFormat };
-            const exportOptions = {
-                dashboardName: currentDashboard.name,
-                selectedDate,
-                currentMonth,
-                isTraveteDashboard,
-                filtersSummary,
-                summary,
-                monthlySummary,
-                dailyEntries: processedData,
-                traveteEntries: traveteProcessedData,
-                lotSummary: lotSummaryForPdf,
-                monthlyBreakdown: monthlyBreakdownForPdf,
-                exportSettings: exportSettingsWithFormat,
-            };
-
-            if (effectiveFormat === 'xlsx') {
-                await exportDashboardPerformanceXLSX(exportOptions);
-            } else if (effectiveFormat === 'csv') {
-                await exportDashboardPerformanceCSV(exportOptions);
-            } else {
-                await exportDashboardPerformancePDF(exportOptions);
-            }
-        } catch (error) {
-            console.error('Erro ao exportar relatório do dashboard:', error);
-            alert('Não foi possível gerar o relatório. Verifique o console para mais detalhes.');
-        } finally {
-            setIsExportingReport(false);
-        }
-    }, [
-        currentDashboard,
-        selectedDate,
-        currentMonth,
-        isTraveteDashboard,
-        filtersSummary,
-        summary,
-        monthlySummary,
-        processedData,
-        traveteProcessedData,
-        lotSummaryForPdf,
-        monthlyBreakdownForPdf,
-        resolvedExportSettings,
-    ]);
-
     const traveteGroupedProducts = useMemo(() => {
         if (!isTraveteDashboard) return [];
         const groups = new Map();
@@ -3568,13 +3315,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             <ReasonModal isOpen={modalState.type === 'reason'} onClose={closeModal} onConfirm={modalState.data?.onConfirm} />
             <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={roles} />
             <TvSelectorModal isOpen={modalState.type === 'tvSelector'} onClose={closeModal} onSelect={startTvMode} onStartCarousel={startTvMode} dashboards={dashboards} />
-            <ExportSettingsModal
-                isOpen={isExportSettingsModalOpen}
-                onClose={() => setIsExportSettingsModalOpen(false)}
-                settings={resolvedExportSettings}
-                onSave={(nextSettings) => setExportSettings({ ...DEFAULT_EXPORT_SETTINGS, ...nextSettings })}
-            />
-
             <HeaderContainer>
                 <GlobalNavigation
                     logoSrc={raceBullLogoUrl}
@@ -3595,18 +3335,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     userActions={userActionButtons}
                     theme={theme}
                     onToggleTheme={toggleTheme}
-                >
-                    <ReportExportControls
-                        selectedFormat={selectedExportFormat}
-                        formats={DEFAULT_REPORT_FORMATS}
-                        onFormatChange={setSelectedExportFormat}
-                        onExport={handleExportDashboardReport}
-                        onOpenSettings={openExportSettingsModal}
-                        isExporting={isExportingReport}
-                        disableWhileExporting
-                    />
-                </GlobalNavigation>
+                />
             </HeaderContainer>
+
             
             <main className="p-4 md:p-8 grid grid-cols-1 gap-8 responsive-main">
                  <section className="grid grid-cols-1 lg:grid-cols-3 gap-8">
