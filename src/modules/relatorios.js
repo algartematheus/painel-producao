@@ -12,9 +12,16 @@ import {
     exportDashboardPerformancePDF,
     exportDashboardPerformanceXLSX,
     exportDashboardPerformanceCSV,
+    exportStockReportPDF,
+    exportStockReportXLSX,
+    exportStockReportCSV,
     exportSequenciaOperacionalPDF,
 } from './shared';
-import { fetchDashboardPerformanceIndicators } from './reportData';
+import {
+    fetchDashboardPerformanceIndicators,
+    fetchStockCategories,
+    fetchStockReportAggregates,
+} from './reportData';
 
 const MONTH_OPTIONS = [
     { value: '01', label: 'Janeiro' },
@@ -99,6 +106,52 @@ const buildProductionFiltersSummary = (dashboardName, filters = {}, productOptio
     return summary;
 };
 
+const buildStockFiltersSummary = (filters = {}, categoryOptions = []) => {
+    const summary = {};
+
+    const categoryIds = Array.isArray(filters.categories)
+        ? filters.categories.map((value) => String(value)).filter(Boolean)
+        : [];
+    if (categoryIds.length > 0) {
+        const categoryMap = new Map(
+            (categoryOptions || []).map((option) => [
+                String(option.value),
+                option.label || String(option.value),
+            ])
+        );
+        summary.categorias = categoryIds.map((categoryId) => categoryMap.get(categoryId) || categoryId);
+    }
+
+    if (filters.periodType) {
+        summary.periodicidade = PERIOD_TYPE_LABEL_MAP[filters.periodType] || filters.periodType;
+    }
+
+    if (filters.periodType === 'range') {
+        if (filters.startDate) {
+            summary.dataInicial = filters.startDate;
+        }
+        if (filters.endDate) {
+            summary.dataFinal = filters.endDate;
+        }
+    }
+
+    if (filters.periodType === 'monthly') {
+        if (filters.month) {
+            const normalizedMonth = String(filters.month).padStart(2, '0');
+            summary.mes = MONTH_LABEL_MAP[normalizedMonth] || normalizedMonth;
+        }
+        if (filters.year) {
+            summary.ano = filters.year;
+        }
+    }
+
+    if (filters.periodType === 'yearly' && filters.year) {
+        summary.ano = filters.year;
+    }
+
+    return summary;
+};
+
 const ReportsModule = ({
     dashboards = [],
     onNavigateToCrono,
@@ -124,10 +177,48 @@ const ReportsModule = ({
     const [selectedYear, setSelectedYear] = useState(() => String(new Date().getFullYear()));
     const [includeTravetes, setIncludeTravetes] = useState(true);
     const [includeOnlyCompletedLots, setIncludeOnlyCompletedLots] = useState(false);
+    const [stockSelectedCategoryIds, setStockSelectedCategoryIds] = useState([]);
+    const [stockPeriodType, setStockPeriodType] = useState('monthly');
+    const [stockStartDate, setStockStartDate] = useState('');
+    const [stockEndDate, setStockEndDate] = useState('');
+    const [stockSelectedMonth, setStockSelectedMonth] = useState(() =>
+        String(new Date().getMonth() + 1).padStart(2, '0')
+    );
+    const [stockSelectedYear, setStockSelectedYear] = useState(() => String(new Date().getFullYear()));
+    const [stockCategoryOptions, setStockCategoryOptions] = useState([]);
+    const [isLoadingStockCategories, setIsLoadingStockCategories] = useState(false);
 
     useEffect(() => {
         setSelectedProductIds([]);
     }, [selectedDashboardId]);
+
+    useEffect(() => {
+        let isMounted = true;
+        setIsLoadingStockCategories(true);
+        fetchStockCategories()
+            .then((categories) => {
+                if (!isMounted) {
+                    return;
+                }
+                const options = (categories || []).map((category) => ({
+                    value: String(category.id),
+                    label: category.name || String(category.id),
+                }));
+                setStockCategoryOptions(options);
+            })
+            .catch((error) => {
+                console.error('Erro ao carregar categorias de estoque:', error);
+            })
+            .finally(() => {
+                if (isMounted) {
+                    setIsLoadingStockCategories(false);
+                }
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
 
     const selectedDashboard = useMemo(() => {
         if (!dashboards || dashboards.length === 0) {
@@ -190,6 +281,12 @@ const ReportsModule = ({
         );
     }, [availableProductOptions]);
 
+    useEffect(() => {
+        setStockSelectedCategoryIds((currentIds) =>
+            currentIds.filter((id) => stockCategoryOptions.some((option) => option.value === id))
+        );
+    }, [stockCategoryOptions]);
+
     const yearOptions = useMemo(() => {
         const currentYearValue = new Date().getFullYear();
         return Array.from({ length: 6 }, (_, index) => String(currentYearValue - index));
@@ -215,6 +312,25 @@ const ReportsModule = ({
             selectedYear,
             includeTravetes,
             includeOnlyCompletedLots,
+        ]
+    );
+
+    const stockFilters = useMemo(
+        () => ({
+            categories: stockSelectedCategoryIds,
+            periodType: stockPeriodType,
+            startDate: stockStartDate,
+            endDate: stockEndDate,
+            month: stockSelectedMonth,
+            year: stockSelectedYear,
+        }),
+        [
+            stockSelectedCategoryIds,
+            stockPeriodType,
+            stockStartDate,
+            stockEndDate,
+            stockSelectedMonth,
+            stockSelectedYear,
         ]
     );
 
@@ -333,17 +449,41 @@ const ReportsModule = ({
     const handleExportStockReport = useCallback(async (format = stockFormat) => {
         setIsExportingStock(true);
         try {
-            const message = 'A exportação de estoque estará disponível em breve.';
-            if (typeof window !== 'undefined') {
-                window.alert(message);
+            const exportFormat = format || stockFormat;
+            const filters = {
+                ...stockFilters,
+                categories: [...(stockFilters.categories || [])],
+            };
+
+            const stockData = await fetchStockReportAggregates(filters);
+            const resolvedFiltersSummary = stockData?.filtersSummary
+                && Object.keys(stockData.filtersSummary).length > 0
+                ? stockData.filtersSummary
+                : buildStockFiltersSummary(stockData?.appliedFilters || filters, stockCategoryOptions);
+
+            const exportOptions = {
+                ...stockData,
+                filters: stockData?.appliedFilters || filters,
+                filtersSummary: resolvedFiltersSummary,
+                periodLabel: stockData?.periodLabel || '',
+            };
+
+            if (exportFormat === 'xlsx') {
+                await exportStockReportXLSX(exportOptions);
+            } else if (exportFormat === 'csv') {
+                await exportStockReportCSV(exportOptions);
             } else {
-                console.info(message);
+                await exportStockReportPDF(exportOptions);
             }
-            console.info('Stock report export requested', { format });
+        } catch (error) {
+            console.error('Erro ao exportar relatório de estoque:', error);
+            if (typeof window !== 'undefined') {
+                window.alert('Não foi possível gerar o relatório de estoque.');
+            }
         } finally {
             setIsExportingStock(false);
         }
-    }, [stockFormat]);
+    }, [stockCategoryOptions, stockFilters, stockFormat]);
 
     const handleExportSequenceReport = useCallback(async (format = sequenceFormat) => {
         setIsExportingSequence(true);
@@ -588,16 +728,147 @@ const ReportsModule = ({
                         </div>
                     </header>
 
-                    <div className="mt-6">
-                        <ReportExportControls
-                            variant="inline"
-                            selectedFormat={stockFormat}
-                            formats={DEFAULT_REPORT_FORMATS}
-                            onFormatChange={setStockFormat}
-                            onExport={handleExportStockReport}
-                            isExporting={isExportingStock}
-                            disableWhileExporting
-                        />
+                    <div className="mt-6 flex flex-col gap-6">
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                Categoria(s)
+                                <select
+                                    multiple
+                                    value={stockSelectedCategoryIds}
+                                    onChange={(event) =>
+                                        setStockSelectedCategoryIds(
+                                            Array.from(event.target.selectedOptions).map((option) => option.value)
+                                        )
+                                    }
+                                    disabled={isLoadingStockCategories || stockCategoryOptions.length === 0}
+                                    className="mt-1 block h-32 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                                >
+                                    {isLoadingStockCategories ? (
+                                        <option value="" disabled>
+                                            Carregando categorias...
+                                        </option>
+                                    ) : stockCategoryOptions.length === 0 ? (
+                                        <option value="" disabled>
+                                            Nenhuma categoria disponível
+                                        </option>
+                                    ) : (
+                                        stockCategoryOptions.map((option) => (
+                                            <option key={option.value} value={option.value}>
+                                                {option.label}
+                                            </option>
+                                        ))
+                                    )}
+                                </select>
+                                <span className="mt-2 block text-xs text-gray-500 dark:text-gray-400">
+                                    Selecione uma ou mais categorias para filtrar o relatório. Caso nenhuma seja escolhida,
+                                    todas as categorias serão consideradas.
+                                </span>
+                            </label>
+
+                            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                Intervalo de tempo
+                                <select
+                                    value={stockPeriodType}
+                                    onChange={(event) => setStockPeriodType(event.target.value)}
+                                    className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                                >
+                                    {PERIOD_TYPE_OPTIONS.map((option) => (
+                                        <option key={`stock-period-${option.value}`} value={option.value}>
+                                            {option.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        </div>
+
+                        {stockPeriodType === 'range' && (
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    Data inicial
+                                    <input
+                                        type="date"
+                                        value={stockStartDate}
+                                        onChange={(event) => setStockStartDate(event.target.value)}
+                                        className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                                    />
+                                </label>
+
+                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    Data final
+                                    <input
+                                        type="date"
+                                        value={stockEndDate}
+                                        onChange={(event) => setStockEndDate(event.target.value)}
+                                        className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                                    />
+                                </label>
+                            </div>
+                        )}
+
+                        {stockPeriodType === 'monthly' && (
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    Mês
+                                    <select
+                                        value={stockSelectedMonth}
+                                        onChange={(event) => setStockSelectedMonth(event.target.value)}
+                                        className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                                    >
+                                        {MONTH_OPTIONS.map((option) => (
+                                            <option key={`stock-month-${option.value}`} value={option.value}>
+                                                {option.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+
+                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    Ano
+                                    <select
+                                        value={stockSelectedYear}
+                                        onChange={(event) => setStockSelectedYear(event.target.value)}
+                                        className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                                    >
+                                        {yearOptions.map((year) => (
+                                            <option key={`stock-year-monthly-${year}`} value={year}>
+                                                {year}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                            </div>
+                        )}
+
+                        {stockPeriodType === 'yearly' && (
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    Ano
+                                    <select
+                                        value={stockSelectedYear}
+                                        onChange={(event) => setStockSelectedYear(event.target.value)}
+                                        className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                                    >
+                                        {yearOptions.map((year) => (
+                                            <option key={`stock-year-yearly-${year}`} value={year}>
+                                                {year}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                            </div>
+                        )}
+
+                        <div>
+                            <ReportExportControls
+                                variant="inline"
+                                selectedFormat={stockFormat}
+                                formats={DEFAULT_REPORT_FORMATS}
+                                onFormatChange={setStockFormat}
+                                onExport={handleExportStockReport}
+                                isExporting={isExportingStock}
+                                disableWhileExporting
+                            />
+                        </div>
                     </div>
                 </section>
 
