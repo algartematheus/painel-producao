@@ -131,6 +131,129 @@ const resolveDateFilter = (filters = {}) => {
     };
 };
 
+const STOCK_UNCATEGORIZED_ID = 'sem-categoria';
+const STOCK_PERIOD_LABELS = {
+    range: 'Intervalo personalizado',
+    monthly: 'Mensal',
+    yearly: 'Anual',
+};
+
+const formatMonthYearLabel = (monthValue, yearValue) => {
+    const parsedMonth = Number.parseInt(monthValue, 10);
+    const parsedYear = Number.parseInt(yearValue, 10);
+
+    if (!Number.isFinite(parsedMonth) || !Number.isFinite(parsedYear)) {
+        return '';
+    }
+
+    const monthIndex = Math.max(0, Math.min(11, parsedMonth - 1));
+    const date = new Date(parsedYear, monthIndex, 1);
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+
+    return date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+};
+
+const normalizeStockCategory = (docSnapshot) => {
+    if (!docSnapshot) {
+        return null;
+    }
+
+    const rawData = typeof docSnapshot.data === 'function' ? docSnapshot.data() : docSnapshot;
+    const id = String(docSnapshot.id ?? rawData?.id ?? '');
+    if (!id) {
+        return null;
+    }
+
+    const name = rawData?.name || rawData?.label || rawData?.title || id;
+
+    return {
+        id,
+        name,
+    };
+};
+
+const toDateOrNull = (value) => {
+    if (!value) {
+        return null;
+    }
+
+    if (value instanceof Date) {
+        return Number.isNaN(value.getTime()) ? null : value;
+    }
+
+    if (typeof value.toDate === 'function') {
+        const converted = value.toDate();
+        return Number.isNaN(converted?.getTime?.()) ? null : converted;
+    }
+
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const normalizeStockMovementType = (type) => {
+    const normalized = typeof type === 'string' ? type.trim().toLowerCase() : '';
+    if (!normalized) {
+        return 'saida';
+    }
+
+    if (normalized === 'entrada' || normalized === 'in' || normalized === 'input') {
+        return 'entrada';
+    }
+
+    if (
+        normalized === 'saida'
+        || normalized === 'saída'
+        || normalized === 'out'
+        || normalized === 'output'
+    ) {
+        return 'saida';
+    }
+
+    return normalized.includes('ent') ? 'entrada' : 'saida';
+};
+
+const buildStockPeriodKey = (date, periodType) => {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+        return 'sem-data';
+    }
+
+    if (periodType === 'yearly') {
+        return `${date.getFullYear()}`;
+    }
+
+    if (periodType === 'monthly') {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        return `${year}-${month}`;
+    }
+
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const buildStockPeriodLabel = (date, periodType, fallbackKey) => {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+        if (!fallbackKey || fallbackKey === 'sem-data') {
+            return 'Sem data';
+        }
+        return fallbackKey;
+    }
+
+    if (periodType === 'yearly') {
+        return `${date.getFullYear()}`;
+    }
+
+    if (periodType === 'monthly') {
+        return date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    }
+
+    return date.toLocaleDateString('pt-BR');
+};
+
 const resolveProductStandardTimeForDate = (product, referenceDate) => {
     if (!product) {
         return 0;
@@ -856,6 +979,247 @@ export const fetchDashboardPerformanceIndicators = async ({
         appliedFilters,
         selectedDate,
         currentMonth,
+    };
+};
+
+export const fetchStockCategories = async () => {
+    const snapshot = await getDocs(query(collection(db, 'stock/data/categories'), orderBy('name')));
+    return snapshot.docs
+        .map((docSnapshot) => normalizeStockCategory(docSnapshot))
+        .filter(Boolean);
+};
+
+export const fetchStockReportAggregates = async (filters = {}) => {
+    const resolvedFilters = filters || {};
+    const dateFilter = resolveDateFilter(resolvedFilters);
+    const predicate = dateFilter.filter || (() => true);
+
+    const [categoriesSnap, productsSnap, movementsSnap] = await Promise.all([
+        getDocs(query(collection(db, 'stock/data/categories'), orderBy('name'))),
+        getDocs(collection(db, 'stock/data/products')),
+        getDocs(query(collection(db, 'stock/data/movements'), orderBy('timestamp', 'asc'))),
+    ]);
+
+    const categories = categoriesSnap.docs
+        .map((docSnapshot) => normalizeStockCategory(docSnapshot))
+        .filter(Boolean);
+    const categoryLabelMap = new Map(categories.map((category) => [category.id, category.name]));
+
+    const selectedCategoryIds = Array.isArray(resolvedFilters.categories)
+        ? resolvedFilters.categories.map((value) => String(value)).filter(Boolean)
+        : [];
+    const relevantCategoryIds = selectedCategoryIds.length > 0
+        ? new Set(selectedCategoryIds)
+        : new Set(categories.map((category) => category.id));
+
+    const productCategoryMap = new Map();
+    const categoryCurrentStock = new Map();
+
+    productsSnap.docs.forEach((docSnapshot) => {
+        const data = docSnapshot.data() || {};
+        const productId = String(docSnapshot.id);
+        const categoryId = data.categoryId ? String(data.categoryId) : STOCK_UNCATEGORIZED_ID;
+        productCategoryMap.set(productId, categoryId);
+
+        const variations = Array.isArray(data.variations) ? data.variations : [];
+        const totalStock = variations.reduce((accumulator, variation) => {
+            const quantity = Number.parseFloat(variation?.currentStock ?? variation?.quantity ?? 0);
+            return accumulator + (Number.isFinite(quantity) ? quantity : 0);
+        }, 0);
+
+        categoryCurrentStock.set(
+            categoryId,
+            (categoryCurrentStock.get(categoryId) || 0) + totalStock,
+        );
+    });
+
+    const totalsByCategory = new Map();
+    const totalsByPeriod = new Map();
+
+    const initializeCategoryTotals = (categoryId) => {
+        if (!totalsByCategory.has(categoryId)) {
+            totalsByCategory.set(categoryId, {
+                categoryId,
+                incoming: 0,
+                outgoing: 0,
+                currentStock: categoryCurrentStock.get(categoryId) || 0,
+            });
+        }
+    };
+
+    if (relevantCategoryIds.size > 0) {
+        relevantCategoryIds.forEach((categoryId) => {
+            initializeCategoryTotals(categoryId);
+        });
+    } else {
+        categoryCurrentStock.forEach((value, categoryId) => {
+            totalsByCategory.set(categoryId, {
+                categoryId,
+                incoming: 0,
+                outgoing: 0,
+                currentStock: value,
+            });
+        });
+    }
+
+    movementsSnap.docs.forEach((docSnapshot) => {
+        const data = docSnapshot.data() || {};
+        const timestamp = toDateOrNull(data.timestamp);
+        if (!predicate(timestamp)) {
+            return;
+        }
+
+        const quantityRaw = Number.parseFloat(data.quantity ?? data.value ?? 0);
+        const quantity = Number.isFinite(quantityRaw) ? Math.abs(quantityRaw) : 0;
+        if (quantity === 0) {
+            return;
+        }
+
+        const productId = data.productId ? String(data.productId) : String(data.productBaseId ?? '');
+        const categoryId = productCategoryMap.get(productId) || STOCK_UNCATEGORIZED_ID;
+
+        if (relevantCategoryIds.size > 0 && !relevantCategoryIds.has(categoryId)) {
+            return;
+        }
+
+        initializeCategoryTotals(categoryId);
+
+        const normalizedType = normalizeStockMovementType(data.type);
+        const categoryTotals = totalsByCategory.get(categoryId);
+        if (normalizedType === 'entrada') {
+            categoryTotals.incoming += quantity;
+        } else {
+            categoryTotals.outgoing += quantity;
+        }
+
+        const periodKey = buildStockPeriodKey(timestamp, dateFilter.periodType);
+        if (!totalsByPeriod.has(periodKey)) {
+            totalsByPeriod.set(periodKey, {
+                key: periodKey,
+                timestamp,
+                incoming: 0,
+                outgoing: 0,
+            });
+        }
+
+        const periodTotals = totalsByPeriod.get(periodKey);
+        if (normalizedType === 'entrada') {
+            periodTotals.incoming += quantity;
+        } else {
+            periodTotals.outgoing += quantity;
+        }
+    });
+
+    if (selectedCategoryIds.length > 0) {
+        selectedCategoryIds.forEach((categoryId) => {
+            initializeCategoryTotals(categoryId);
+        });
+    }
+
+    const categorySummaries = Array.from(totalsByCategory.values())
+        .filter((entry) => {
+            if (relevantCategoryIds.size === 0) {
+                return true;
+            }
+            return relevantCategoryIds.has(entry.categoryId);
+        })
+        .map((entry) => ({
+            ...entry,
+            categoryName: categoryLabelMap.get(entry.categoryId)
+                || (entry.categoryId === STOCK_UNCATEGORIZED_ID ? 'Sem Categoria' : entry.categoryId),
+            balance: entry.incoming - entry.outgoing,
+        }))
+        .sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'pt-BR'));
+
+    const periodSummaries = Array.from(totalsByPeriod.values())
+        .map((entry) => ({
+            ...entry,
+            label: buildStockPeriodLabel(entry.timestamp, dateFilter.periodType, entry.key),
+            balance: entry.incoming - entry.outgoing,
+        }))
+        .sort((a, b) => {
+            if (a.timestamp && b.timestamp) {
+                return a.timestamp - b.timestamp;
+            }
+            return a.key.localeCompare(b.key);
+        });
+
+    const totalIncoming = categorySummaries.reduce((accumulator, entry) => accumulator + entry.incoming, 0);
+    const totalOutgoing = categorySummaries.reduce((accumulator, entry) => accumulator + entry.outgoing, 0);
+    const totalCurrentStock = categorySummaries.reduce((accumulator, entry) => accumulator + entry.currentStock, 0);
+    const totalBalance = totalIncoming - totalOutgoing;
+
+    const appliedFilters = {
+        categories: selectedCategoryIds,
+        periodType: dateFilter.periodType,
+        startDate: dateFilter.startDate ? formatDateToKey(dateFilter.startDate) : (resolvedFilters.startDate || ''),
+        endDate: dateFilter.endDate ? formatDateToKey(dateFilter.endDate) : (resolvedFilters.endDate || ''),
+        month: dateFilter.month ? String(dateFilter.month).padStart(2, '0') : (resolvedFilters.month || ''),
+        year: dateFilter.year ? String(dateFilter.year) : (resolvedFilters.year || ''),
+    };
+
+    let periodLabel = '';
+    if (dateFilter.periodType === 'monthly' && dateFilter.month && dateFilter.year) {
+        periodLabel = formatMonthYearLabel(dateFilter.month, dateFilter.year);
+    } else if (dateFilter.periodType === 'yearly' && dateFilter.year) {
+        periodLabel = String(dateFilter.year);
+    } else if (dateFilter.startDate || dateFilter.endDate) {
+        const start = dateFilter.startDate ? formatDateToKey(dateFilter.startDate) : 'inicio';
+        const end = dateFilter.endDate ? formatDateToKey(dateFilter.endDate) : 'fim';
+        periodLabel = `${start}_a_${end}`;
+    }
+
+    const filtersSummary = {};
+    if (appliedFilters.categories && appliedFilters.categories.length > 0) {
+        filtersSummary.categorias = appliedFilters.categories.map((categoryId) => (
+            categoryLabelMap.get(categoryId)
+            || (categoryId === STOCK_UNCATEGORIZED_ID ? 'Sem Categoria' : categoryId)
+        ));
+    }
+
+    if (appliedFilters.periodType) {
+        filtersSummary.periodicidade = STOCK_PERIOD_LABELS[appliedFilters.periodType]
+            || appliedFilters.periodType;
+    }
+
+    if (appliedFilters.periodType === 'monthly') {
+        if (appliedFilters.month) {
+            const monthLabel = formatMonthYearLabel(
+                appliedFilters.month,
+                appliedFilters.year || new Date().getFullYear(),
+            );
+            filtersSummary.mes = monthLabel || appliedFilters.month;
+        }
+        if (appliedFilters.year) {
+            filtersSummary.ano = appliedFilters.year;
+        }
+    } else if (appliedFilters.periodType === 'yearly') {
+        if (appliedFilters.year) {
+            filtersSummary.ano = appliedFilters.year;
+        }
+    } else {
+        if (appliedFilters.startDate) {
+            filtersSummary.dataInicial = appliedFilters.startDate;
+        }
+        if (appliedFilters.endDate) {
+            filtersSummary.dataFinal = appliedFilters.endDate;
+        }
+    }
+
+    return {
+        categories,
+        categorySummaries,
+        periodSummaries,
+        summary: {
+            totalIncoming,
+            totalOutgoing,
+            totalBalance,
+            totalCurrentStock,
+        },
+        appliedFilters,
+        filtersSummary,
+        periodLabel,
+        generatedAt: new Date(),
     };
 };
 
