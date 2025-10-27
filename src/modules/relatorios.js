@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { FileText, Layers, Warehouse } from 'lucide-react';
 import HeaderContainer from '../components/HeaderContainer';
 import GlobalNavigation from '../components/GlobalNavigation';
@@ -15,9 +15,88 @@ import {
     exportSequenciaOperacionalPDF,
 } from './shared';
 
-const buildDefaultFiltersSummary = (dashboardName) => ({
-    dashboardName,
-});
+const MONTH_OPTIONS = [
+    { value: '01', label: 'Janeiro' },
+    { value: '02', label: 'Fevereiro' },
+    { value: '03', label: 'Março' },
+    { value: '04', label: 'Abril' },
+    { value: '05', label: 'Maio' },
+    { value: '06', label: 'Junho' },
+    { value: '07', label: 'Julho' },
+    { value: '08', label: 'Agosto' },
+    { value: '09', label: 'Setembro' },
+    { value: '10', label: 'Outubro' },
+    { value: '11', label: 'Novembro' },
+    { value: '12', label: 'Dezembro' },
+];
+
+const MONTH_LABEL_MAP = MONTH_OPTIONS.reduce((accumulator, option) => {
+    accumulator[option.value] = option.label;
+    return accumulator;
+}, {});
+
+const PERIOD_TYPE_OPTIONS = [
+    { value: 'range', label: 'Intervalo personalizado' },
+    { value: 'monthly', label: 'Mensal' },
+    { value: 'yearly', label: 'Anual' },
+];
+
+const PERIOD_TYPE_LABEL_MAP = PERIOD_TYPE_OPTIONS.reduce((accumulator, option) => {
+    accumulator[option.value] = option.label;
+    return accumulator;
+}, {});
+
+const buildProductionFiltersSummary = (dashboardName, filters = {}, productOptions = []) => {
+    const summary = {};
+
+    if (dashboardName) {
+        summary.dashboardName = dashboardName;
+    }
+
+    const productIds = Array.isArray(filters.products) ? filters.products.filter(Boolean) : [];
+    if (productIds.length > 0) {
+        const productLabelMap = new Map(
+            (productOptions || []).map((option) => [String(option.value), option.label || String(option.value)])
+        );
+        summary.produtos = productIds.map((productId) => productLabelMap.get(String(productId)) || productId);
+    }
+
+    if (filters.periodType) {
+        summary.periodicidade = PERIOD_TYPE_LABEL_MAP[filters.periodType] || filters.periodType;
+    }
+
+    if (filters.periodType === 'range') {
+        if (filters.startDate) {
+            summary.dataInicial = filters.startDate;
+        }
+        if (filters.endDate) {
+            summary.dataFinal = filters.endDate;
+        }
+    }
+
+    if (filters.periodType === 'monthly') {
+        if (filters.month) {
+            summary.mes = MONTH_LABEL_MAP[filters.month] || filters.month;
+        }
+        if (filters.year) {
+            summary.ano = filters.year;
+        }
+    }
+
+    if (filters.periodType === 'yearly' && filters.year) {
+        summary.ano = filters.year;
+    }
+
+    if (typeof filters.includeTravetes === 'boolean') {
+        summary.incluirTravetes = filters.includeTravetes ? 'Sim' : 'Não';
+    }
+
+    if (typeof filters.includeOnlyCompletedLots === 'boolean') {
+        summary.somenteLotesConcluidos = filters.includeOnlyCompletedLots ? 'Sim' : 'Não';
+    }
+
+    return summary;
+};
 
 const ReportsModule = ({
     dashboards = [],
@@ -34,6 +113,20 @@ const ReportsModule = ({
     const [isExportingSequence, setIsExportingSequence] = useState(false);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [exportSettings, setExportSettings] = useState(DEFAULT_EXPORT_SETTINGS);
+    const [selectedProductIds, setSelectedProductIds] = useState([]);
+    const [selectedPeriodType, setSelectedPeriodType] = useState('range');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+    const [selectedMonth, setSelectedMonth] = useState(() =>
+        String(new Date().getMonth() + 1).padStart(2, '0')
+    );
+    const [selectedYear, setSelectedYear] = useState(() => String(new Date().getFullYear()));
+    const [includeTravetes, setIncludeTravetes] = useState(true);
+    const [includeOnlyCompletedLots, setIncludeOnlyCompletedLots] = useState(false);
+
+    useEffect(() => {
+        setSelectedProductIds([]);
+    }, [selectedDashboardId]);
 
     const selectedDashboard = useMemo(() => {
         if (!dashboards || dashboards.length === 0) {
@@ -41,6 +134,88 @@ const ReportsModule = ({
         }
         return dashboards.find((dashboard) => dashboard.id === selectedDashboardId) || dashboards[0];
     }, [dashboards, selectedDashboardId]);
+
+    const availableProductOptions = useMemo(() => {
+        if (!selectedDashboard) {
+            return [];
+        }
+
+        const rawProducts =
+            selectedDashboard.products ||
+            selectedDashboard.productOptions ||
+            selectedDashboard.availableProducts ||
+            [];
+
+        if (!Array.isArray(rawProducts)) {
+            return [];
+        }
+
+        return rawProducts.map((product, index) => {
+            if (!product || typeof product !== 'object') {
+                const value = String(product ?? index);
+                return { value, label: value };
+            }
+
+            const value =
+                product.id ??
+                product.value ??
+                product.codigo ??
+                product.codigoSap ??
+                product.sku ??
+                product.nome ??
+                product.name ??
+                index;
+
+            const label =
+                product.name ??
+                product.nome ??
+                product.label ??
+                product.descricao ??
+                product.description ??
+                product.titulo ??
+                product.title ??
+                String(value);
+
+            return {
+                value: String(value),
+                label: String(label),
+            };
+        });
+    }, [selectedDashboard]);
+
+    useEffect(() => {
+        setSelectedProductIds((currentIds) =>
+            currentIds.filter((id) => availableProductOptions.some((option) => option.value === id))
+        );
+    }, [availableProductOptions]);
+
+    const yearOptions = useMemo(() => {
+        const currentYearValue = new Date().getFullYear();
+        return Array.from({ length: 6 }, (_, index) => String(currentYearValue - index));
+    }, []);
+
+    const productionFilters = useMemo(
+        () => ({
+            products: selectedProductIds,
+            periodType: selectedPeriodType,
+            startDate,
+            endDate,
+            month: selectedMonth,
+            year: selectedYear,
+            includeTravetes,
+            includeOnlyCompletedLots,
+        }),
+        [
+            selectedProductIds,
+            selectedPeriodType,
+            startDate,
+            endDate,
+            selectedMonth,
+            selectedYear,
+            includeTravetes,
+            includeOnlyCompletedLots,
+        ]
+    );
 
     const resolvedExportSettings = useMemo(() => ({
         ...DEFAULT_EXPORT_SETTINGS,
@@ -93,7 +268,7 @@ const ReportsModule = ({
         setIsSettingsModalOpen(false);
     }, []);
 
-    const handleExportProductionReport = useCallback(async (format = productionFormat) => {
+    const handleExportProductionReport = useCallback(async (format = productionFormat, overrideFilters = null) => {
         if (!selectedDashboard) {
             if (typeof window !== 'undefined') {
                 window.alert('Selecione um quadro para exportar.');
@@ -104,9 +279,16 @@ const ReportsModule = ({
         setIsExportingProduction(true);
         try {
             const exportFormat = format || productionFormat;
+            const filters = overrideFilters || productionFilters;
+            const filtersSummary = buildProductionFiltersSummary(
+                selectedDashboard.name,
+                filters,
+                availableProductOptions
+            );
             const exportOptions = {
                 dashboardName: selectedDashboard.name,
-                filtersSummary: buildDefaultFiltersSummary(selectedDashboard.name),
+                filters,
+                filtersSummary,
                 summary: {},
                 monthlySummary: {},
                 dailyEntries: [],
@@ -131,7 +313,13 @@ const ReportsModule = ({
         } finally {
             setIsExportingProduction(false);
         }
-    }, [productionFormat, resolvedExportSettings, selectedDashboard]);
+    }, [
+        availableProductOptions,
+        productionFilters,
+        productionFormat,
+        resolvedExportSettings,
+        selectedDashboard,
+    ]);
 
     const handleExportStockReport = useCallback(async (format = stockFormat) => {
         setIsExportingStock(true);
@@ -208,21 +396,164 @@ const ReportsModule = ({
                             <h2 className="text-xl font-semibold">Relatórios de Produção</h2>
                             <p className="text-sm text-gray-500 dark:text-gray-400">Exportar dados consolidados dos quadros selecionados.</p>
                         </div>
-                        <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
-                            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                Quadro
-                                <select
-                                    value={selectedDashboard?.id || ''}
-                                    onChange={(event) => setSelectedDashboardId(event.target.value)}
-                                    className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
-                                >
-                                    {(dashboards || []).map((dashboard) => (
-                                        <option key={dashboard.id} value={dashboard.id}>
-                                            {dashboard.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
+                        <div className="flex w-full flex-col gap-4">
+                            <div className="grid w-full gap-4 md:grid-cols-2">
+                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    Quadro
+                                    <select
+                                        value={selectedDashboard?.id || ''}
+                                        onChange={(event) => setSelectedDashboardId(event.target.value)}
+                                        className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                                    >
+                                        {(dashboards || []).map((dashboard) => (
+                                            <option key={dashboard.id} value={dashboard.id}>
+                                                {dashboard.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+
+                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    Produto(s)
+                                    <select
+                                        multiple
+                                        value={selectedProductIds}
+                                        onChange={(event) =>
+                                            setSelectedProductIds(
+                                                Array.from(event.target.selectedOptions).map((option) => option.value)
+                                            )
+                                        }
+                                        disabled={availableProductOptions.length === 0}
+                                        className="mt-1 block h-28 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                                    >
+                                        {availableProductOptions.length === 0 ? (
+                                            <option value="" disabled>
+                                                Nenhum produto disponível
+                                            </option>
+                                        ) : (
+                                            availableProductOptions.map((product) => (
+                                                <option key={product.value} value={product.value}>
+                                                    {product.label}
+                                                </option>
+                                            ))
+                                        )}
+                                    </select>
+                                </label>
+                            </div>
+
+                            <div className="grid w-full gap-4 md:grid-cols-3">
+                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    Periodicidade
+                                    <select
+                                        value={selectedPeriodType}
+                                        onChange={(event) => setSelectedPeriodType(event.target.value)}
+                                        className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                                    >
+                                        {PERIOD_TYPE_OPTIONS.map((option) => (
+                                            <option key={option.value} value={option.value}>
+                                                {option.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+
+                                {selectedPeriodType === 'range' && (
+                                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                        Data inicial
+                                        <input
+                                            type="date"
+                                            value={startDate}
+                                            onChange={(event) => setStartDate(event.target.value)}
+                                            className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                                        />
+                                    </label>
+                                )}
+
+                                {selectedPeriodType === 'range' && (
+                                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                        Data final
+                                        <input
+                                            type="date"
+                                            value={endDate}
+                                            onChange={(event) => setEndDate(event.target.value)}
+                                            className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                                        />
+                                    </label>
+                                )}
+
+                                {selectedPeriodType === 'monthly' && (
+                                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                        Mês
+                                        <select
+                                            value={selectedMonth}
+                                            onChange={(event) => setSelectedMonth(event.target.value)}
+                                            className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                                        >
+                                            {MONTH_OPTIONS.map((option) => (
+                                                <option key={option.value} value={option.value}>
+                                                    {option.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                )}
+
+                                {selectedPeriodType === 'monthly' && (
+                                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                        Ano
+                                        <select
+                                            value={selectedYear}
+                                            onChange={(event) => setSelectedYear(event.target.value)}
+                                            className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                                        >
+                                            {yearOptions.map((year) => (
+                                                <option key={year} value={year}>
+                                                    {year}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                )}
+
+                                {selectedPeriodType === 'yearly' && (
+                                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                        Ano
+                                        <select
+                                            value={selectedYear}
+                                            onChange={(event) => setSelectedYear(event.target.value)}
+                                            className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800"
+                                        >
+                                            {yearOptions.map((year) => (
+                                                <option key={year} value={year}>
+                                                    {year}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                )}
+                            </div>
+
+                            <div className="flex flex-wrap gap-4">
+                                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    <input
+                                        type="checkbox"
+                                        checked={includeTravetes}
+                                        onChange={(event) => setIncludeTravetes(event.target.checked)}
+                                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    Incluir travetes
+                                </label>
+
+                                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    <input
+                                        type="checkbox"
+                                        checked={includeOnlyCompletedLots}
+                                        onChange={(event) => setIncludeOnlyCompletedLots(event.target.checked)}
+                                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    Somente lotes concluídos
+                                </label>
+                            </div>
                         </div>
                     </header>
 
