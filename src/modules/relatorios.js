@@ -14,6 +14,7 @@ import {
     exportDashboardPerformanceCSV,
     exportSequenciaOperacionalPDF,
 } from './shared';
+import { fetchDashboardPerformanceIndicators } from './reportData';
 
 const MONTH_OPTIONS = [
     { value: '01', label: 'Janeiro' },
@@ -280,21 +281,29 @@ const ReportsModule = ({
         try {
             const exportFormat = format || productionFormat;
             const filters = overrideFilters || productionFilters;
+            const aggregatedData = await fetchDashboardPerformanceIndicators({
+                dashboardId: selectedDashboard.id,
+                filters,
+            });
+            const appliedFilters = aggregatedData?.appliedFilters || filters;
             const filtersSummary = buildProductionFiltersSummary(
                 selectedDashboard.name,
-                filters,
+                appliedFilters,
                 availableProductOptions
             );
             const exportOptions = {
                 dashboardName: selectedDashboard.name,
-                filters,
+                filters: appliedFilters,
                 filtersSummary,
-                summary: {},
-                monthlySummary: {},
-                dailyEntries: [],
-                traveteEntries: [],
-                lotSummary: {},
-                monthlyBreakdown: [],
+                summary: aggregatedData?.summary || {},
+                monthlySummary: aggregatedData?.monthlySummary || {},
+                dailyEntries: aggregatedData?.dailyEntries || [],
+                traveteEntries: aggregatedData?.traveteEntries || [],
+                lotSummary: aggregatedData?.lotSummary || {},
+                monthlyBreakdown: aggregatedData?.monthlyBreakdown || [],
+                isTraveteDashboard: aggregatedData?.isTraveteDashboard || false,
+                selectedDate: aggregatedData?.selectedDate,
+                currentMonth: aggregatedData?.currentMonth,
                 exportSettings: { ...resolvedExportSettings, format: exportFormat },
             };
 
