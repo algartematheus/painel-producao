@@ -326,6 +326,8 @@ const buildDashboardReportSections = ({
             header: ['Indicador', 'Valor'],
             rows: dailySummaryRows,
             columnStyles: { 0: { halign: 'left' } },
+            efficiencyColumns: [1],
+            efficiencyRowIndexes: [2, 3],
         });
 
         if (isTraveteDashboard) {
@@ -345,6 +347,7 @@ const buildDashboardReportSections = ({
                     header: ['Operador', 'Produção Acum.', 'Meta Acum.', 'Eficiência Média'],
                     rows: individualRows,
                     columnStyles: { 0: { halign: 'left' } },
+                    efficiencyColumns: [3],
                 });
             }
         }
@@ -363,6 +366,8 @@ const buildDashboardReportSections = ({
             header: ['Indicador', 'Valor'],
             rows: monthlyRows,
             columnStyles: { 0: { halign: 'left' } },
+            efficiencyColumns: [1],
+            efficiencyRowIndexes: [2],
         });
 
         if (Array.isArray(monthlyBreakdown) && monthlyBreakdown.length > 0) {
@@ -385,6 +390,7 @@ const buildDashboardReportSections = ({
                     header: ['Dia', 'Produção', 'Meta', 'Eficiência Média'],
                     rows: monthlyBody,
                     columnStyles: { 0: { halign: 'left' } },
+                    efficiencyColumns: [3],
                 });
             }
         }
@@ -426,6 +432,7 @@ const buildDashboardReportSections = ({
                     ],
                     rows: traveteBody,
                     columnStyles: { 0: { halign: 'left' }, 7: { halign: 'left' }, 8: { halign: 'left' } },
+                    efficiencyColumns: [3, 6],
                 });
             }
         } else if (Array.isArray(dailyEntries) && dailyEntries.length > 0) {
@@ -457,6 +464,7 @@ const buildDashboardReportSections = ({
                 ],
                 rows: dailyBody,
                 columnStyles: { 0: { halign: 'left' }, 1: { halign: 'left' }, 8: { halign: 'left' } },
+                efficiencyColumns: [4, 7],
             });
         }
     }
@@ -480,6 +488,7 @@ const buildDashboardReportSections = ({
             footerText: (Number.isFinite(lotSummary.overallAverage) && lotSummary.overallAverage > 0)
                 ? `Média diária combinada dos lotes concluídos: ${formatLocaleNumber(lotSummary.overallAverage)} peças`
                 : null,
+            efficiencyColumns: [3],
         });
     }
 
@@ -498,6 +507,7 @@ const buildDashboardReportSections = ({
             header: ['Lote', 'Produzido', 'Meta', 'Eficiência', 'Status'],
             rows: activeBody,
             columnStyles: { 0: { halign: 'left' }, 4: { halign: 'left' } },
+            efficiencyColumns: [3],
         });
     }
 
@@ -509,6 +519,73 @@ const buildDashboardReportFilename = (dashboardName, selectedDate, extension) =>
     const safeDateLabel = formatDateForFilename(selectedDate);
     return `Relatorio_${safeDashboardName}_${safeDateLabel}.${extension}`;
 };
+
+const parseEfficiencyValue = (value) => {
+    if (value === null || value === undefined) {
+        return null;
+    }
+
+    if (typeof value === 'number') {
+        if (!Number.isFinite(value)) {
+            return null;
+        }
+        return value > 1 ? value : value * 100;
+    }
+
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed) {
+            return null;
+        }
+
+        const hasPercent = trimmed.includes('%');
+        let numericString = trimmed.replace(/%/g, '').replace(/\s+/g, '');
+        if (!numericString) {
+            return null;
+        }
+
+        const hasComma = numericString.includes(',');
+        const hasDot = numericString.includes('.');
+
+        if (hasComma && hasDot) {
+            numericString = numericString.replace(/\./g, '').replace(',', '.');
+        } else if (hasComma && !hasDot) {
+            numericString = numericString.replace(',', '.');
+        }
+
+        const parsed = Number.parseFloat(numericString);
+        if (!Number.isFinite(parsed)) {
+            return null;
+        }
+
+        if (hasPercent || parsed > 1) {
+            return parsed;
+        }
+
+        return parsed * 100;
+    }
+
+    return null;
+};
+
+const shouldHighlightEfficiencyCell = (section, columnIndex, rowIndex) => {
+    if (!section || !Array.isArray(section.efficiencyColumns)) {
+        return false;
+    }
+
+    if (!section.efficiencyColumns.includes(columnIndex)) {
+        return false;
+    }
+
+    if (Array.isArray(section.efficiencyRowIndexes)) {
+        return section.efficiencyRowIndexes.includes(rowIndex);
+    }
+
+    return true;
+};
+
+const EFFICIENCY_LOW_COLOR = [239, 68, 68];
+const EFFICIENCY_HIGH_COLOR = [22, 163, 74];
 
 const escapeCsvValue = (value) => {
     if (value === null || value === undefined) {
@@ -1182,6 +1259,34 @@ export const exportDashboardPerformancePDF = (options = {}) => {
                 if (section.header && section.header.length > 0) {
                     tableConfig.head = [section.header];
                 }
+
+                tableConfig.didParseCell = (data) => {
+                    if (!data || data.section !== 'body') {
+                        return;
+                    }
+
+                    const { row, column, cell } = data;
+                    if (!shouldHighlightEfficiencyCell(section, column.index, row.index)) {
+                        return;
+                    }
+
+                    const rawValue = cell?.raw ?? (Array.isArray(cell?.text) ? cell.text.join(' ') : cell?.text);
+                    const efficiencyValue = parseEfficiencyValue(rawValue);
+
+                    if (efficiencyValue === null) {
+                        return;
+                    }
+
+                    if (!cell.styles) {
+                        // eslint-disable-next-line no-param-reassign
+                        data.cell.styles = {};
+                    }
+
+                    // eslint-disable-next-line no-param-reassign
+                    data.cell.styles.textColor = efficiencyValue < 65
+                        ? EFFICIENCY_LOW_COLOR
+                        : EFFICIENCY_HIGH_COLOR;
+                };
 
                 doc.autoTable(tableConfig);
                 currentY = (doc.lastAutoTable && doc.lastAutoTable.finalY)
