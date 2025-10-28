@@ -127,6 +127,8 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
         const baseTwoNeedleMinutes = Number.isFinite(safeTraveteMinutes['Travete 2 Agulhas'])
             ? parseFloat(safeTraveteMinutes['Travete 2 Agulhas'].toFixed(4))
             : 0;
+        const cloneBillOfMaterials = (items = []) => items.map(item => ({ ...item }));
+        const baseBillOfMaterials = [];
 
         dashboards.forEach((dashboard) => {
             if (dashboard.id === 'travete') {
@@ -154,6 +156,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
                         machineType: config.machineType,
                         variationMultiplier: multiplier,
                         standardTime: minutesValue,
+                        billOfMaterials: cloneBillOfMaterials(baseBillOfMaterials),
                         createdAt: creationIso,
                         createdBy: actor,
                     };
@@ -187,6 +190,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
                 baseProductId: baseId,
                 baseProductName: trimmedName,
                 standardTime: safeProductionMinutes,
+                billOfMaterials: cloneBillOfMaterials(baseBillOfMaterials),
                 createdAt: creationIso,
                 createdBy: actor,
             };
