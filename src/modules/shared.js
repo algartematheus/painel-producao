@@ -1183,6 +1183,7 @@ export const exportDashboardPerformancePDF = (options = {}) => {
 
             doc.setFontSize(16);
             doc.text(`Relatório de Desempenho - ${dashboardName}`, centerX, 20, { align: 'center' });
+            const PAGE_CONTENT_START_Y = 34;
             let currentY = 26;
 
             if (filtersRows.length > 0) {
@@ -1231,7 +1232,7 @@ export const exportDashboardPerformancePDF = (options = {}) => {
                 if (currentY > doc.internal.pageSize.getHeight() - 40) {
                     doc.addPage();
                     ensureLogo();
-                    currentY = 20;
+                    currentY = PAGE_CONTENT_START_Y;
                 }
                 if (section.title) {
                     doc.setFontSize(12);
@@ -1303,7 +1304,7 @@ export const exportDashboardPerformancePDF = (options = {}) => {
                     if (currentY > doc.internal.pageSize.getHeight() - 20) {
                         doc.addPage();
                         ensureLogo();
-                        currentY = 20;
+                        currentY = PAGE_CONTENT_START_Y;
                     }
                     doc.setFontSize(10);
                     doc.text(section.footerText, 15, currentY);
@@ -1580,14 +1581,15 @@ export const exportStockReportPDF = async (options = {}) => {
     doc.setFontSize(10);
     doc.text(`Gerado em: ${generatedAtDate.toLocaleString('pt-BR')}`, 15, 28);
 
-    let currentY = 34;
+    const PAGE_CONTENT_START_Y = 34;
+    let currentY = PAGE_CONTENT_START_Y;
 
     const ensureSpace = (nextHeight = 40) => {
         const pageHeight = doc.internal.pageSize.getHeight();
         if (currentY + nextHeight > pageHeight - 20) {
             doc.addPage();
             ensureLogo();
-            currentY = 20;
+            currentY = PAGE_CONTENT_START_Y;
         }
     };
 
