@@ -203,7 +203,6 @@ const applyBillOfMaterialsMovements = async ({
     batch,
     productionDetails,
     productSources = [],
-    stockProducts = [],
     sourceEntryId,
     user,
     movementTimestamp,
@@ -2221,7 +2220,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 batch,
                 productionDetails: traveteEntrySummary.productionDetails,
                 productSources: [products, productsForSelectedDate],
-                stockProducts,
                 sourceEntryId: entryId,
                 user,
                 movementTimestamp: now,
@@ -2299,7 +2297,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             batch,
             productionDetails,
             productSources: [productsForSelectedDate, products],
-            stockProducts,
             sourceEntryId: entryId,
             user,
             movementTimestamp: now,
@@ -2313,7 +2310,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         setNewEntry({ period: '', people: '', availableTime: 60, productId: newEntry.productId, productions: [] });
         setUrgentProduction({productId: '', produced: ''});
         setShowUrgent(false);
-    }, [currentDashboard, isTraveteDashboard, traveteEntrySummary, traveteEntry, allProductionData, dateKey, lots, user, isEntryFormValid, showUrgent, urgentProduction, predictedLots, newEntry, goalPreview, productsForSelectedDate, products, stockProducts]);
+    }, [currentDashboard, isTraveteDashboard, traveteEntrySummary, traveteEntry, allProductionData, dateKey, lots, user, isEntryFormValid, showUrgent, urgentProduction, predictedLots, newEntry, goalPreview, productsForSelectedDate, products]);
     
     
     const handleSaveTraveteEntry = async (entryId, updatedData) => {
@@ -2386,7 +2383,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 batch,
                 productionDetails: stockDeltaDetails,
                 productSources: [products, productsForSelectedDate],
-                stockProducts,
                 sourceEntryId: entryId,
                 user,
                 movementTimestamp: now,
@@ -2497,7 +2493,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
               batch,
               productionDetails: stockDeltaDetails,
               productSources: [productsForSelectedDate, products],
-              stockProducts,
               sourceEntryId: entryId,
               user,
               movementTimestamp: now,
@@ -2675,7 +2670,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                   batch,
                   productionDetails: originalDoc.productionDetails,
                   productSources: [productsForSelectedDate, products],
-                  stockProducts,
                   sourceEntryId: originalDoc.id,
                   user,
                   movementTimestamp: Timestamp.now(),
