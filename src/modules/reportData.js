@@ -1014,6 +1014,7 @@ export const fetchStockReportAggregates = async (filters = {}) => {
 
     const productCategoryMap = new Map();
     const categoryCurrentStock = new Map();
+    const categoryMinStock = new Map();
 
     productsSnap.docs.forEach((docSnapshot) => {
         const data = docSnapshot.data() || {};
@@ -1031,6 +1032,13 @@ export const fetchStockReportAggregates = async (filters = {}) => {
             categoryId,
             (categoryCurrentStock.get(categoryId) || 0) + totalStock,
         );
+
+        const minStockRaw = Number.parseFloat(data.minStock ?? data.minimumStock ?? 0);
+        const productMinStock = Number.isFinite(minStockRaw) ? minStockRaw : 0;
+        categoryMinStock.set(
+            categoryId,
+            (categoryMinStock.get(categoryId) || 0) + productMinStock,
+        );
     });
 
     const totalsByCategory = new Map();
@@ -1043,6 +1051,7 @@ export const fetchStockReportAggregates = async (filters = {}) => {
                 incoming: 0,
                 outgoing: 0,
                 currentStock: categoryCurrentStock.get(categoryId) || 0,
+                minStock: categoryMinStock.get(categoryId) || 0,
             });
         }
     };
@@ -1058,6 +1067,7 @@ export const fetchStockReportAggregates = async (filters = {}) => {
                 incoming: 0,
                 outgoing: 0,
                 currentStock: value,
+                minStock: categoryMinStock.get(categoryId) || 0,
             });
         });
     }
@@ -1123,12 +1133,16 @@ export const fetchStockReportAggregates = async (filters = {}) => {
             }
             return relevantCategoryIds.has(entry.categoryId);
         })
-        .map((entry) => ({
-            ...entry,
-            categoryName: categoryLabelMap.get(entry.categoryId)
-                || (entry.categoryId === STOCK_UNCATEGORIZED_ID ? 'Sem Categoria' : entry.categoryId),
-            balance: entry.incoming - entry.outgoing,
-        }))
+        .map((entry) => {
+            const normalizedMinStock = Number(entry.minStock);
+            return {
+                ...entry,
+                minStock: Number.isFinite(normalizedMinStock) ? normalizedMinStock : 0,
+                categoryName: categoryLabelMap.get(entry.categoryId)
+                    || (entry.categoryId === STOCK_UNCATEGORIZED_ID ? 'Sem Categoria' : entry.categoryId),
+                balance: entry.incoming - entry.outgoing,
+            };
+        })
         .sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'pt-BR'));
 
     const periodSummaries = Array.from(totalsByPeriod.values())
@@ -1148,6 +1162,13 @@ export const fetchStockReportAggregates = async (filters = {}) => {
     const totalOutgoing = categorySummaries.reduce((accumulator, entry) => accumulator + entry.outgoing, 0);
     const totalCurrentStock = categorySummaries.reduce((accumulator, entry) => accumulator + entry.currentStock, 0);
     const totalBalance = totalIncoming - totalOutgoing;
+    const totalMinStock = categorySummaries.reduce(
+        (accumulator, entry) => {
+            const numericMinStock = Number(entry.minStock);
+            return accumulator + (Number.isFinite(numericMinStock) ? numericMinStock : 0);
+        },
+        0,
+    );
 
     const appliedFilters = {
         categories: selectedCategoryIds,
@@ -1215,6 +1236,7 @@ export const fetchStockReportAggregates = async (filters = {}) => {
             totalOutgoing,
             totalBalance,
             totalCurrentStock,
+            totalMinStock,
         },
         appliedFilters,
         filtersSummary,

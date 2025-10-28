@@ -1494,6 +1494,7 @@ const buildStockSummaryRows = (summary = {}) => ([
     ['Saídas Totais', formatLocaleNumber(summary.totalOutgoing)],
     ['Saldo do Período', formatLocaleNumber(summary.totalBalance)],
     ['Estoque Atual', formatLocaleNumber(summary.totalCurrentStock)],
+    ['Estoque Mínimo Total', formatLocaleNumber(summary.totalMinStock)],
 ]);
 
 export const exportStockReportPDF = async (options = {}) => {
@@ -1508,12 +1509,25 @@ export const exportStockReportPDF = async (options = {}) => {
 
     const filtersRows = buildStockFiltersRows(filtersSummary);
     const filterTableRows = filtersRows.map((row) => [row.label, row.value]);
+    const toNumeric = (value) => {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : 0;
+    };
+
     const categoryRows = categorySummaries.map((entry) => ([
         entry.categoryName,
         formatLocaleNumber(entry.incoming),
         formatLocaleNumber(entry.outgoing),
         formatLocaleNumber(entry.balance),
-        formatLocaleNumber(entry.currentStock),
+        {
+            content: formatLocaleNumber(entry.currentStock),
+            rawValue: toNumeric(entry.currentStock),
+            minStock: toNumeric(entry.minStock),
+        },
+        {
+            content: formatLocaleNumber(entry.minStock),
+            rawValue: toNumeric(entry.minStock),
+        },
     ]));
 
     if (categorySummaries.length > 0) {
@@ -1522,7 +1536,15 @@ export const exportStockReportPDF = async (options = {}) => {
             formatLocaleNumber(summary.totalIncoming),
             formatLocaleNumber(summary.totalOutgoing),
             formatLocaleNumber(summary.totalBalance),
-            formatLocaleNumber(summary.totalCurrentStock),
+            {
+                content: formatLocaleNumber(summary.totalCurrentStock),
+                rawValue: toNumeric(summary.totalCurrentStock),
+                minStock: toNumeric(summary.totalMinStock),
+            },
+            {
+                content: formatLocaleNumber(summary.totalMinStock),
+                rawValue: toNumeric(summary.totalMinStock),
+            },
         ]);
     }
 
@@ -1610,7 +1632,7 @@ export const exportStockReportPDF = async (options = {}) => {
         currentY += 4;
         doc.autoTable({
             startY: currentY,
-            head: [['Categoria', 'Entradas', 'Saídas', 'Saldo', 'Estoque Atual']],
+            head: [['Categoria', 'Entradas', 'Saídas', 'Saldo', 'Estoque Atual', 'Estoque Mínimo']],
             body: categoryRows,
             theme: 'grid',
             styles: {
@@ -1627,6 +1649,19 @@ export const exportStockReportPDF = async (options = {}) => {
                 0: { halign: 'left' },
                 3: { halign: 'right' },
                 4: { halign: 'right' },
+                5: { halign: 'right' },
+            },
+            didParseCell: (data) => {
+                if (data.section === 'body' && data.column.index === 4) {
+                    const rawCell = data.cell.raw || {};
+                    const currentValue = Number(rawCell.rawValue);
+                    const minValue = Number(rawCell.minStock);
+                    if (Number.isFinite(currentValue) && Number.isFinite(minValue)) {
+                        data.cell.styles.textColor = currentValue < minValue
+                            ? [239, 68, 68]
+                            : [22, 163, 74];
+                    }
+                }
             },
         });
         currentY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 8 : currentY + 12;
@@ -1687,15 +1722,23 @@ export const exportStockReportXLSX = async (options = {}) => {
 
     if (categorySummaries.length > 0) {
         const categorySheetData = [
-            ['Categoria', 'Entradas', 'Saídas', 'Saldo', 'Estoque Atual'],
+            ['Categoria', 'Entradas', 'Saídas', 'Saldo', 'Estoque Atual', 'Estoque Mínimo'],
             ...categorySummaries.map((entry) => ([
                 entry.categoryName,
                 entry.incoming,
                 entry.outgoing,
                 entry.balance,
                 entry.currentStock,
+                entry.minStock,
             ])),
-            ['Totais', summary.totalIncoming, summary.totalOutgoing, summary.totalBalance, summary.totalCurrentStock],
+            [
+                'Totais',
+                summary.totalIncoming,
+                summary.totalOutgoing,
+                summary.totalBalance,
+                summary.totalCurrentStock,
+                summary.totalMinStock,
+            ],
         ];
         const categorySheet = xlsx.utils.aoa_to_sheet(categorySheetData);
         xlsx.utils.book_append_sheet(workbook, categorySheet, 'Categorias');
@@ -1754,7 +1797,7 @@ export const exportStockReportCSV = (options = {}) => {
 
     if (categorySummaries.length > 0) {
         lines.push(escapeCsvValue('Totais por Categoria'));
-        lines.push(['Categoria', 'Entradas', 'Saídas', 'Saldo', 'Estoque Atual'].map(escapeCsvValue).join(';'));
+        lines.push(['Categoria', 'Entradas', 'Saídas', 'Saldo', 'Estoque Atual', 'Estoque Mínimo'].map(escapeCsvValue).join(';'));
         categorySummaries.forEach((entry) => {
             lines.push([
                 entry.categoryName,
@@ -1762,6 +1805,7 @@ export const exportStockReportCSV = (options = {}) => {
                 formatLocaleNumber(entry.outgoing),
                 formatLocaleNumber(entry.balance),
                 formatLocaleNumber(entry.currentStock),
+                formatLocaleNumber(entry.minStock),
             ].map(escapeCsvValue).join(';'));
         });
         lines.push([
@@ -1770,6 +1814,7 @@ export const exportStockReportCSV = (options = {}) => {
             formatLocaleNumber(summary.totalOutgoing),
             formatLocaleNumber(summary.totalBalance),
             formatLocaleNumber(summary.totalCurrentStock),
+            formatLocaleNumber(summary.totalMinStock),
         ].map(escapeCsvValue).join(';'));
         lines.push('');
     }
