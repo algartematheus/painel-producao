@@ -186,6 +186,113 @@ const removeTraveteProductRow = (employees = [], employeeIndex, productIndex) =>
     });
 };
 
+const createEmptyBillOfMaterialsItem = () => ({
+    stockProductId: '',
+    stockVariationId: '',
+    quantityPerPiece: '',
+});
+
+const BillOfMaterialsEditor = ({
+    items = [],
+    onChangeItem,
+    onAddItem,
+    onRemoveItem,
+    stockProducts = [],
+    stockCategoryMap = new Map(),
+    title,
+    addLabel = 'Adicionar Componente',
+    emptyLabel = 'Nenhum componente adicionado.',
+}) => {
+    const availableProducts = useMemo(
+        () => stockProducts
+            .filter(product => !product.isDeleted)
+            .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+        [stockProducts],
+    );
+
+    return (
+        <div className="space-y-3">
+            {title && <h4 className="text-md font-medium">{title}</h4>}
+            {items.length === 0 && (
+                <p className="text-sm text-gray-500">{emptyLabel}</p>
+            )}
+            {items.map((item, index) => {
+                const product = availableProducts.find(prod => prod.id === item.stockProductId) || null;
+                const variations = Array.isArray(product?.variations) ? product.variations : [];
+                return (
+                    <div key={index} className="grid grid-cols-12 gap-3 items-end">
+                        <div className="col-span-5">
+                            <label className="block text-sm font-medium mb-1">Produto do Estoque</label>
+                            <select
+                                value={item.stockProductId}
+                                onChange={(event) => onChangeItem(index, 'stockProductId', event.target.value)}
+                                className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                            >
+                                <option value="">Selecione um produto</option>
+                                {availableProducts.map(prod => {
+                                    const optionCategory = prod?.categoryId ? stockCategoryMap.get(prod.categoryId)?.name || null : null;
+                                    const optionPrefix = optionCategory ? `[${optionCategory}] ` : '';
+                                    return (
+                                        <option key={prod.id} value={prod.id}>
+                                            {`${optionPrefix}${prod.name}`}
+                                        </option>
+                                    );
+                                })}
+                            </select>
+                        </div>
+                        <div className="col-span-4">
+                            <label className="block text-sm font-medium mb-1">Variação</label>
+                            <select
+                                value={item.stockVariationId}
+                                onChange={(event) => onChangeItem(index, 'stockVariationId', event.target.value)}
+                                className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                disabled={!product}
+                            >
+                                <option value="">{product ? 'Selecione a variação' : 'Selecione um produto primeiro'}</option>
+                                {variations.map(variation => (
+                                    <option key={variation.id} value={variation.id}>
+                                        {variation.name || variation.sku || variation.code || 'Sem nome'}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="col-span-2">
+                            <label className="block text-sm font-medium mb-1">Qtd/Peça</label>
+                            <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.quantityPerPiece}
+                                onChange={(event) => onChangeItem(index, 'quantityPerPiece', event.target.value)}
+                                className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                placeholder="0"
+                            />
+                        </div>
+                        <div className="col-span-1 flex items-center justify-center">
+                            <button
+                                type="button"
+                                onClick={() => onRemoveItem(index)}
+                                className="p-2 rounded-full bg-red-500 text-white hover:bg-red-400"
+                                aria-label="Remover componente"
+                            >
+                                <Trash size={16} />
+                            </button>
+                        </div>
+                    </div>
+                );
+            })}
+            <button
+                type="button"
+                onClick={onAddItem}
+                className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-500"
+            >
+                <PlusCircle size={18} />
+                {addLabel}
+            </button>
+        </div>
+    );
+};
+
 const EntryEditorModal = ({
     isOpen,
     onClose,
@@ -1377,6 +1484,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const isTraveteDashboard = currentDashboard?.id === 'travete';
     
     const [products, setProducts] = useState([]);
+    const [stockProducts, setStockProducts] = useState([]);
+    const [stockCategories, setStockCategories] = useState([]);
     const [lots, setLots] = useState([]);
     const [allProductionData, setAllProductionData] = useState({});
     const [trashItems, setTrashItems] = useState([]);
@@ -1391,9 +1500,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const [newLot, setNewLot] = useState({ productId: '', target: '', customName: '' });
     const [editingLotId, setEditingLotId] = useState(null);
     const [editingLotData, setEditingLotData] = useState({ target: '', customName: '' });
-    const [newProduct, setNewProduct] = useState({ name: '', standardTime: '' });
+    const [newProduct, setNewProduct] = useState({ name: '', standardTime: '', billOfMaterials: [] });
     const [editingProductId, setEditingProductId] = useState(null);
-    const [editingProductData, setEditingProductData] = useState({ name: '', standardTime: '' });
+    const [editingProductData, setEditingProductData] = useState({ name: '', standardTime: '', billOfMaterials: [] });
     
     const [newEntry, setNewEntry] = useState({ period: '', people: '', availableTime: 60, productId: '', productions: [] });
     const [traveteProductForm, setTraveteProductForm] = useState(() => createTraveteProductFormState());
@@ -1452,7 +1561,17 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
         return [...productsForSelectedDate].sort((a, b) => a.name.localeCompare(b.name));
     }, [productsForSelectedDate]);
-    
+
+    const stockCategoryMap = useMemo(() => {
+        const map = new Map();
+        stockCategories.forEach(category => {
+            if (category?.id) {
+                map.set(category.id, category);
+            }
+        });
+        return map;
+    }, [stockCategories]);
+
     const summarizeTraveteEntry = useCallback((entryDraft) => {
         const defaultResult = {
             employeeSummaries: [],
@@ -1702,6 +1821,30 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         if (!traveteEntry.period || !(parseFloat(traveteEntry.availableTime) > 0)) return false;
         return traveteEntry.employeeEntries.some(emp => (emp.products || []).some(item => item.lotId));
     }, [isTraveteDashboard, traveteEntry]);
+
+    useEffect(() => {
+        if (!user) {
+            setStockProducts([]);
+            setStockCategories([]);
+            return;
+        }
+
+        const categoriesQuery = query(collection(db, 'stock/data/categories'), orderBy('name'));
+        const productsQuery = query(collection(db, 'stock/data/products'), orderBy('name'));
+
+        const unsubscribeCategories = onSnapshot(categoriesQuery, snapshot => {
+            setStockCategories(snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() })));
+        });
+
+        const unsubscribeProducts = onSnapshot(productsQuery, snapshot => {
+            setStockProducts(snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() })));
+        });
+
+        return () => {
+            unsubscribeCategories();
+            unsubscribeProducts();
+        };
+    }, [user]);
 
     const isEntryFormValid = useMemo(() => {
         if (isTraveteDashboard) {
@@ -2941,6 +3084,96 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         }));
     };
     
+    const normalizeBillOfMaterials = useCallback((items = []) => {
+        return items
+            .filter(item => item && item.stockProductId && item.stockVariationId)
+            .map(item => {
+                const rawQuantity = parseFloat(item.quantityPerPiece);
+                const safeQuantity = Number.isFinite(rawQuantity) && rawQuantity >= 0
+                    ? parseFloat(rawQuantity.toFixed(4))
+                    : 0;
+                return {
+                    stockProductId: item.stockProductId,
+                    stockVariationId: item.stockVariationId,
+                    quantityPerPiece: safeQuantity,
+                };
+            });
+    }, []);
+
+    const handleNewProductBillOfMaterialsChange = useCallback((index, field, value) => {
+        setNewProduct(prev => {
+            const currentItems = Array.isArray(prev.billOfMaterials) ? [...prev.billOfMaterials] : [];
+            const existingItem = currentItems[index] || createEmptyBillOfMaterialsItem();
+            const nextItem = {
+                ...existingItem,
+                [field]: value,
+            };
+            if (field === 'stockProductId') {
+                nextItem.stockVariationId = '';
+            }
+            currentItems[index] = nextItem;
+            return {
+                ...prev,
+                billOfMaterials: currentItems,
+            };
+        });
+    }, [setNewProduct]);
+
+    const handleAddNewProductBillOfMaterialsItem = useCallback(() => {
+        setNewProduct(prev => ({
+            ...prev,
+            billOfMaterials: [...(prev.billOfMaterials || []), createEmptyBillOfMaterialsItem()],
+        }));
+    }, [setNewProduct]);
+
+    const handleRemoveNewProductBillOfMaterialsItem = useCallback((index) => {
+        setNewProduct(prev => {
+            const currentItems = Array.isArray(prev.billOfMaterials) ? [...prev.billOfMaterials] : [];
+            const filtered = currentItems.filter((_, itemIndex) => itemIndex !== index);
+            return {
+                ...prev,
+                billOfMaterials: filtered,
+            };
+        });
+    }, [setNewProduct]);
+
+    const handleEditingBillOfMaterialsChange = useCallback((index, field, value) => {
+        setEditingProductData(prev => {
+            const currentItems = Array.isArray(prev.billOfMaterials) ? [...prev.billOfMaterials] : [];
+            const existingItem = currentItems[index] || createEmptyBillOfMaterialsItem();
+            const nextItem = {
+                ...existingItem,
+                [field]: value,
+            };
+            if (field === 'stockProductId') {
+                nextItem.stockVariationId = '';
+            }
+            currentItems[index] = nextItem;
+            return {
+                ...prev,
+                billOfMaterials: currentItems,
+            };
+        });
+    }, [setEditingProductData]);
+
+    const handleAddEditingBillOfMaterialsItem = useCallback(() => {
+        setEditingProductData(prev => ({
+            ...prev,
+            billOfMaterials: [...(prev.billOfMaterials || []), createEmptyBillOfMaterialsItem()],
+        }));
+    }, [setEditingProductData]);
+
+    const handleRemoveEditingBillOfMaterialsItem = useCallback((index) => {
+        setEditingProductData(prev => {
+            const currentItems = Array.isArray(prev.billOfMaterials) ? [...prev.billOfMaterials] : [];
+            const filtered = currentItems.filter((_, itemIndex) => itemIndex !== index);
+            return {
+                ...prev,
+                billOfMaterials: filtered,
+            };
+        });
+    }, [setEditingProductData]);
+
     const handleAddProduct = async (e) => {
         e.preventDefault();
         if (!currentDashboard) return;
@@ -2978,6 +3211,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
             if (hasInvalid || variationsToCreate.length === 0) return;
 
+            const sharedBillOfMaterials = normalizeBillOfMaterials(traveteProductForm.billOfMaterials || []);
             const baseId = generateId('traveteBase');
             const creationIso = new Date().toISOString();
             const batch = writeBatch(db);
@@ -3000,6 +3234,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                         effectiveDate: creationIso,
                         changedBy: { uid: user.uid, email: user.email },
                     }],
+                    billOfMaterials: sharedBillOfMaterials.map(item => ({ ...item })),
                     createdBy: { uid: user.uid, email: user.email },
                 };
                 batch.set(doc(db, `dashboards/${currentDashboard.id}/products`, id), productData);
@@ -3012,6 +3247,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
         if (!newProduct.name || !newProduct.standardTime) return;
         const id = Date.now().toString();
+        const productBillOfMaterials = normalizeBillOfMaterials(newProduct.billOfMaterials || []);
         const newProductData = {
             id,
             name: newProduct.name,
@@ -3020,10 +3256,11 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 effectiveDate: new Date().toISOString(),
                 changedBy: { uid: user.uid, email: user.email },
             }],
+            billOfMaterials: productBillOfMaterials,
             createdBy: { uid: user.uid, email: user.email },
         };
         await setDoc(doc(db, `dashboards/${currentDashboard.id}/products`, id), newProductData);
-        setNewProduct({ name: '', standardTime: '' });
+        setNewProduct({ name: '', standardTime: '', billOfMaterials: [] });
     };
 
     const handleStartEditProduct = (product) => {
@@ -3031,8 +3268,22 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         setEditingProductId(product.id);
         const history = product.standardTimeHistory || [];
         const latest = history.length > 0 ? history[history.length - 1].time : product.standardTime || '';
-        setEditingProductData({ name: product.name, standardTime: latest });
+        const mappedBillOfMaterials = Array.isArray(product.billOfMaterials)
+            ? product.billOfMaterials.map(item => ({
+                stockProductId: item.stockProductId || '',
+                stockVariationId: item.stockVariationId || '',
+                quantityPerPiece: item.quantityPerPiece !== undefined && item.quantityPerPiece !== null
+                    ? String(item.quantityPerPiece)
+                    : '',
+            }))
+            : [];
+        setEditingProductData({ name: product.name, standardTime: latest, billOfMaterials: mappedBillOfMaterials });
     };
+
+    const cancelProductEditing = useCallback(() => {
+        setEditingProductId(null);
+        setEditingProductData({ name: '', standardTime: '', billOfMaterials: [] });
+    }, [setEditingProductData, setEditingProductId]);
 
     const handleEditingProductFieldChange = useCallback((field, value) => {
         setEditingProductData(prev => ({ ...prev, [field]: value }));
@@ -3056,13 +3307,17 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             });
         }
         
+        const normalizedBillOfMaterials = normalizeBillOfMaterials(editingProductData.billOfMaterials || []);
+
         await updateDoc(doc(db, `dashboards/${currentDashboard.id}/products`, id), {
             name: editingProductData.name,
             standardTimeHistory: newHistory,
+            billOfMaterials: normalizedBillOfMaterials,
             lastEditedBy: { uid: user.uid, email: user.email },
         });
-        
-        setEditingProductId(null); 
+
+        setEditingProductId(null);
+        setEditingProductData({ name: '', standardTime: '', billOfMaterials: [] });
     };
 
     const handleSaveObservation = async (entryId, observation) => {
@@ -4007,56 +4262,75 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                                               const createdBy = variation.createdBy?.email || '--';
                                                               const editedBy = variation.lastEditedBy?.email || createdBy;
                                                               const isEditing = editingProductId === variation.id;
+                                                              const columnCount = permissions.MANAGE_PRODUCTS ? 6 : 5;
                                                               return (
-                                                                  <tr key={variation.id} className="text-sm">
-                                                                      <td className="py-2">{variation.machineType || '-'}</td>
-                                                                      {isEditing ? (
-                                                                          <>
+                                                                  <React.Fragment key={variation.id}>
+                                                                      <tr className="text-sm">
+                                                                          <td className="py-2">{variation.machineType || '-'}</td>
+                                                                          {isEditing ? (
+                                                                              <>
+                                                                                  <td className="py-2">
+                                                                                      <input
+                                                                                          type="text"
+                                                                                          value={editingProductData.name}
+                                                                                          onChange={(e) => handleEditingProductFieldChange('name', e.target.value)}
+                                                                                          className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600"
+                                                                                      />
+                                                                                  </td>
+                                                                                  <td className="py-2">
+                                                                                      <input
+                                                                                          type="number"
+                                                                                          step="0.01"
+                                                                                          value={editingProductData.standardTime}
+                                                                                          onChange={(e) => handleEditingProductFieldChange('standardTime', e.target.value)}
+                                                                                          className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600"
+                                                                                      />
+                                                                                  </td>
+                                                                                  <td className="py-2" colSpan={2}></td>
+                                                                              </>
+                                                                          ) : (
+                                                                              <>
+                                                                                  <td className="py-2">{variation.name}</td>
+                                                                                  <td className="py-2">{latest.time ? `${latest.time} min` : 'N/A'}</td>
+                                                                                  <td className="py-2 text-xs truncate">{createdBy}</td>
+                                                                                  <td className="py-2 text-xs truncate">{editedBy}</td>
+                                                                              </>
+                                                                          )}
+                                                                          {permissions.MANAGE_PRODUCTS && (
                                                                               <td className="py-2">
-                                                                                  <input
-                                                                                      type="text"
-                                                                                      value={editingProductData.name}
-                                                                                      onChange={(e) => handleEditingProductFieldChange('name', e.target.value)}
-                                                                                      className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600"
+                                                                                  <div className="flex gap-2 justify-center">
+                                                                                      {isEditing ? (
+                                                                                          <>
+                                                                                              <button onClick={() => handleSaveProduct(variation.id)} title="Salvar"><Save size={18} className="text-green-500" /></button>
+                                                                                          <button onClick={cancelProductEditing} title="Cancelar"><XCircle size={18} className="text-gray-500" /></button>
+                                                                                          </>
+                                                                                      ) : (
+                                                                                          <>
+                                                                                              <button onClick={() => handleStartEditProduct(variation)} title="Editar"><Edit size={18} className="text-yellow-500 hover:text-yellow-400" /></button>
+                                                                                              <button onClick={() => handleDeleteProduct(variation.id)} title="Excluir"><Trash2 size={18} className="text-red-500 hover:text-red-400" /></button>
+                                                                                          </>
+                                                                                      )}
+                                                                                  </div>
+                                                                              </td>
+                                                                          )}
+                                                                      </tr>
+                                                                      {isEditing && (
+                                                                          <tr className="bg-gray-50 dark:bg-gray-800/60">
+                                                                              <td colSpan={columnCount} className="p-3">
+                                                                                  <BillOfMaterialsEditor
+                                                                                      title="Ficha Técnica"
+                                                                                      items={editingProductData.billOfMaterials || []}
+                                                                                      onChangeItem={handleEditingBillOfMaterialsChange}
+                                                                                      onAddItem={handleAddEditingBillOfMaterialsItem}
+                                                                                      onRemoveItem={handleRemoveEditingBillOfMaterialsItem}
+                                                                                      stockProducts={stockProducts}
+                                                                                      stockCategoryMap={stockCategoryMap}
+                                                                                      emptyLabel="Nenhum componente vinculado ainda."
                                                                                   />
                                                                               </td>
-                                                                              <td className="py-2">
-                                                                                  <input
-                                                                                      type="number"
-                                                                                      step="0.01"
-                                                                                      value={editingProductData.standardTime}
-                                                                                      onChange={(e) => handleEditingProductFieldChange('standardTime', e.target.value)}
-                                                                                      className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600"
-                                                                                  />
-                                                                              </td>
-                                                                              <td className="py-2" colSpan={2}></td>
-                                                                          </>
-                                                                      ) : (
-                                                                          <>
-                                                                              <td className="py-2">{variation.name}</td>
-                                                                              <td className="py-2">{latest.time ? `${latest.time} min` : 'N/A'}</td>
-                                                                              <td className="py-2 text-xs truncate">{createdBy}</td>
-                                                                              <td className="py-2 text-xs truncate">{editedBy}</td>
-                                                                          </>
+                                                                          </tr>
                                                                       )}
-                                                                      {permissions.MANAGE_PRODUCTS && (
-                                                                          <td className="py-2">
-                                                                              <div className="flex gap-2 justify-center">
-                                                                                  {isEditing ? (
-                                                                                      <>
-                                                                                          <button onClick={() => handleSaveProduct(variation.id)} title="Salvar"><Save size={18} className="text-green-500" /></button>
-                                                                                          <button onClick={() => setEditingProductId(null)} title="Cancelar"><XCircle size={18} className="text-gray-500" /></button>
-                                                                                      </>
-                                                                                  ) : (
-                                                                                      <>
-                                                                                          <button onClick={() => handleStartEditProduct(variation)} title="Editar"><Edit size={18} className="text-yellow-500 hover:text-yellow-400" /></button>
-                                                                                          <button onClick={() => handleDeleteProduct(variation.id)} title="Excluir"><Trash2 size={18} className="text-red-500 hover:text-red-400" /></button>
-                                                                                      </>
-                                                                                  )}
-                                                                              </div>
-                                                                          </td>
-                                                                      )}
-                                                                  </tr>
+                                                                  </React.Fragment>
                                                               );
                                                           })}
                                                       </tbody>
@@ -4073,9 +4347,42 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                            {permissions.MANAGE_PRODUCTS && <div>
                                <h3 className="text-lg font-medium mb-4">Cadastrar Novo Produto</h3>
-                               <form onSubmit={handleAddProduct} className="space-y-3">
-                                   <div><label htmlFor="newProductName">Nome</label><input type="text" id="newProductName" value={newProduct.name} onChange={e=>setNewProduct({...newProduct,name:e.target.value})} required className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                                   <div><label htmlFor="newProductTime">Tempo Padrão (min)</label><input type="number" id="newProductTime" value={newProduct.standardTime} onChange={e=>setNewProduct({...newProduct,standardTime:e.target.value})} step="0.01" required className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
+                               <form onSubmit={handleAddProduct} className="space-y-4">
+                                   <div>
+                                       <label htmlFor="newProductName" className="block text-sm font-medium mb-1">Nome</label>
+                                       <input
+                                           type="text"
+                                           id="newProductName"
+                                           value={newProduct.name}
+                                           onChange={e => setNewProduct(prev => ({ ...prev, name: e.target.value }))}
+                                           required
+                                           className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                       />
+                                   </div>
+                                   <div>
+                                       <label htmlFor="newProductTime" className="block text-sm font-medium mb-1">Tempo Padrão (min)</label>
+                                       <input
+                                           type="number"
+                                           id="newProductTime"
+                                           value={newProduct.standardTime}
+                                           onChange={e => setNewProduct(prev => ({ ...prev, standardTime: e.target.value }))}
+                                           step="0.01"
+                                           required
+                                           className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                       />
+                                   </div>
+                                   <div className="space-y-3">
+                                       <BillOfMaterialsEditor
+                                           title="Ficha Técnica"
+                                           items={newProduct.billOfMaterials || []}
+                                           onChangeItem={handleNewProductBillOfMaterialsChange}
+                                           onAddItem={handleAddNewProductBillOfMaterialsItem}
+                                           onRemoveItem={handleRemoveNewProductBillOfMaterialsItem}
+                                           stockProducts={stockProducts}
+                                           stockCategoryMap={stockCategoryMap}
+                                           emptyLabel="Nenhum componente vinculado ainda."
+                                       />
+                                   </div>
                                    <button type="submit" className="w-full h-10 bg-green-600 text-white rounded-md">Salvar</button>
                                </form>
                            </div>}
@@ -4101,39 +4408,79 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
     const didExistOnDate = !!historicalEntry;
     const historicalTime = historicalEntry ? historicalEntry.time : 'N/A';
+    const columnCount = permissions.MANAGE_PRODUCTS ? 5 : 4;
 
     return (
-        <tr key={p.id} className={!didExistOnDate ? 'bg-red-50 dark:bg-red-900/20' : ''}>
-            {editingProductId === p.id ? (
-                <>
-                    <td className="p-2"><input type="text" value={editingProductData.name} onChange={e => handleEditingProductFieldChange('name', e.target.value)} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
-                    <td className="p-2"><input type="number" step="0.01" value={editingProductData.standardTime} onChange={e => handleEditingProductFieldChange('standardTime', e.target.value)} className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600" /></td>
-                    <td colSpan="2"></td>
-                    {permissions.MANAGE_PRODUCTS && <td className="p-3">
-                        <div className="flex gap-2 justify-center">
-                            <button onClick={() => handleSaveProduct(p.id)} title="Salvar"><Save size={18} className="text-green-500" /></button>
-                            <button onClick={() => setEditingProductId(null)} title="Cancelar"><XCircle size={18} className="text-gray-500" /></button>
-                        </div>
-                    </td>}
-                </>
-            ) : (
-                <>
-                    <td className={`p-3 font-semibold ${!didExistOnDate ? 'text-red-500' : ''}`}>{p.name}{!didExistOnDate && ' (Não existia)'}</td>
-                    <td className="p-3">
-                        {historicalTime} min
-                        {didExistOnDate && currentTime !== historicalTime && <span className="text-xs text-gray-500 ml-2">(Atual: {currentTime} min)</span>}
+        <React.Fragment key={p.id}>
+            <tr className={!didExistOnDate ? 'bg-red-50 dark:bg-red-900/20' : ''}>
+                {editingProductId === p.id ? (
+                    <>
+                        <td className="p-2">
+                            <input
+                                type="text"
+                                value={editingProductData.name}
+                                onChange={e => handleEditingProductFieldChange('name', e.target.value)}
+                                className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600"
+                            />
+                        </td>
+                        <td className="p-2">
+                            <input
+                                type="number"
+                                step="0.01"
+                                value={editingProductData.standardTime}
+                                onChange={e => handleEditingProductFieldChange('standardTime', e.target.value)}
+                                className="w-full p-1 rounded bg-gray-100 dark:bg-gray-600"
+                            />
+                        </td>
+                        <td colSpan="2"></td>
+                        {permissions.MANAGE_PRODUCTS && (
+                            <td className="p-3">
+                                <div className="flex gap-2 justify-center">
+                                    <button onClick={() => handleSaveProduct(p.id)} title="Salvar"><Save size={18} className="text-green-500" /></button>
+                                                                                              <button onClick={cancelProductEditing} title="Cancelar"><XCircle size={18} className="text-gray-500" /></button>
+                                </div>
+                            </td>
+                        )}
+                    </>
+                ) : (
+                    <>
+                        <td className={`p-3 font-semibold ${!didExistOnDate ? 'text-red-500' : ''}`}>{p.name}{!didExistOnDate && ' (Não existia)'}</td>
+                        <td className="p-3">
+                            {historicalTime} min
+                            {didExistOnDate && currentTime !== historicalTime && (
+                                <span className="text-xs text-gray-500 ml-2">(Atual: {currentTime} min)</span>
+                            )}
+                        </td>
+                        <td className="p-3 text-xs truncate">{p.createdBy?.email}</td>
+                        <td className="p-3 text-xs truncate">{p.lastEditedBy?.email}</td>
+                        {permissions.MANAGE_PRODUCTS && (
+                            <td className="p-3">
+                                <div className="flex gap-2 justify-center">
+                                    <button onClick={() => handleStartEditProduct(p)} title="Editar"><Edit size={18} className="text-yellow-500 hover:text-yellow-400" /></button>
+                                    <button onClick={() => handleDeleteProduct(p.id)} title="Excluir"><Trash2 size={18} className="text-red-500 hover:text-red-400" /></button>
+                                </div>
+                            </td>
+                        )}
+                    </>
+                )}
+            </tr>
+            {editingProductId === p.id && (
+                <tr className="bg-gray-50 dark:bg-gray-800/60">
+                    <td colSpan={columnCount} className="p-3">
+                        <BillOfMaterialsEditor
+                            title="Ficha Técnica"
+                            items={editingProductData.billOfMaterials || []}
+                            onChangeItem={handleEditingBillOfMaterialsChange}
+                            onAddItem={handleAddEditingBillOfMaterialsItem}
+                            onRemoveItem={handleRemoveEditingBillOfMaterialsItem}
+                            stockProducts={stockProducts}
+                            stockCategoryMap={stockCategoryMap}
+                            emptyLabel="Nenhum componente vinculado ainda."
+                        />
                     </td>
-                    <td className="p-3 text-xs truncate">{p.createdBy?.email}</td>
-                    <td className="p-3 text-xs truncate">{p.lastEditedBy?.email}</td>
-                    {permissions.MANAGE_PRODUCTS && <td className="p-3">
-                        <div className="flex gap-2 justify-center">
-                            <button onClick={() => handleStartEditProduct(p)} title="Editar"><Edit size={18} className="text-yellow-500 hover:text-yellow-400" /></button>
-                            <button onClick={() => handleDeleteProduct(p.id)} title="Excluir"><Trash2 size={18} className="text-red-500 hover:text-red-400" /></button>
-                        </div>
-                    </td>}
-                </>
+                </tr>
             )}
-        </tr>
+        </React.Fragment>
     );
   })}
 </tbody>

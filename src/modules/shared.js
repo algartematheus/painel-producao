@@ -770,6 +770,7 @@ export const createTraveteProductFormState = () => ({
     conventionalTime: '',
     oneNeedleManual: false,
     conventionalManual: false,
+    billOfMaterials: [],
 });
 
 export const createDefaultTraveteProductItem = (overrides = {}) => ({
