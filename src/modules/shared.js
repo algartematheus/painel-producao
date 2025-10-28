@@ -1039,7 +1039,8 @@ export const exportSequenciaOperacionalPDF = async (modelo, incluirDados = true,
     const sanitizedBlankLineCount = Math.max(1, Math.floor(Number(blankLineCount) || 0) || 25);
 
     const logoDataUrl = await fetchOperationalLogoDataUrl();
-    addRaceBullLogoToPdf(doc, logoDataUrl);
+    const ensureLogo = () => addRaceBullLogoToPdf(doc, logoDataUrl);
+    ensureLogo();
 
     doc.setFontSize(14);
     const pageCenterX = doc.internal.pageSize.getWidth() / 2;
@@ -1108,6 +1109,7 @@ export const exportSequenciaOperacionalPDF = async (modelo, incluirDados = true,
             1: { halign: 'left' },
             2: { halign: 'left' },
         },
+        didDrawPage: ensureLogo,
     });
 
     doc.setFontSize(8);
@@ -1176,7 +1178,8 @@ export const exportDashboardPerformancePDF = (options = {}) => {
             const centerX = pageWidth / 2;
             const generatedAt = now.toLocaleString('pt-BR');
 
-            addRaceBullLogoToPdf(doc, logoDataUrl);
+            const ensureLogo = () => addRaceBullLogoToPdf(doc, logoDataUrl);
+            ensureLogo();
 
             doc.setFontSize(16);
             doc.text(`Relatório de Desempenho - ${dashboardName}`, centerX, 20, { align: 'center' });
@@ -1208,6 +1211,7 @@ export const exportDashboardPerformancePDF = (options = {}) => {
                         0: { halign: 'left' },
                         1: { halign: 'left' },
                     },
+                    didDrawPage: ensureLogo,
                 });
                 currentY = (doc.lastAutoTable && doc.lastAutoTable.finalY)
                     ? doc.lastAutoTable.finalY + 6
@@ -1226,6 +1230,7 @@ export const exportDashboardPerformancePDF = (options = {}) => {
                 }
                 if (currentY > doc.internal.pageSize.getHeight() - 40) {
                     doc.addPage();
+                    ensureLogo();
                     currentY = 20;
                 }
                 if (section.title) {
@@ -1260,6 +1265,7 @@ export const exportDashboardPerformancePDF = (options = {}) => {
                     tableConfig.head = [section.header];
                 }
 
+                tableConfig.didDrawPage = ensureLogo;
                 tableConfig.didParseCell = (data) => {
                     if (!data || data.section !== 'body') {
                         return;
@@ -1296,6 +1302,7 @@ export const exportDashboardPerformancePDF = (options = {}) => {
                 if (section.footerText) {
                     if (currentY > doc.internal.pageSize.getHeight() - 20) {
                         doc.addPage();
+                        ensureLogo();
                         currentY = 20;
                     }
                     doc.setFontSize(10);
@@ -1565,7 +1572,8 @@ export const exportStockReportPDF = async (options = {}) => {
     const doc = new jsPDF();
     const centerX = doc.internal.pageSize.getWidth() / 2;
 
-    addRaceBullLogoToPdf(doc, logoDataUrl);
+    const ensureLogo = () => addRaceBullLogoToPdf(doc, logoDataUrl);
+    ensureLogo();
 
     doc.setFontSize(16);
     doc.text('Relatório de Estoque', centerX, 20, { align: 'center' });
@@ -1578,6 +1586,7 @@ export const exportStockReportPDF = async (options = {}) => {
         const pageHeight = doc.internal.pageSize.getHeight();
         if (currentY + nextHeight > pageHeight - 20) {
             doc.addPage();
+            ensureLogo();
             currentY = 20;
         }
     };
@@ -1599,6 +1608,7 @@ export const exportStockReportPDF = async (options = {}) => {
                 fillColor: [0, 0, 0],
                 textColor: [255, 255, 255],
             },
+            didDrawPage: ensureLogo,
         });
         currentY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 8 : currentY + 12;
     }
@@ -1622,6 +1632,7 @@ export const exportStockReportPDF = async (options = {}) => {
             fillColor: [0, 0, 0],
             textColor: [255, 255, 255],
         },
+        didDrawPage: ensureLogo,
     });
     currentY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 8 : currentY + 12;
 
@@ -1651,6 +1662,7 @@ export const exportStockReportPDF = async (options = {}) => {
                 4: { halign: 'right' },
                 5: { halign: 'right' },
             },
+            didDrawPage: ensureLogo,
             didParseCell: (data) => {
                 if (data.section === 'body' && data.column.index === 4) {
                     const rawCell = data.cell.raw || {};
@@ -1691,6 +1703,7 @@ export const exportStockReportPDF = async (options = {}) => {
                 0: { halign: 'left' },
                 3: { halign: 'right' },
             },
+            didDrawPage: ensureLogo,
         });
         currentY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 8 : currentY + 12;
     }
