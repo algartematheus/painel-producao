@@ -222,18 +222,6 @@ const applyBillOfMaterialsMovements = async ({
         });
     });
 
-    const stockProductMap = new Map();
-    stockProducts.forEach((product) => {
-        if (!product?.id) return;
-        const variationMap = new Map();
-        (product.variations || []).forEach((variation) => {
-            if (variation?.id) {
-                variationMap.set(variation.id, variation);
-            }
-        });
-        stockProductMap.set(product.id, { product, variationMap });
-    });
-
     const consumptionByVariation = new Map();
 
     productionDetails.forEach((detail) => {
@@ -276,29 +264,14 @@ const applyBillOfMaterialsMovements = async ({
     consumptionByVariation.forEach((consumption, key) => {
         if (!Number.isFinite(consumption) || consumption === 0) return;
         const [stockProductId, stockVariationId] = key.split('::');
-        const stockRecord = stockProductMap.get(stockProductId);
-        if (!stockRecord) return;
-        const { product: stockProduct, variationMap } = stockRecord;
-        const variation = variationMap.get(stockVariationId);
-        if (!variation) return;
-
         if (!adjustmentsByProduct.has(stockProductId)) {
             adjustmentsByProduct.set(stockProductId, new Map());
         }
         adjustmentsByProduct.get(stockProductId).set(stockVariationId, consumption);
 
-        const quantity = Math.abs(consumption);
-        if (quantity === 0) return;
-
-        movements.push({
-            productId: stockProductId,
-            variationId: stockVariationId,
-            quantity,
-            type: consumption > 0 ? 'Saída' : 'Entrada',
-        });
     });
 
-    if (adjustmentsByProduct.size === 0 || movements.length === 0) {
+    if (adjustmentsByProduct.size === 0) {
         return;
     }
 
@@ -310,12 +283,13 @@ const applyBillOfMaterialsMovements = async ({
             runTransaction(db, async (transaction) => {
                 const snapshot = await transaction.get(stockDocRef);
                 if (!snapshot.exists()) {
-                    return;
+                    return [];
                 }
 
                 const stockData = snapshot.data() || {};
                 const existingVariations = Array.isArray(stockData.variations) ? stockData.variations : [];
                 let hasChanges = false;
+                const appliedAdjustments = [];
 
                 const updatedVariations = existingVariations.map((variation) => {
                     if (!variationAdjustments.has(variation.id)) {
@@ -331,17 +305,43 @@ const applyBillOfMaterialsMovements = async ({
                     const baseStock = Number.isFinite(currentValue) ? currentValue : 0;
                     const newValue = roundToFourDecimals(baseStock - adjustment);
                     hasChanges = true;
+                    appliedAdjustments.push({
+                        productId: stockProductId,
+                        variationId: variation.id,
+                        adjustment,
+                    });
                     return { ...variation, currentStock: newValue };
                 });
 
                 if (hasChanges) {
                     transaction.update(stockDocRef, { variations: updatedVariations });
                 }
+                return appliedAdjustments;
             })
         );
     });
 
-    await Promise.all(transactionPromises);
+    const appliedAdjustments = (await Promise.all(transactionPromises)).flat();
+
+    if (appliedAdjustments.length === 0) {
+        return;
+    }
+
+    appliedAdjustments.forEach(({ productId, variationId, adjustment }) => {
+        const quantity = Math.abs(adjustment);
+        if (quantity === 0) return;
+
+        movements.push({
+            productId,
+            variationId,
+            quantity,
+            type: adjustment > 0 ? 'Saída' : 'Entrada',
+        });
+    });
+
+    if (movements.length === 0) {
+        return;
+    }
 
     movements.forEach((movement) => {
         const movementId = generateId('mov');
