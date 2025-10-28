@@ -12,6 +12,7 @@ import {
   orderBy,
   query,
   where,
+  runTransaction,
   setDoc,
   Timestamp,
   updateDoc,
@@ -198,7 +199,7 @@ const roundToFourDecimals = (value) => {
     return Math.round(value * 10000) / 10000;
 };
 
-const applyBillOfMaterialsMovements = ({
+const applyBillOfMaterialsMovements = async ({
     batch,
     productionDetails,
     productSources = [],
@@ -219,18 +220,6 @@ const applyBillOfMaterialsMovements = ({
                 baseProductMap.set(product.baseProductId, product);
             }
         });
-    });
-
-    const stockProductMap = new Map();
-    stockProducts.forEach((product) => {
-        if (!product?.id) return;
-        const variationMap = new Map();
-        (product.variations || []).forEach((variation) => {
-            if (variation?.id) {
-                variationMap.set(variation.id, variation);
-            }
-        });
-        stockProductMap.set(product.id, { product, variationMap });
     });
 
     const consumptionByVariation = new Map();
@@ -268,55 +257,91 @@ const applyBillOfMaterialsMovements = ({
         return;
     }
 
-    const productUpdates = new Map();
+    const adjustmentsByProduct = new Map();
     const movements = [];
     const timestamp = movementTimestamp || Timestamp.now();
 
     consumptionByVariation.forEach((consumption, key) => {
         if (!Number.isFinite(consumption) || consumption === 0) return;
         const [stockProductId, stockVariationId] = key.split('::');
-        const stockRecord = stockProductMap.get(stockProductId);
-        if (!stockRecord) return;
-        const { product: stockProduct, variationMap } = stockRecord;
-        const variation = variationMap.get(stockVariationId);
-        if (!variation) return;
-
-        const baseStockValue = parseFloat(variation.currentStock);
-        const baseStock = Number.isFinite(baseStockValue) ? baseStockValue : 0;
-        const updatedStock = baseStock - consumption;
-
-        if (!productUpdates.has(stockProductId)) {
-            productUpdates.set(stockProductId, new Map());
+        if (!adjustmentsByProduct.has(stockProductId)) {
+            adjustmentsByProduct.set(stockProductId, new Map());
         }
-        productUpdates.get(stockProductId).set(stockVariationId, updatedStock);
+        adjustmentsByProduct.get(stockProductId).set(stockVariationId, consumption);
 
-        const quantity = Math.abs(consumption);
-        if (quantity === 0) return;
-
-        movements.push({
-            productId: stockProductId,
-            variationId: stockVariationId,
-            quantity,
-            type: consumption > 0 ? 'Saída' : 'Entrada',
-        });
     });
 
-    if (productUpdates.size === 0 || movements.length === 0) {
+    if (adjustmentsByProduct.size === 0) {
         return;
     }
 
-    productUpdates.forEach((variationUpdates, stockProductId) => {
-        const stockRecord = stockProductMap.get(stockProductId);
-        if (!stockRecord) return;
-        const updatedVariations = (stockRecord.product.variations || []).map((variation) => {
-            if (!variationUpdates.has(variation.id)) {
-                return variation;
-            }
-            const newValue = roundToFourDecimals(variationUpdates.get(variation.id));
-            return { ...variation, currentStock: newValue };
-        });
-        batch.update(doc(db, `stock/data/products`, stockProductId), { variations: updatedVariations });
+    const transactionPromises = [];
+
+    adjustmentsByProduct.forEach((variationAdjustments, stockProductId) => {
+        const stockDocRef = doc(db, `stock/data/products`, stockProductId);
+        transactionPromises.push(
+            runTransaction(db, async (transaction) => {
+                const snapshot = await transaction.get(stockDocRef);
+                if (!snapshot.exists()) {
+                    return [];
+                }
+
+                const stockData = snapshot.data() || {};
+                const existingVariations = Array.isArray(stockData.variations) ? stockData.variations : [];
+                let hasChanges = false;
+                const appliedAdjustments = [];
+
+                const updatedVariations = existingVariations.map((variation) => {
+                    if (!variationAdjustments.has(variation.id)) {
+                        return variation;
+                    }
+
+                    const adjustment = variationAdjustments.get(variation.id);
+                    if (!Number.isFinite(adjustment) || adjustment === 0) {
+                        return variation;
+                    }
+
+                    const currentValue = parseFloat(variation.currentStock);
+                    const baseStock = Number.isFinite(currentValue) ? currentValue : 0;
+                    const newValue = roundToFourDecimals(baseStock - adjustment);
+                    hasChanges = true;
+                    appliedAdjustments.push({
+                        productId: stockProductId,
+                        variationId: variation.id,
+                        adjustment,
+                    });
+                    return { ...variation, currentStock: newValue };
+                });
+
+                if (hasChanges) {
+                    transaction.update(stockDocRef, { variations: updatedVariations });
+                }
+                return appliedAdjustments;
+            })
+        );
     });
+
+    const appliedAdjustments = (await Promise.all(transactionPromises)).flat();
+
+    if (appliedAdjustments.length === 0) {
+        return;
+    }
+
+    appliedAdjustments.forEach(({ productId, variationId, adjustment }) => {
+        const quantity = Math.abs(adjustment);
+        if (quantity === 0) return;
+
+        movements.push({
+            productId,
+            variationId,
+            quantity,
+            type: adjustment > 0 ? 'Saída' : 'Entrada',
+        });
+    });
+
+    if (movements.length === 0) {
+        return;
+    }
 
     movements.forEach((movement) => {
         const movementId = generateId('mov');
@@ -2192,7 +2217,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 }
             }
 
-            applyBillOfMaterialsMovements({
+            await applyBillOfMaterialsMovements({
                 batch,
                 productionDetails: traveteEntrySummary.productionDetails,
                 productSources: [products, productsForSelectedDate],
@@ -2270,7 +2295,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             }
         }
 
-        applyBillOfMaterialsMovements({
+        await applyBillOfMaterialsMovements({
             batch,
             productionDetails,
             productSources: [productsForSelectedDate, products],
@@ -2357,7 +2382,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         });
 
         if (stockDeltaDetails.length > 0) {
-            applyBillOfMaterialsMovements({
+            await applyBillOfMaterialsMovements({
                 batch,
                 productionDetails: stockDeltaDetails,
                 productSources: [products, productsForSelectedDate],
@@ -2468,7 +2493,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
       });
 
       if (stockDeltaDetails.length > 0) {
-          applyBillOfMaterialsMovements({
+          await applyBillOfMaterialsMovements({
               batch,
               productionDetails: stockDeltaDetails,
               productSources: [productsForSelectedDate, products],
@@ -2646,7 +2671,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
           batch.set(doc(db, `dashboards/${dashboardId}/productionData`, "data"), updatedProdData, { merge: true });
 
           if (Array.isArray(originalDoc.productionDetails) && originalDoc.productionDetails.length > 0) {
-              applyBillOfMaterialsMovements({
+              await applyBillOfMaterialsMovements({
                   batch,
                   productionDetails: originalDoc.productionDetails,
                   productSources: [productsForSelectedDate, products],
