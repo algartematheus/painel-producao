@@ -13,6 +13,7 @@ const createEmptyBillOfMaterialsItem = () => ({
     stockProductId: '',
     stockVariationId: '',
     quantityPerPiece: '',
+    dashboardIds: [],
 });
 
 const BillOfMaterialsEditor = ({
@@ -25,12 +26,19 @@ const BillOfMaterialsEditor = ({
     title,
     addLabel = 'Adicionar Componente',
     emptyLabel = 'Nenhum componente adicionado.',
+    dashboards = [],
+    currentDashboardId = '',
 }) => {
     const availableProducts = useMemo(
         () => stockProducts
             .filter(product => !product.isDeleted)
             .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
         [stockProducts],
+    );
+
+    const dashboardOptions = useMemo(
+        () => (Array.isArray(dashboards) ? dashboards.filter(d => d && d.id) : []),
+        [dashboards],
     );
 
     return (
@@ -42,6 +50,27 @@ const BillOfMaterialsEditor = ({
             {items.map((item, index) => {
                 const product = availableProducts.find(prod => prod.id === item.stockProductId) || null;
                 const variations = Array.isArray(product?.variations) ? product.variations : [];
+                const sanitizedDashboardIds = Array.isArray(item.dashboardIds)
+                    ? item.dashboardIds
+                        .map(id => (typeof id === 'string' ? id.trim() : ''))
+                        .filter(Boolean)
+                    : [];
+
+                const handleDashboardChange = (dashboardId, isChecked) => {
+                    const normalizedId = typeof dashboardId === 'string' ? dashboardId : '';
+                    if (!normalizedId) return;
+                    const nextIdsSet = new Set(sanitizedDashboardIds);
+                    if (isChecked) {
+                        nextIdsSet.add(normalizedId);
+                    } else {
+                        nextIdsSet.delete(normalizedId);
+                    }
+                    const orderedIds = dashboardOptions
+                        .map(option => option.id)
+                        .filter(id => nextIdsSet.has(id));
+                    onChangeItem(index, 'dashboardIds', orderedIds);
+                };
+
                 return (
                     <div key={index} className="grid grid-cols-12 gap-3 items-end">
                         <div className="col-span-5">
@@ -101,6 +130,41 @@ const BillOfMaterialsEditor = ({
                                 <Trash size={16} />
                             </button>
                         </div>
+                        {dashboardOptions.length > 0 && (
+                            <div className="col-span-12">
+                                <fieldset className="space-y-2">
+                                    <legend className="block text-sm font-medium">Quadros aplicáveis</legend>
+                                    <div className="flex flex-wrap gap-2">
+                                        {dashboardOptions.map((dashboard) => {
+                                            const optionId = dashboard.id;
+                                            const isChecked = sanitizedDashboardIds.includes(optionId);
+                                            const labelText = dashboard.name || optionId;
+                                            return (
+                                                <label
+                                                    key={optionId}
+                                                    className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${isChecked ? 'bg-blue-100 border-blue-400 dark:bg-blue-900/40 dark:border-blue-500' : 'bg-gray-100 border-gray-300 dark:bg-gray-800 dark:border-gray-700'}`}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={(event) => handleDashboardChange(optionId, event.target.checked)}
+                                                    />
+                                                    <span>
+                                                        {labelText}
+                                                        {currentDashboardId && currentDashboardId === optionId && (
+                                                            <span className="ml-1 text-[10px] uppercase tracking-wide text-blue-600 dark:text-blue-300">Atual</span>
+                                                        )}
+                                                    </span>
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                        Sem seleção indica que o componente se aplica a todos os quadros.
+                                    </p>
+                                </fieldset>
+                            </div>
+                        )}
                     </div>
                 );
             })}
@@ -123,13 +187,21 @@ const normalizeBillOfMaterials = (items = []) => {
             const safeQuantity = Number.isFinite(parsedQuantity) && parsedQuantity >= 0
                 ? parseFloat(parsedQuantity.toFixed(4))
                 : 0;
+            const sanitizedDashboardIds = Array.isArray(item.dashboardIds)
+                ? Array.from(new Set(
+                    item.dashboardIds
+                        .map(id => (typeof id === 'string' ? id.trim() : ''))
+                        .filter(Boolean),
+                ))
+                : [];
             return {
                 stockProductId: item.stockProductId || '',
                 stockVariationId: item.stockVariationId || '',
                 quantityPerPiece: safeQuantity,
+                dashboardIds: sanitizedDashboardIds,
             };
         })
-        .filter(item => item.stockProductId);
+        .filter(item => item.stockProductId && item.stockVariationId);
 };
 
 const buildStockLookupMaps = (stockProducts = []) => {
@@ -150,7 +222,7 @@ const buildStockLookupMaps = (stockProducts = []) => {
     return { productMap, variationMap };
 };
 
-const formatBillOfMaterialsItem = (item, productMap, variationMap) => {
+const formatBillOfMaterialsItem = (item, productMap, variationMap, dashboardMap) => {
     const product = item?.stockProductId ? productMap.get(item.stockProductId) : null;
     const variationKey = item?.stockProductId && item?.stockVariationId
         ? `${item.stockProductId}:${item.stockVariationId}`
@@ -163,10 +235,22 @@ const formatBillOfMaterialsItem = (item, productMap, variationMap) => {
         ? item.quantityPerPiece
         : item?.quantityPerPiece || 0;
 
+    const sanitizedDashboardIds = Array.isArray(item?.dashboardIds)
+        ? item.dashboardIds
+            .map(id => (typeof id === 'string' ? id.trim() : ''))
+            .filter(Boolean)
+        : [];
+    const dashboardLabel = sanitizedDashboardIds.length === 0
+        ? 'Todos os quadros'
+        : sanitizedDashboardIds
+            .map(id => dashboardMap?.get(id)?.name || id)
+            .join(', ');
+
     return {
         productName,
         variationLabel,
         quantityLabel,
+        dashboardLabel,
     };
 };
 
@@ -275,6 +359,16 @@ const FichaTecnicaModule = ({
         return map;
     }, [stockCategories]);
 
+    const dashboardMap = useMemo(() => {
+        const map = new Map();
+        dashboards.forEach(dashboard => {
+            if (dashboard?.id) {
+                map.set(dashboard.id, dashboard);
+            }
+        });
+        return map;
+    }, [dashboards]);
+
     const { productMap, variationMap } = useMemo(
         () => buildStockLookupMaps(stockProducts),
         [stockProducts],
@@ -368,6 +462,11 @@ const FichaTecnicaModule = ({
                 quantityPerPiece: item.quantityPerPiece !== undefined && item.quantityPerPiece !== null
                     ? String(item.quantityPerPiece)
                     : '',
+                dashboardIds: Array.isArray(item.dashboardIds)
+                    ? item.dashboardIds
+                        .map(id => (typeof id === 'string' ? id.trim() : ''))
+                        .filter(Boolean)
+                    : [],
             }))
             : [];
         setEditingItems(mappedItems);
@@ -378,12 +477,25 @@ const FichaTecnicaModule = ({
         setEditingItems(prev => {
             const next = Array.isArray(prev) ? [...prev] : [];
             const existing = next[index] || createEmptyBillOfMaterialsItem();
-            const updated = {
-                ...existing,
-                [field]: value,
-            };
-            if (field === 'stockProductId') {
-                updated.stockVariationId = '';
+            let updated = { ...existing };
+            if (field === 'dashboardIds') {
+                const sanitized = Array.isArray(value)
+                    ? Array.from(new Set(
+                        value
+                            .map(id => (typeof id === 'string' ? id.trim() : ''))
+                            .filter(Boolean),
+                    ))
+                    : [];
+                updated.dashboardIds = sanitized;
+            } else {
+                updated = {
+                    ...updated,
+                    [field]: value,
+                };
+                if (field === 'stockProductId') {
+                    updated.stockVariationId = '';
+                    updated.dashboardIds = [];
+                }
             }
             next[index] = updated;
             return next;
@@ -441,12 +553,13 @@ const FichaTecnicaModule = ({
         return (
             <ul className="space-y-2">
                 {items.map((item, index) => {
-                    const { productName, variationLabel, quantityLabel } = formatBillOfMaterialsItem(item, productMap, variationMap);
+                    const { productName, variationLabel, quantityLabel, dashboardLabel } = formatBillOfMaterialsItem(item, productMap, variationMap, dashboardMap);
                     return (
                         <li key={`${product.id}-item-${index}`} className="flex flex-wrap items-center justify-between rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm">
                             <div className="flex flex-col">
                                 <span className="font-medium">{productName}</span>
                                 {variationLabel && <span className="text-xs text-gray-500">{variationLabel}</span>}
+                                <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">Quadros: {dashboardLabel}</span>
                             </div>
                             <span className="text-xs font-semibold">{quantityLabel} / peça</span>
                         </li>
@@ -454,7 +567,7 @@ const FichaTecnicaModule = ({
                 })}
             </ul>
         );
-    }, [productMap, variationMap]);
+    }, [productMap, variationMap, dashboardMap]);
 
     return (
         <div className="responsive-root min-h-screen bg-gray-100 dark:bg-black text-gray-800 dark:text-gray-200 font-sans flex flex-col">
@@ -553,6 +666,8 @@ const FichaTecnicaModule = ({
                                                     stockCategoryMap={stockCategoryMap}
                                                     title="Componentes da Ficha Técnica"
                                                     addLabel="Adicionar componente"
+                                                    dashboards={dashboards}
+                                                    currentDashboardId={editingProduct?.dashboardId || selectedDashboardId}
                                                 />
                                                 <div className="flex flex-wrap gap-3">
                                                     <button
