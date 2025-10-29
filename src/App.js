@@ -200,6 +200,156 @@ const createEmptyProductVariation = () => ({
     defaultTarget: '',
 });
 
+const createEmptyLotFormState = () => ({
+    productId: '',
+    target: '',
+    customName: '',
+    variations: [],
+});
+
+const createEmptyLotEditState = () => ({
+    target: '',
+    customName: '',
+    variations: [],
+});
+
+const parseLotQuantityValue = (value) => {
+    if (typeof value === 'number') {
+        if (!Number.isFinite(value)) return 0;
+        return Math.max(0, Math.floor(value));
+    }
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed.length === 0) {
+            return 0;
+        }
+        const parsed = parseInt(trimmed, 10);
+        if (!Number.isFinite(parsed)) return 0;
+        return Math.max(0, parsed);
+    }
+    return 0;
+};
+
+const normalizeLotInputValue = (rawValue) => {
+    if (rawValue === '') {
+        return '';
+    }
+
+    const parsed = parseInt(rawValue, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        return '0';
+    }
+
+    return String(parsed);
+};
+
+const computeLotTargetFromVariations = (variations = []) => {
+    if (!Array.isArray(variations) || variations.length === 0) {
+        return 0;
+    }
+
+    return variations.reduce((accumulator, variation) => {
+        const value = parseLotQuantityValue(variation?.target);
+        return accumulator + value;
+    }, 0);
+};
+
+const mapProductVariationsToLotState = (productVariations = []) => {
+    if (!Array.isArray(productVariations) || productVariations.length === 0) {
+        return [];
+    }
+
+    return productVariations.map((variation, index) => {
+        const variationId = typeof variation?.id === 'string' && variation.id.trim().length > 0
+            ? variation.id.trim()
+            : `variation-${index + 1}`;
+        const label = typeof variation?.label === 'string' ? variation.label.trim() : '';
+        const defaultTarget = parseLotQuantityValue(variation?.defaultTarget);
+
+        return {
+            variationId,
+            label,
+            target: defaultTarget > 0 ? String(defaultTarget) : '',
+            produced: 0,
+        };
+    });
+};
+
+const sanitizeLotVariationsForStorage = (variations = []) => {
+    if (!Array.isArray(variations) || variations.length === 0) {
+        return [];
+    }
+
+    return variations
+        .map((variation, index) => {
+            const variationId = typeof variation?.variationId === 'string' && variation.variationId.trim().length > 0
+                ? variation.variationId.trim()
+                : typeof variation?.id === 'string' && variation.id.trim().length > 0
+                    ? variation.id.trim()
+                    : `variation-${index + 1}`;
+            const label = typeof variation?.label === 'string' ? variation.label.trim() : '';
+            const target = parseLotQuantityValue(variation?.target);
+            const produced = parseLotQuantityValue(variation?.produced);
+
+            return {
+                variationId,
+                label,
+                target,
+                produced,
+            };
+        })
+        .filter(variation => variation.variationId || variation.label);
+};
+
+const mapLotVariationsToFormState = (variations = []) => {
+    const sanitized = sanitizeLotVariationsForStorage(variations);
+    if (sanitized.length === 0) {
+        return [];
+    }
+
+    return sanitized.map(variation => ({
+        variationId: variation.variationId,
+        label: variation.label,
+        target: String(variation.target),
+        produced: variation.produced,
+    }));
+};
+
+const areLotVariationsEqual = (first = [], second = []) => {
+    if (!Array.isArray(first) || !Array.isArray(second)) {
+        return false;
+    }
+
+    if (first.length !== second.length) {
+        return false;
+    }
+
+    for (let index = 0; index < first.length; index += 1) {
+        const left = first[index];
+        const right = second[index];
+
+        const leftId = typeof left?.variationId === 'string' ? left.variationId : '';
+        const rightId = typeof right?.variationId === 'string' ? right.variationId : '';
+        if (leftId !== rightId) {
+            return false;
+        }
+
+        const leftLabel = typeof left?.label === 'string' ? left.label : '';
+        const rightLabel = typeof right?.label === 'string' ? right.label : '';
+        if (leftLabel !== rightLabel) {
+            return false;
+        }
+
+        const leftTarget = parseLotQuantityValue(left?.target);
+        const rightTarget = parseLotQuantityValue(right?.target);
+        if (leftTarget !== rightTarget) {
+            return false;
+        }
+    }
+
+    return true;
+};
+
 const createEmptyProductDraft = () => ({
     name: '',
     standardTime: '',
@@ -1867,9 +2017,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const [lotCounter, setLotCounter] = useState(1);
     
     const [lotFilter, setLotFilter] = useState('ongoing');
-    const [newLot, setNewLot] = useState({ productId: '', target: '', customName: '' });
+    const [newLot, setNewLot] = useState(() => createEmptyLotFormState());
     const [editingLotId, setEditingLotId] = useState(null);
-    const [editingLotData, setEditingLotData] = useState({ target: '', customName: '' });
+    const [editingLotData, setEditingLotData] = useState(() => createEmptyLotEditState());
     const [newProduct, setNewProduct] = useState(() => createEmptyProductDraft());
     const [editingProductId, setEditingProductId] = useState(null);
     const [editingProductData, setEditingProductData] = useState(() => createEmptyProductDraft());
@@ -1894,6 +2044,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const [isNavOpen, setIsNavOpen] = useState(false);
     const navRef = useRef();
     useClickOutside(navRef, () => setIsNavOpen(false));
+    const previousNewLotProductId = usePrevious(newLot.productId);
+    const previousIsTraveteDashboard = usePrevious(isTraveteDashboard);
 
     const productsForSelectedDate = useMemo(() => {
         const targetDate = new Date(selectedDate);
@@ -1931,6 +2083,14 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
         return [...productsForSelectedDate].sort((a, b) => a.name.localeCompare(b.name));
     }, [productsForSelectedDate]);
+
+    const selectedNewLotProduct = useMemo(() => {
+        if (isTraveteDashboard) {
+            return null;
+        }
+
+        return products.find(product => product.id === newLot.productId) || null;
+    }, [isTraveteDashboard, products, newLot.productId]);
 
     const stockCategoryMap = useMemo(() => {
         const map = new Map();
@@ -2259,7 +2419,19 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             }));
         });
         const unsubLots = onSnapshot(query(collection(db, `dashboards/${currentDashboard.id}/lots`), orderBy("order")), snap => {
-            setLots(snap.docs.map(d => d.data()));
+            setLots(snap.docs.map(docSnap => {
+                const data = docSnap.data();
+                const sanitizedVariations = sanitizeLotVariationsForStorage(data?.variations || []);
+                const targetFromVariations = sanitizedVariations.length > 0
+                    ? sanitizedVariations.reduce((acc, variation) => acc + variation.target, 0)
+                    : parseLotQuantityValue(data?.target);
+
+                return {
+                    ...data,
+                    target: targetFromVariations,
+                    variations: sanitizedVariations,
+                };
+            }));
         });
         const unsubProdData = onSnapshot(doc(db, `dashboards/${currentDashboard.id}/productionData`, "data"), snap => {
             setAllProductionData(snap.exists() ? snap.data() : {});
@@ -2286,8 +2458,48 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
     const dateKey = selectedDate.toISOString().slice(0, 10);
     const productionData = useMemo(() => allProductionData[dateKey] || [], [allProductionData, dateKey]);
-    
+
     useEffect(() => { setLotCounter(lots.length > 0 ? Math.max(0, ...lots.map(l => l.sequentialId || 0)) + 1 : 1); }, [lots]);
+
+    useEffect(() => {
+        const productIdChanged = newLot.productId !== previousNewLotProductId;
+        const dashboardModeChanged = (previousIsTraveteDashboard !== undefined)
+            && previousIsTraveteDashboard !== isTraveteDashboard;
+
+        if (!productIdChanged && !dashboardModeChanged && selectedNewLotProduct) {
+            return;
+        }
+
+        if (!newLot.productId || isTraveteDashboard || !selectedNewLotProduct) {
+            setNewLot(prev => {
+                const hasVariations = Array.isArray(prev.variations) && prev.variations.length > 0;
+                if (!hasVariations && prev.target === '') {
+                    return prev;
+                }
+                return { ...prev, variations: [], target: '' };
+            });
+            return;
+        }
+
+        const mappedVariations = mapProductVariationsToLotState(selectedNewLotProduct.variations || []);
+        if (mappedVariations.length === 0) {
+            setNewLot(prev => ({ ...prev, variations: [], target: '' }));
+            return;
+        }
+
+        const total = computeLotTargetFromVariations(mappedVariations);
+        setNewLot(prev => ({
+            ...prev,
+            variations: mappedVariations,
+            target: total > 0 ? String(total) : '0',
+        }));
+    }, [
+        newLot.productId,
+        previousNewLotProductId,
+        previousIsTraveteDashboard,
+        isTraveteDashboard,
+        selectedNewLotProduct,
+    ]);
 
     useEffect(() => {
         if (!isTraveteDashboard) {
@@ -4013,9 +4225,58 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             lastEditedAt: Timestamp.now(),
         });
     };
+    const handleNewLotVariationTargetChange = useCallback((variationId, value) => {
+        setNewLot(prev => {
+            const existing = Array.isArray(prev.variations) ? prev.variations : [];
+            const updatedVariations = existing.map(variation => {
+                if (variation.variationId !== variationId) {
+                    return variation;
+                }
+                return { ...variation, target: normalizeLotInputValue(value) };
+            });
+            const total = computeLotTargetFromVariations(updatedVariations);
+            return {
+                ...prev,
+                variations: updatedVariations,
+                target: String(total),
+            };
+        });
+    }, []);
+
+    const handleEditingLotVariationTargetChange = useCallback((variationId, value) => {
+        setEditingLotData(prev => {
+            const existing = Array.isArray(prev.variations) ? prev.variations : [];
+            const updatedVariations = existing.map(variation => {
+                if (variation.variationId !== variationId) {
+                    return variation;
+                }
+                return { ...variation, target: normalizeLotInputValue(value) };
+            });
+            const total = computeLotTargetFromVariations(updatedVariations);
+            return {
+                ...prev,
+                variations: updatedVariations,
+                target: String(total),
+            };
+        });
+    }, []);
+
+    const handleCancelLotEdit = useCallback(() => {
+        setEditingLotId(null);
+        setEditingLotData(createEmptyLotEditState());
+    }, []);
+
     const handleAddLot = async (e) => {
         e.preventDefault();
-        if (!newLot.productId || !newLot.target || !currentDashboard) return;
+        if (!currentDashboard) return;
+
+        const hasVariations = Array.isArray(newLot.variations) && newLot.variations.length > 0;
+        const variationPayload = hasVariations ? sanitizeLotVariationsForStorage(newLot.variations) : [];
+        const totalTarget = hasVariations
+            ? variationPayload.reduce((acc, variation) => acc + variation.target, 0)
+            : parseLotQuantityValue(newLot.target);
+
+        if (!newLot.productId || totalTarget <= 0) return;
 
         let product = null;
         let lotBaseMetadata = {};
@@ -4055,7 +4316,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             ...newLot,
             productId: product.id,
             productName: isTraveteDashboard ? (lotBaseMetadata.productBaseName || product.name) : product.name,
-            target: parseInt(newLot.target, 10),
+            target: totalTarget,
             produced: 0,
             status: 'future',
             order: Date.now(),
@@ -4065,17 +4326,38 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             createdBy: { uid: user.uid, email: user.email },
             ...(isTraveteDashboard ? lotBaseMetadata : machineTypePayload),
         };
+        if (variationPayload.length > 0) {
+            newLotData.variations = variationPayload.map(variation => ({
+                ...variation,
+                produced: 0,
+            }));
+        }
         await setDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, id), newLotData);
-        setNewLot({ productId: '', target: '', customName: '' });
+        setNewLot(createEmptyLotFormState());
     };
-    const handleStartEditLot = (lot) => { setEditingLotId(lot.id); setEditingLotData({ target: lot.target, customName: lot.customName || '' }); };
-    const handleSaveLotEdit = async (lotId) => { 
+    const handleStartEditLot = (lot) => {
+        const variationState = mapLotVariationsToFormState(lot?.variations || []);
+        const totalFromVariations = variationState.length > 0
+            ? computeLotTargetFromVariations(variationState)
+            : parseLotQuantityValue(lot?.target);
+        setEditingLotId(lot.id);
+        setEditingLotData({
+            target: String(totalFromVariations),
+            customName: lot.customName || '',
+            variations: variationState,
+        });
+    };
+    const handleSaveLotEdit = async (lotId) => {
         const lot = lots.find(l => l.id === lotId);
         if(!lot) return;
 
-        const newTarget = parseInt(editingLotData.target, 10);
+        const hasVariations = Array.isArray(editingLotData.variations) && editingLotData.variations.length > 0;
+        const normalizedVariations = hasVariations ? sanitizeLotVariationsForStorage(editingLotData.variations) : [];
+        const newTarget = hasVariations
+            ? normalizedVariations.reduce((acc, variation) => acc + variation.target, 0)
+            : parseLotQuantityValue(editingLotData.target);
         const wasCompleted = lot.status.startsWith('completed');
-        const isCompletingNow = lot.produced >= newTarget && !wasCompleted;
+        const isCompletingNow = newTarget > 0 && lot.produced >= newTarget && !wasCompleted;
 
         const updatePayload = {
             target: newTarget,
@@ -4083,6 +4365,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             lastEditedBy: { uid: user.uid, email: user.email },
             lastEditedAt: Timestamp.now(),
         };
+
+        if (normalizedVariations.length > 0) {
+            updatePayload.variations = normalizedVariations;
+        }
 
         if (isCompletingNow) {
             updatePayload.status = 'completed';
@@ -4093,13 +4379,22 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         }
 
         await updateDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, lotId), updatePayload);
-        setEditingLotId(null);
+        handleCancelLotEdit();
     };
+    const newLotVariations = Array.isArray(newLot.variations) ? newLot.variations : [];
+    const newLotHasVariations = newLotVariations.length > 0;
+    const newLotTotalTarget = computeLotTargetFromVariations(newLotVariations);
+    const canCreateLot = Boolean(newLot.productId) && (
+        newLotHasVariations
+            ? newLotTotalTarget > 0
+            : parseLotQuantityValue(newLot.target) > 0
+    );
+
     const handleLotStatusChange = async (lotId, newStatus) => {
         const lot = lots.find(l => l.id === lotId);
         if(!lot) return;
-        
-        const updatePayload = { 
+
+        const updatePayload = {
             status: newStatus,
             lastEditedBy: { uid: user.uid, email: user.email },
             lastEditedAt: Timestamp.now(),
@@ -4714,31 +5009,118 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                       <h2 className="text-xl font-semibold mb-4 flex items-center"><Layers className="mr-2 text-blue-500"/> Controle de Lotes de Produção</h2>
                       {permissions.MANAGE_LOTS && <div className="mb-6 border-b pb-6 dark:border-gray-700">
                           <h3 className="text-lg font-medium mb-4">Criar Novo Lote</h3>
-                          <form onSubmit={handleAddLot} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                               <div className="flex flex-col">
-                                   <label htmlFor="newLotProduct">Produto</label>
-                                  <select id="newLotProduct" name="productId" value={newLot.productId} onChange={e => setNewLot({...newLot, productId: e.target.value})} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700">
-                                      <option value="">Selecione...</option>
-                                      {isTraveteDashboard ? (
-                                          traveteGroupedProducts.map(group => (
-                                              <option key={group.baseId} value={group.baseId}>
-                                                  {group.baseName}
-                                              </option>
-                                          ))
-                                      ) : (
-                                          [...products]
-                                              .sort((a,b)=>a.name.localeCompare(b.name))
-                                              .map(p => (
-                                                  <option key={p.id} value={p.id}>
-                                                      {p.name}
+                          <form onSubmit={handleAddLot} className="space-y-4">
+                              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                                  <div className="flex flex-col">
+                                      <label htmlFor="newLotProduct">Produto</label>
+                                      <select
+                                          id="newLotProduct"
+                                          name="productId"
+                                          value={newLot.productId}
+                                          onChange={event => {
+                                              const value = event.target.value;
+                                              setNewLot(prev => ({
+                                                  ...prev,
+                                                  productId: value,
+                                                  target: '',
+                                                  variations: [],
+                                              }));
+                                          }}
+                                          required
+                                          className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                      >
+                                          <option value="">Selecione...</option>
+                                          {isTraveteDashboard ? (
+                                              traveteGroupedProducts.map(group => (
+                                                  <option key={group.baseId} value={group.baseId}>
+                                                      {group.baseName}
                                                   </option>
                                               ))
-                                      )}
-                                  </select>
-                               </div>
-                               <div className="flex flex-col"><label htmlFor="newLotTarget">Quantidade</label><input type="number" id="newLotTarget" name="target" value={newLot.target} onChange={e => setNewLot({...newLot, target: e.target.value})} required className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                               <div className="flex flex-col"><label htmlFor="newLotCustomName">Nome (Opcional)</label><input type="text" id="newLotCustomName" name="customName" value={newLot.customName} onChange={e => setNewLot({...newLot, customName: e.target.value})} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"/></div>
-                               <button type="submit" className="h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600 w-full sm:w-auto">Criar Lote</button>
+                                          ) : (
+                                              [...products]
+                                                  .sort((a, b) => a.name.localeCompare(b.name))
+                                                  .map(p => (
+                                                      <option key={p.id} value={p.id}>
+                                                          {p.name}
+                                                      </option>
+                                                  ))
+                                          )}
+                                      </select>
+                                  </div>
+                                  {newLotHasVariations ? (
+                                      <div className="flex flex-col md:col-span-2">
+                                          <label className="text-sm font-medium mb-1">Meta total</label>
+                                          <div className="p-2 rounded-md bg-gray-100 dark:bg-gray-700 font-semibold text-gray-800 dark:text-gray-100">
+                                              {newLotTotalTarget} peças
+                                          </div>
+                                      </div>
+                                  ) : (
+                                      <div className="flex flex-col">
+                                          <label htmlFor="newLotTarget">Quantidade</label>
+                                          <input
+                                              type="number"
+                                              id="newLotTarget"
+                                              name="target"
+                                              min="0"
+                                              value={newLot.target}
+                                              onChange={event => setNewLot(prev => ({ ...prev, target: normalizeLotInputValue(event.target.value) }))}
+                                              required={!newLotHasVariations}
+                                              className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                          />
+                                      </div>
+                                  )}
+                                  <div className="flex flex-col">
+                                      <label htmlFor="newLotCustomName">Nome (Opcional)</label>
+                                      <input
+                                          type="text"
+                                          id="newLotCustomName"
+                                          name="customName"
+                                          value={newLot.customName}
+                                          onChange={event => setNewLot(prev => ({ ...prev, customName: event.target.value }))}
+                                          className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                      />
+                                  </div>
+                                  <button
+                                      type="submit"
+                                      className="h-10 px-6 font-semibold rounded-md bg-green-500 text-white hover:bg-green-600 w-full sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
+                                      disabled={!canCreateLot}
+                                  >
+                                      Criar Lote
+                                  </button>
+                              </div>
+                              {newLotHasVariations && (
+                                  <div className="border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-800/40">
+                                      <span className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">Grade de Produção</span>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                          {newLotVariations.map(variation => {
+                                              const label = variation.label && variation.label.trim().length > 0
+                                                  ? variation.label
+                                                  : 'Sem descrição';
+                                              return (
+                                                  <div
+                                                      key={variation.variationId}
+                                                      className="p-3 rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 space-y-2"
+                                                  >
+                                                      <div className="flex justify-between text-sm font-medium text-gray-700 dark:text-gray-200">
+                                                          <span>{label}</span>
+                                                          <span className="text-xs text-gray-500 dark:text-gray-400">Meta</span>
+                                                      </div>
+                                                      <input
+                                                          type="number"
+                                                          min="0"
+                                                          value={variation.target}
+                                                          onChange={event => handleNewLotVariationTargetChange(variation.variationId, event.target.value)}
+                                                          className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                      />
+                                                  </div>
+                                              );
+                                          })}
+                                      </div>
+                                      <div className="mt-3 text-sm font-semibold text-gray-700 dark:text-gray-200">
+                                          Meta total: {newLotTotalTarget} peças
+                                      </div>
+                                  </div>
+                              )}
                           </form>
                       </div>}
                       <div className="flex gap-2 mb-4 border-b pb-2 dark:border-gray-700 flex-wrap">
@@ -4753,6 +5135,17 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                               } else if (lot.status === 'completed') {
                                   lotBgClass = 'bg-green-100 dark:bg-green-900/50';
                               }
+                              const isEditingCurrentLot = editingLotId === lot.id;
+                              const editingVariationState = isEditingCurrentLot
+                                  ? (Array.isArray(editingLotData.variations) ? editingLotData.variations : [])
+                                  : [];
+                              const editingHasVariationsForLot = editingVariationState.length > 0;
+                              const editingTotalTargetForLot = isEditingCurrentLot
+                                  ? (editingHasVariationsForLot
+                                      ? computeLotTargetFromVariations(editingVariationState)
+                                      : parseLotQuantityValue(editingLotData.target))
+                                  : 0;
+                              const lotVariations = Array.isArray(lot.variations) ? lot.variations : [];
                               return (
                                   <div key={lot.id} className={`${lotBgClass} p-4 rounded-lg`}>
                                   <div className="flex justify-between items-start">
@@ -4812,19 +5205,94 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                           </div>
                                       </div>
                                   </div>
-                                  <div className="mt-2">
-                                      <div className="flex justify-between text-sm mb-1 items-center">
-                                          <span>Progresso</span>
-                                          {editingLotId === lot.id ? (
-                                              <div className="flex items-center gap-2 flex-wrap">
-                                                  <span>{lot.produced||0} / </span>
-                                                  <input type="number" value={editingLotData.target} onChange={e=>setEditingLotData({...editingLotData,target:e.target.value})} className="p-1 w-24"/>
-                                                  <input type="text" value={editingLotData.customName} onChange={e=>setEditingLotData({...editingLotData,customName:e.target.value})} className="p-1 w-32"/>
-                                                  <button onClick={()=>handleSaveLotEdit(lot.id)}><Save size={16}/></button><button onClick={()=>setEditingLotId(null)}><XCircle size={16}/></button>
+                                  <div className="mt-2 space-y-3">
+                                      <div className="flex justify-between text-sm items-start flex-col sm:flex-row sm:items-center gap-2">
+                                          <span className="font-medium">Progresso</span>
+                                          {isEditingCurrentLot ? (
+                                              <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+                                                  <div className="flex items-center gap-2 text-sm">
+                                                      <span>{lot.produced || 0} / </span>
+                                                      {editingHasVariationsForLot ? (
+                                                          <span className="font-semibold text-blue-600 dark:text-blue-300">{editingTotalTargetForLot}</span>
+                                                      ) : (
+                                                          <input
+                                                              type="number"
+                                                              min="0"
+                                                              value={editingLotData.target}
+                                                              onChange={event => setEditingLotData(prev => ({ ...prev, target: normalizeLotInputValue(event.target.value) }))}
+                                                              className="p-1 w-24 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                          />
+                                                      )}
+                                                  </div>
+                                                  <input
+                                                      type="text"
+                                                      value={editingLotData.customName}
+                                                      onChange={event => setEditingLotData(prev => ({ ...prev, customName: event.target.value }))}
+                                                      className="p-1 w-full sm:w-32 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                      placeholder="Nome"
+                                                  />
+                                                  <div className="flex items-center gap-2">
+                                                      <button onClick={() => handleSaveLotEdit(lot.id)} className="text-green-600 hover:text-green-500" title="Salvar alterações">
+                                                          <Save size={16} />
+                                                      </button>
+                                                      <button onClick={handleCancelLotEdit} className="text-red-500 hover:text-red-400" title="Cancelar edição">
+                                                          <XCircle size={16} />
+                                                      </button>
+                                                  </div>
                                               </div>
-                                          ) : (<span>{lot.produced||0} / {lot.target||0}</span>)}
+                                          ) : (
+                                              <span>{lot.produced || 0} / {lot.target || 0}</span>
+                                          )}
                                       </div>
-                                      <div className="w-full bg-gray-200 dark:bg-gray-600 h-2.5 rounded-full"><div className="bg-blue-600 h-2.5 rounded-full" style={{width: `${((lot.produced||0)/(lot.target||1))*100}%`}}></div></div>
+                                      <div className="w-full bg-gray-200 dark:bg-gray-600 h-2.5 rounded-full">
+                                          <div className="bg-blue-600 h-2.5 rounded-full" style={{width: `${((lot.produced||0)/(lot.target||1))*100}%`}}></div>
+                                      </div>
+                                      {isEditingCurrentLot && editingHasVariationsForLot && (
+                                          <div className="border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-3 bg-white/60 dark:bg-gray-900/40 space-y-3">
+                                              <span className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Grade do lote</span>
+                                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                                  {editingVariationState.map(variation => {
+                                                      const label = variation.label && variation.label.trim().length > 0 ? variation.label : 'Sem descrição';
+                                                      const producedValue = parseLotQuantityValue(variation.produced);
+                                                      return (
+                                                          <div key={variation.variationId} className="p-3 rounded-md bg-gray-100 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 space-y-2">
+                                                              <div className="flex justify-between text-sm font-medium text-gray-700 dark:text-gray-200">
+                                                                  <span>{label}</span>
+                                                                  <span className="text-xs text-gray-500 dark:text-gray-400">Produzido: {producedValue}</span>
+                                                              </div>
+                                                              <input
+                                                                  type="number"
+                                                                  min="0"
+                                                                  value={variation.target}
+                                                                  onChange={event => handleEditingLotVariationTargetChange(variation.variationId, event.target.value)}
+                                                                  className="w-full p-2 rounded-md bg-white dark:bg-gray-900"
+                                                              />
+                                                          </div>
+                                                      );
+                                                  })}
+                                              </div>
+                                              <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">Meta total: {editingTotalTargetForLot} peças</div>
+                                          </div>
+                                      )}
+                                      {!isEditingCurrentLot && lotVariations.length > 0 && (
+                                          <div className="border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-3 bg-white/50 dark:bg-gray-900/30 space-y-2">
+                                              <span className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Grade prevista</span>
+                                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs text-gray-600 dark:text-gray-300">
+                                                  {lotVariations.map(variation => {
+                                                      const label = variation.label && variation.label.trim().length > 0 ? variation.label : 'Sem descrição';
+                                                      const producedValue = parseLotQuantityValue(variation.produced);
+                                                      const targetValue = parseLotQuantityValue(variation.target);
+                                                      const key = variation.variationId || variation.id || `${label}-${targetValue}`;
+                                                      return (
+                                                          <div key={key} className="flex items-center justify-between bg-white/70 dark:bg-gray-900/40 px-3 py-2 rounded-md border border-gray-200 dark:border-gray-700">
+                                                              <span className="font-medium text-sm">{label}</span>
+                                                              <span>{producedValue} / {targetValue}</span>
+                                                          </div>
+                                                      );
+                                                  })}
+                                              </div>
+                                          </div>
+                                      )}
                                   </div>
                                   </div>
                               );
