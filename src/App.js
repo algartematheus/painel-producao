@@ -975,31 +975,31 @@ const DashboardActionDialog = ({ isOpen, onClose, onConfirm, mode, initialName }
 };
 
 
-const ObservationModal = ({ isOpen, onClose, entry, onSave }) => {
-    const [observation, setObservation] = useState('');
-    const modalRef = useRef();
+const NoteModal = ({ isOpen, onClose, title, initialValue = '', onSave }) => {
+    const [value, setValue] = useState(initialValue);
+    const modalRef = useRef(null);
     useClickOutside(modalRef, onClose);
 
     useEffect(() => {
-        if (entry) {
-            setObservation(entry.observation || '');
+        if (isOpen) {
+            setValue(initialValue || '');
         }
-    }, [entry]);
+    }, [initialValue, isOpen]);
 
     if (!isOpen) return null;
 
     const handleSave = () => {
-        onSave(entry.id, observation);
+        onSave(value);
         onClose();
     };
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-30 modal-backdrop">
             <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg modal-content">
-                <h2 className="text-xl font-bold mb-4">Observação do Período: {entry?.period}</h2>
+                <h2 className="text-xl font-bold mb-4">{title}</h2>
                 <textarea
-                    value={observation}
-                    onChange={(e) => setObservation(e.target.value)}
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
                     rows="5"
                     className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4"
                     placeholder="Digite suas observações aqui..."
@@ -1013,41 +1013,45 @@ const ObservationModal = ({ isOpen, onClose, entry, onSave }) => {
     );
 };
 
-const LotObservationModal = ({ isOpen, onClose, lot, onSave }) => {
-    const [observation, setObservation] = useState('');
-    const modalRef = useRef();
-    useClickOutside(modalRef, onClose);
-
-    useEffect(() => {
-        if (lot) {
-            setObservation(lot.observation || '');
-        }
-    }, [lot]);
-
-    if (!isOpen) return null;
-
-    const handleSave = () => {
-        onSave(lot.id, observation);
-        onClose();
-    };
+const ObservationModal = ({ isOpen, onClose, entry, onSave }) => {
+    const handleSave = useCallback(
+        (value) => {
+            if (entry) {
+                onSave(entry.id, value);
+            }
+        },
+        [entry, onSave],
+    );
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-30 modal-backdrop">
-            <div ref={modalRef} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg modal-content">
-                <h2 className="text-xl font-bold mb-4">Observação do Lote: {lot?.productName}</h2>
-                <textarea
-                    value={observation}
-                    onChange={(e) => setObservation(e.target.value)}
-                    rows="5"
-                    className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700 mb-4"
-                    placeholder="Digite suas observações aqui..."
-                />
-                <div className="flex justify-end gap-4">
-                    <button onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-600">Cancelar</button>
-                    <button onClick={handleSave} className="px-4 py-2 rounded-md bg-blue-600 text-white">Salvar</button>
-                </div>
-            </div>
-        </div>
+        <NoteModal
+            isOpen={isOpen && Boolean(entry)}
+            onClose={onClose}
+            title={`Observação do Período${entry?.period ? `: ${entry.period}` : ''}`}
+            initialValue={entry?.observation || ''}
+            onSave={handleSave}
+        />
+    );
+};
+
+const LotObservationModal = ({ isOpen, onClose, lot, onSave }) => {
+    const handleSave = useCallback(
+        (value) => {
+            if (lot) {
+                onSave(lot.id, value);
+            }
+        },
+        [lot, onSave],
+    );
+
+    return (
+        <NoteModal
+            isOpen={isOpen && Boolean(lot)}
+            onClose={onClose}
+            title={`Observação do Lote${lot?.productName ? `: ${lot.productName}` : ''}`}
+            initialValue={lot?.observation || ''}
+            onSave={handleSave}
+        />
     );
 };
 
