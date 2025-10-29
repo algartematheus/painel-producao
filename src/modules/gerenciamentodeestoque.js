@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useContext, createContext, useRef } from 'react';
 import { collection, doc, setDoc, updateDoc, onSnapshot, writeBatch, query, orderBy, Timestamp } from 'firebase/firestore';
-import { PlusCircle, MinusCircle, Edit, Trash2, Home, ArrowUpDown, Box, Trash, ChevronLeft, ChevronRight, BarChart } from 'lucide-react';
+import { PlusCircle, MinusCircle, Edit, Trash2, Home, ArrowUpDown, Box, Trash, ChevronLeft, ChevronRight, BarChart, ClipboardList } from 'lucide-react';
 import { db } from '../firebase';
 import HeaderContainer from '../components/HeaderContainer';
 import GlobalNavigation from '../components/GlobalNavigation';
@@ -209,6 +209,7 @@ export const useStock = () => useContext(StockContext);
 const StockHeader = ({
     onNavigateToCrono,
     onNavigateToReports,
+    onNavigateToFichaTecnica,
     theme,
     toggleTheme,
     exportFormat,
@@ -228,6 +229,14 @@ const StockHeader = ({
                 onClick: onNavigateToCrono,
             }
             : null,
+        onNavigateToFichaTecnica
+            ? {
+                key: 'ficha-tecnica',
+                label: 'Ficha Técnica',
+                icon: ClipboardList,
+                onClick: onNavigateToFichaTecnica,
+            }
+            : null,
         onNavigateToReports
             ? {
                 key: 'reports',
@@ -236,7 +245,7 @@ const StockHeader = ({
                 onClick: onNavigateToReports,
             }
             : null,
-    ].filter(Boolean)), [onNavigateToCrono, onNavigateToReports]);
+    ].filter(Boolean)), [onNavigateToCrono, onNavigateToReports, onNavigateToFichaTecnica]);
 
     return (
         <HeaderContainer zIndexClass="z-40">
@@ -934,7 +943,7 @@ const StockTrashPage = () => {
 };
 
 
-export const StockManagementApp = ({ onNavigateToCrono, onNavigateToReports }) => {
+export const StockManagementApp = ({ onNavigateToCrono, onNavigateToReports, onNavigateToFichaTecnica }) => {
     const [activePage, setActivePage] = useState('dashboard');
     const [confirmation, setConfirmation] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
     const { theme, toggleTheme } = usePersistedTheme();
@@ -993,6 +1002,7 @@ export const StockManagementApp = ({ onNavigateToCrono, onNavigateToReports }) =
                 />
                 <StockHeader
                     onNavigateToCrono={onNavigateToCrono}
+                    onNavigateToFichaTecnica={onNavigateToFichaTecnica}
                     onNavigateToReports={onNavigateToReports}
                     theme={theme}
                     toggleTheme={toggleTheme}

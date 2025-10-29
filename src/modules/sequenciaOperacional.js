@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, doc, setDoc, deleteDoc, writeBatch, getDocs, query, orderBy, Timestamp, onSnapshot } from 'firebase/firestore';
-import { Layers, List, PlusCircle, Save, Trash2, Trash, Box, ArrowLeft, BarChart } from 'lucide-react';
+import { Layers, List, PlusCircle, Save, Trash2, Trash, Box, ArrowLeft, BarChart, ClipboardList } from 'lucide-react';
 import { db } from '../firebase';
 import HeaderContainer from '../components/HeaderContainer';
 import GlobalNavigation from '../components/GlobalNavigation';
@@ -27,7 +27,7 @@ const TRAVETE_VARIATION_CONFIGS = [
     { machineType: 'Travete Convencional', suffix: 'Convencional', defaultMultiplier: 3, idSuffix: 'convencional' },
 ];
 
-export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, onNavigateToReports, dashboards = [], user }) => {
+export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, onNavigateToReports, onNavigateToFichaTecnica, dashboards = [], user }) => {
     const [sequences, setSequences] = useState([]);
     const [productOptions, setProductOptions] = useState([]);
     const [isLoadingProducts, setIsLoadingProducts] = useState(false);
@@ -745,6 +745,16 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
                 alwaysShowLabel: true,
             });
         }
+        if (onNavigateToFichaTecnica) {
+            items.push({
+                key: 'ficha-tecnica',
+                label: 'Ficha Técnica',
+                icon: ClipboardList,
+                onClick: onNavigateToFichaTecnica,
+                baseClassName: 'px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 flex items-center gap-2 w-full sm:w-auto justify-center',
+                alwaysShowLabel: true,
+            });
+        }
         if (onNavigateToReports) {
             items.push({
                 key: 'reports',
@@ -756,7 +766,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
             });
         }
         return items;
-    }, [onNavigateToCrono, onNavigateToStock, onNavigateToReports]);
+    }, [onNavigateToCrono, onNavigateToStock, onNavigateToReports, onNavigateToFichaTecnica]);
 
     const sequenceExportOptions = useMemo(() => ([
         { value: 'pdf', label: 'Sequência Preenchida (PDF)' },

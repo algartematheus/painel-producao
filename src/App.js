@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, Settings, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Trash } from 'lucide-react';
+import { PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, Settings, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Trash, ClipboardList } from 'lucide-react';
 import { db, functions } from './firebase';
 import { AuthProvider, useAuth, LoginPage } from './modules/auth';
 import {
@@ -20,6 +20,7 @@ import {
 import { StockManagementApp } from './modules/gerenciamentodeestoque';
 import { OperationalSequenceApp } from './modules/sequenciaOperacional';
 import ReportsModule from './modules/relatorios';
+import FichaTecnicaModule from './modules/fichatecnica';
 import { raceBullLogoUrl, initialDashboards, FIXED_PERIODS, TRAVETE_MACHINES, ALL_PERMISSIONS, defaultRoles } from './modules/constants';
 import {
   generateId,
@@ -1644,7 +1645,7 @@ const LotReport = ({ lots, products }) => {
 // #                                                                   #
 // #####################################################################
 
-const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSequence, onNavigateToReports, user, permissions, startTvMode, dashboards, users, roles, currentDashboardIndex, setCurrentDashboardIndex }) => {
+const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSequence, onNavigateToReports, onNavigateToFichaTecnica, user, permissions, startTvMode, dashboards, users, roles, currentDashboardIndex, setCurrentDashboardIndex }) => {
     const { logout } = useAuth();
     const { theme, toggleTheme } = usePersistedTheme();
     
@@ -3808,6 +3809,14 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     onClick: onNavigateToStock,
                 }
                 : null,
+            onNavigateToFichaTecnica
+                ? {
+                    key: 'ficha-tecnica',
+                    label: 'Ficha Técnica',
+                    icon: ClipboardList,
+                    onClick: onNavigateToFichaTecnica,
+                }
+                : null,
             onNavigateToReports
                 ? {
                     key: 'reports',
@@ -3817,7 +3826,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 }
                 : null,
         ].filter(Boolean);
-    }, [onNavigateToOperationalSequence, onNavigateToStock, onNavigateToReports]);
+    }, [onNavigateToOperationalSequence, onNavigateToStock, onNavigateToReports, onNavigateToFichaTecnica]);
 
     const userActionButtons = useMemo(() => {
         const actions = [];
@@ -5836,6 +5845,19 @@ const AppContent = () => {
         return (
             <StockManagementApp
                 onNavigateToCrono={() => setCurrentApp('cronoanalise')}
+                onNavigateToFichaTecnica={() => setCurrentApp('ficha-tecnica')}
+                onNavigateToReports={() => setCurrentApp('reports')}
+            />
+        );
+    }
+
+    if (currentApp === 'ficha-tecnica') {
+        return (
+            <FichaTecnicaModule
+                dashboards={dashboards}
+                onNavigateToCrono={() => setCurrentApp('cronoanalise')}
+                onNavigateToStock={() => setCurrentApp('stock')}
+                onNavigateToOperationalSequence={() => setCurrentApp('sequencia-operacional')}
                 onNavigateToReports={() => setCurrentApp('reports')}
             />
         );
@@ -5846,6 +5868,7 @@ const AppContent = () => {
             <OperationalSequenceApp
                 onNavigateToCrono={() => setCurrentApp('cronoanalise')}
                 onNavigateToStock={() => setCurrentApp('stock')}
+                onNavigateToFichaTecnica={() => setCurrentApp('ficha-tecnica')}
                 onNavigateToReports={() => setCurrentApp('reports')}
                 dashboards={dashboards}
                 user={user}
@@ -5859,6 +5882,7 @@ const AppContent = () => {
                 dashboards={dashboards}
                 onNavigateToCrono={() => setCurrentApp('cronoanalise')}
                 onNavigateToStock={() => setCurrentApp('stock')}
+                onNavigateToFichaTecnica={() => setCurrentApp('ficha-tecnica')}
                 onNavigateToOperationalSequence={() => setCurrentApp('sequencia-operacional')}
             />
         );
@@ -5868,6 +5892,7 @@ const AppContent = () => {
         onNavigateToStock={() => setCurrentApp('stock')}
         onNavigateToOperationalSequence={() => setCurrentApp('sequencia-operacional')}
         onNavigateToReports={() => setCurrentApp('reports')}
+        onNavigateToFichaTecnica={() => setCurrentApp('ficha-tecnica')}
         user={user}
         permissions={userPermissions}
         startTvMode={startTvMode}
