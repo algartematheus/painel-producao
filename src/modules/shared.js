@@ -2139,6 +2139,52 @@ export const formatDefaultLotDisplayName = (lot, product) => {
     return lot.customName ? `${baseName} - ${lot.customName}` : baseName;
 };
 
+const buildRowVariationKey = (variation, index = 0) => {
+    if (!variation) {
+        return `index::${index}`;
+    }
+    if (variation.variationKey) {
+        return variation.variationKey;
+    }
+    if (variation.variationId) {
+        return `id::${variation.variationId}`;
+    }
+    if (variation.id) {
+        return `id::${variation.id}`;
+    }
+    const label = typeof variation.label === 'string' ? variation.label.trim().toLowerCase() : '';
+    if (label) {
+        return `label::${label}::${index}`;
+    }
+    return `index::${index}`;
+};
+
+const normalizeRowVariation = (variation, index = 0, detailMap = new Map()) => {
+    const key = buildRowVariationKey(variation, index);
+    const detail = detailMap.get(key) || null;
+    const producedValue = detail && detail.produced !== undefined ? detail.produced : detail?.produced;
+    const producedString = producedValue !== undefined && producedValue !== null ? String(producedValue) : '';
+    const parseIntSafe = (value) => {
+        if (typeof value === 'number') {
+            return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+        }
+        if (typeof value === 'string' && value.trim().length > 0) {
+            const parsed = parseInt(value, 10);
+            return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+        }
+        return 0;
+    };
+
+    return {
+        variationId: variation?.variationId || variation?.id || '',
+        variationKey: key,
+        label: variation?.label || '',
+        target: parseIntSafe(variation?.target),
+        currentProduced: parseIntSafe(variation?.produced),
+        produced: producedString,
+    };
+};
+
 export const createProductionRowFromDetail = (detail, productMap, lots) => {
     if (!detail) return null;
 
@@ -2148,7 +2194,13 @@ export const createProductionRowFromDetail = (detail, productMap, lots) => {
     const standardTimeRaw = detail.standardTime !== undefined ? detail.standardTime : product?.standardTime;
     const standardTime = standardTimeRaw !== undefined ? parseFloat(standardTimeRaw) || 0 : 0;
 
-    return {
+    const detailVariationMap = new Map(
+        Array.isArray(detail.variations)
+            ? detail.variations.map((variation, index) => [buildRowVariationKey(variation, index), variation])
+            : []
+    );
+
+    const row = {
         key: detail.lotId || detail.productId || generateId('production-row'),
         lotId: detail.lotId || '',
         productId: detail.productId || '',
@@ -2158,6 +2210,23 @@ export const createProductionRowFromDetail = (detail, productMap, lots) => {
         standardTime,
         remainingPieces: lot ? getLotRemainingPieces(lot) : 0,
     };
+
+    const lotVariations = Array.isArray(lot?.variations) ? lot.variations : [];
+    if (lotVariations.length > 0) {
+        row.variations = lotVariations.map((variation, index) => normalizeRowVariation(variation, index, detailVariationMap));
+    } else if (detailVariationMap.size > 0) {
+        const manualVariations = Array.from(detailVariationMap.values());
+        row.variations = manualVariations.map((variation, index) => ({
+            variationId: variation?.variationId || variation?.id || '',
+            variationKey: buildRowVariationKey(variation, index),
+            label: variation?.label || '',
+            target: 0,
+            currentProduced: 0,
+            produced: variation?.produced !== undefined ? String(variation.produced) : '',
+        }));
+    }
+
+    return row;
 };
 
 export const computeDefaultPredictionsForEdit = ({ peopleValue, availableTimeValue, lots, productMap, fallbackProductId }) => {
@@ -2267,6 +2336,16 @@ export const buildRowsFromPredictions = (existingRows = [], predictions = [], lo
         const lot = prediction.id ? lots.find(l => l.id === prediction.id) || null : null;
         const product = prediction.productId ? productMap.get(prediction.productId) || null : null;
 
+        const lotVariations = Array.isArray(lot?.variations) ? lot.variations : [];
+        const existingVariationMap = new Map(
+            Array.isArray(existing?.variations)
+                ? existing.variations.map((variation, index) => [buildRowVariationKey(variation, index), variation])
+                : []
+        );
+        const normalizedVariations = lotVariations.length > 0
+            ? lotVariations.map((variation, index) => normalizeRowVariation(variation, index, existingVariationMap))
+            : [];
+
         return {
             key: prediction.key,
             lotId: prediction.id || '',
@@ -2281,6 +2360,7 @@ export const buildRowsFromPredictions = (existingRows = [], predictions = [], lo
                 || prediction.standardTime
                 || (product?.standardTime !== undefined ? parseFloat(product.standardTime) || 0 : 0),
             remainingPieces: prediction.remainingPieces ?? prediction.plannedPieces ?? 0,
+            ...(normalizedVariations.length > 0 ? { variations: normalizedVariations } : {}),
         };
     });
 
@@ -2308,6 +2388,28 @@ export const areProductionRowsEqual = (prevRows = [], nextRows = []) => {
             || Number(prev.remainingPieces || 0) !== Number(next.remainingPieces || 0)
         ) {
             return false;
+        }
+
+        const prevVariations = Array.isArray(prev.variations) ? prev.variations : [];
+        const nextVariations = Array.isArray(next.variations) ? next.variations : [];
+        if (prevVariations.length !== nextVariations.length) {
+            return false;
+        }
+
+        for (let variationIndex = 0; variationIndex < prevVariations.length; variationIndex++) {
+            const prevVariation = prevVariations[variationIndex];
+            const nextVariation = nextVariations[variationIndex];
+            const prevKey = buildRowVariationKey(prevVariation, variationIndex);
+            const nextKey = buildRowVariationKey(nextVariation, variationIndex);
+            if (
+                prevKey !== nextKey
+                || (prevVariation.label || '') !== (nextVariation.label || '')
+                || Number(prevVariation.target || 0) !== Number(nextVariation.target || 0)
+                || Number(prevVariation.currentProduced || 0) !== Number(nextVariation.currentProduced || 0)
+                || String(prevVariation.produced ?? '') !== String(nextVariation.produced ?? '')
+            ) {
+                return false;
+            }
         }
     }
 
