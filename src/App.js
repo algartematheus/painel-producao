@@ -243,6 +243,150 @@ const normalizeLotInputValue = (rawValue) => {
     return String(parsed);
 };
 
+const buildLotVariationKey = (variation, index = 0) => {
+    if (!variation) {
+        return `index::${index}`;
+    }
+    if (variation.variationKey) {
+        return variation.variationKey;
+    }
+    if (variation.variationId) {
+        return `id::${variation.variationId}`;
+    }
+    if (variation.id) {
+        return `id::${variation.id}`;
+    }
+    const label = typeof variation.label === 'string' ? variation.label.trim().toLowerCase() : '';
+    if (label) {
+        return `label::${label}::${index}`;
+    }
+    return `index::${index}`;
+};
+
+const normalizeLotVariationState = (variation, index = 0, existing = null) => {
+    const variationKey = buildLotVariationKey(variation, index);
+    const existingProduced = existing ? existing.produced : '';
+    return {
+        variationId: variation?.variationId || variation?.id || '',
+        variationKey,
+        label: variation?.label || '',
+        target: parseLotQuantityValue(variation?.target),
+        produced: existingProduced || '',
+        currentProduced: parseLotQuantityValue(variation?.produced),
+    };
+};
+
+const buildProductionStateForLot = (lot, existingState = null, fallbackIndex = 0) => {
+    const key = lot?.id || `product-${lot?.productId || fallbackIndex}`;
+    const lotVariations = Array.isArray(lot?.variations) ? lot.variations : [];
+    const existingVariationMap = new Map(
+        Array.isArray(existingState?.variations)
+            ? existingState.variations.map(item => [item.variationKey || buildLotVariationKey(item), item])
+            : []
+    );
+
+    const normalizedVariations = lotVariations.map((variation, index) => {
+        const variationKey = buildLotVariationKey(variation, index);
+        const existing = existingVariationMap.get(variationKey) || null;
+        return normalizeLotVariationState(variation, index, existing);
+    });
+
+    let totalProduced = '';
+    if (normalizedVariations.length > 0) {
+        const existingTotal = normalizedVariations.reduce((sum, variation) => {
+            const value = parseInt(variation.produced, 10);
+            if (!Number.isFinite(value)) {
+                return sum;
+            }
+            return sum + Math.max(0, value);
+        }, 0);
+        totalProduced = existingTotal > 0 ? String(existingTotal) : '';
+    } else if (existingState) {
+        totalProduced = existingState.totalProduced || '';
+    }
+
+    return {
+        key,
+        lotId: lot?.id || existingState?.lotId || '',
+        productId: lot?.productId || existingState?.productId || '',
+        productName: lot?.productName || lot?.name || existingState?.productName || '',
+        totalProduced,
+        variations: normalizedVariations,
+    };
+};
+
+const sumDetailVariationProduced = (variations = []) => {
+    if (!Array.isArray(variations) || variations.length === 0) {
+        return 0;
+    }
+    return variations.reduce((sum, variation) => {
+        const value = parseInt(variation?.produced, 10);
+        if (!Number.isFinite(value)) {
+            return sum;
+        }
+        return sum + Math.max(0, value);
+    }, 0);
+};
+
+const buildCompositeVariationKey = (lotId, variationKey) => `${lotId}|||${variationKey}`;
+
+const splitCompositeVariationKey = (compositeKey = '') => {
+    const [lotId, ...rest] = String(compositeKey).split('|||');
+    return [lotId, rest.join('|||')];
+};
+
+const resolveLotForDetail = (detail, lots = []) => {
+    if (!detail || !Array.isArray(lots)) {
+        return null;
+    }
+    if (detail.lotId) {
+        const byId = lots.find(lot => lot.id === detail.lotId);
+        if (byId) {
+            return byId;
+        }
+    }
+    if (detail.productId) {
+        const byProduct = lots.find(lot => lot.productId === detail.productId);
+        if (byProduct) {
+            return byProduct;
+        }
+    }
+    return null;
+};
+
+const LotVariationSummary = ({ variations = [], title = 'Grade prevista' }) => {
+    if (!Array.isArray(variations) || variations.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-3 bg-white/50 dark:bg-gray-900/30 space-y-2">
+            {title && (
+                <span className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{title}</span>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs text-gray-600 dark:text-gray-300">
+                {variations.map((variation, index) => {
+                    const label = variation?.label && variation.label.trim().length > 0
+                        ? variation.label
+                        : `Var. ${index + 1}`;
+                    const producedValue = parseLotQuantityValue(variation?.produced);
+                    const targetValue = parseLotQuantityValue(variation?.target);
+                    const key = variation?.variationId || variation?.id || buildLotVariationKey(variation, index);
+                    return (
+                        <div
+                            key={key}
+                            className="flex items-center justify-between bg-white/70 dark:bg-gray-900/40 px-3 py-2 rounded-md border border-gray-200 dark:border-gray-700"
+                        >
+                            <span className="font-medium text-sm truncate" title={label}>{label}</span>
+                            <span>{producedValue} / {targetValue}</span>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
 const computeLotTargetFromVariations = (variations = []) => {
     if (!Array.isArray(variations) || variations.length === 0) {
         return 0;
@@ -475,7 +619,19 @@ const applyBillOfMaterialsMovements = ({
     const consumptionByVariation = new Map();
 
     productionDetails.forEach((detail) => {
-        const producedValue = parseFloat(detail?.produced);
+        let producedValue = parseFloat(detail?.produced);
+        if (!Number.isFinite(producedValue) || producedValue === 0) {
+            const variationTotal = Array.isArray(detail?.variations)
+                ? detail.variations.reduce((sum, variation) => {
+                    const numeric = parseFloat(variation?.produced);
+                    if (!Number.isFinite(numeric) || numeric === 0) {
+                        return sum;
+                    }
+                    return sum + numeric;
+                }, 0)
+                : 0;
+            producedValue = variationTotal;
+        }
         if (!Number.isFinite(producedValue) || producedValue === 0) return;
 
         let product = detail?.productId ? productMap.get(detail.productId) : null;
@@ -859,6 +1015,38 @@ const EntryEditorModal = ({
         });
     };
 
+    const handleProductionRowVariationChange = (rowIndex, variationKey, value) => {
+        setEntryData(prev => {
+            if (!prev || prev.type !== 'default') return prev;
+            const rows = prev.productionRows || [];
+            if (rowIndex < 0 || rowIndex >= rows.length) return prev;
+            const targetRow = rows[rowIndex];
+            if (!targetRow) return prev;
+            const variations = Array.isArray(targetRow.variations)
+                ? targetRow.variations.map(variation => {
+                    if (variation.variationKey === variationKey || variation.variationId === variationKey) {
+                        return { ...variation, produced: value };
+                    }
+                    return variation;
+                })
+                : [];
+            const totalProduced = variations.reduce((sum, variation) => {
+                const numeric = parseInt(variation.produced, 10);
+                if (!Number.isFinite(numeric)) {
+                    return sum;
+                }
+                return sum + Math.max(0, numeric);
+            }, 0);
+            const nextRow = {
+                ...targetRow,
+                variations,
+                produced: totalProduced > 0 ? String(totalProduced) : '',
+            };
+            const nextRows = rows.map((row, idx) => (idx === rowIndex ? nextRow : row));
+            return { ...prev, productionRows: nextRows };
+        });
+    };
+
     const entryPrimaryProductId = useMemo(() => (
         entry?.primaryProductId
         || entry?.productionDetails?.[0]?.productId
@@ -1021,11 +1209,39 @@ const EntryEditorModal = ({
         const numericAvailableTime = parseFloat(entryData.availableTime) || 0;
         const updatedProductions = (entryData.productionRows || [])
             .filter(row => row.productId)
-            .map(row => ({
-                productId: row.productId,
-                produced: parseInt(row.produced, 10) || 0,
-            }))
-            .filter(detail => detail.produced > 0);
+            .map(row => {
+                const rowVariations = Array.isArray(row.variations)
+                    ? row.variations
+                        .map(variation => ({
+                            variationId: variation.variationId || '',
+                            variationKey: variation.variationKey,
+                            label: variation.label || '',
+                            produced: parseInt(variation.produced, 10) || 0,
+                        }))
+                        .filter(variation => variation.produced > 0)
+                    : [];
+
+                const producedValue = rowVariations.length > 0
+                    ? rowVariations.reduce((sum, variation) => sum + variation.produced, 0)
+                    : (parseInt(row.produced, 10) || 0);
+
+                if (producedValue <= 0) {
+                    return null;
+                }
+
+                const detail = {
+                    productId: row.productId,
+                    produced: producedValue,
+                    lotId: row.lotId || '',
+                };
+
+                if (rowVariations.length > 0) {
+                    detail.variations = rowVariations;
+                }
+
+                return detail;
+            })
+            .filter(Boolean);
 
         const primaryProductId = updatedProductions[0]?.productId
             || entry?.primaryProductId
@@ -1196,18 +1412,59 @@ const EntryEditorModal = ({
                         </div>
                         <div>
                             <h3 className="text-sm font-semibold mb-2">Produções</h3>
-                            <div className="space-y-2 max-h-64 overflow-y-auto">
-                                {(entryData.productionRows || []).map((row, index) => (
-                                    <div key={row.key || `${row.productId}-${index}`} className="flex items-center justify-between gap-4">
-                                        <span className="text-sm font-medium truncate">{row.productName || row.productId || 'Produto'}</span>
-                                        <input
-                                            type="number"
-                                            value={row.produced || ''}
-                                            onChange={(e) => handleProductionRowChange(index, e.target.value)}
-                                            className="w-24 p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                        />
-                                    </div>
-                                ))}
+                            <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                                {(entryData.productionRows || []).map((row, index) => {
+                                    const variations = Array.isArray(row.variations) ? row.variations : [];
+                                    const hasVariations = variations.length > 0;
+                                    return (
+                                        <div
+                                            key={row.key || `${row.productId}-${index}`}
+                                            className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 space-y-2"
+                                        >
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="text-sm font-medium truncate">{row.productName || row.productId || 'Produto'}</span>
+                                                {Number.isFinite(row?.remainingPieces) && (
+                                                    <span className="text-xs text-gray-500 dark:text-gray-400">Restante: {row.remainingPieces}</span>
+                                                )}
+                                            </div>
+                                            {hasVariations ? (
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                    {variations.map(variation => {
+                                                        const variationLabel = variation.label && variation.label.trim().length > 0
+                                                            ? variation.label
+                                                            : 'Sem descrição';
+                                                        return (
+                                                            <div
+                                                                key={variation.variationKey}
+                                                                className="p-2 rounded-md bg-white dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 space-y-1"
+                                                            >
+                                                                <div className="flex justify-between text-xs font-medium text-gray-600 dark:text-gray-300">
+                                                                    <span className="truncate" title={variationLabel}>{variationLabel}</span>
+                                                                    <span>{variation.currentProduced || 0} / {variation.target || 0}</span>
+                                                                </div>
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    value={variation.produced || ''}
+                                                                    onChange={(e) => handleProductionRowVariationChange(index, variation.variationKey, e.target.value)}
+                                                                    className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                                />
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : (
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    value={row.produced || ''}
+                                                    onChange={(e) => handleProductionRowChange(index, e.target.value)}
+                                                    className="w-24 p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                />
+                                            )}
+                                        </div>
+                                    );
+                                })}
                                 {(!entryData.productionRows || entryData.productionRows.length === 0) && (
                                     <p className="text-sm text-gray-500">Nenhum lote previsto para este horário.</p>
                                 )}
@@ -2352,11 +2609,15 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             return traveteEntrySummary.isValid;
         }
 
-        const allFieldsFilled = newEntry.productions.every(p => p !== '' && p !== null);
-
-        const atLeastOneIsPositive = newEntry.productions.some(p => parseInt(p, 10) > 0);
-
-        const hasProduction = allFieldsFilled && atLeastOneIsPositive;
+        const hasProduction = Array.isArray(newEntry.productions)
+            ? newEntry.productions.some(item => {
+                if (!item) return false;
+                if (Array.isArray(item.variations) && item.variations.length > 0) {
+                    return item.variations.some(variation => (parseInt(variation.produced, 10) || 0) > 0);
+                }
+                return (parseInt(item.totalProduced, 10) || 0) > 0;
+            })
+            : false;
 
         const hasUrgentProduction = showUrgent && urgentProduction.productId && (parseInt(urgentProduction.produced, 10) || 0) > 0;
 
@@ -2545,6 +2806,12 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     }, [isTraveteDashboard, goalPreview, newEntry, traveteEntry, traveteEntrySummary, currentDashboard, productsForSelectedDate, products]);
 
 
+    const regularPredictions = useMemo(
+        () => predictedLots.filter(prediction => !prediction.isUrgent),
+        [predictedLots]
+    );
+
+
     const handleAddEntry = useCallback(async (e) => {
         e.preventDefault();
         if (!currentDashboard) return;
@@ -2602,6 +2869,28 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                         lastEditedBy: { uid: user.uid, email: user.email },
                         lastEditedAt: now,
                     };
+                    if (Array.isArray(detail.variations) && detail.variations.length > 0) {
+                        const variationDeltas = new Map();
+                        detail.variations.forEach((variation, variationIndex) => {
+                            const producedValue = parseInt(variation.produced, 10);
+                            if (!Number.isFinite(producedValue) || producedValue === 0) {
+                                return;
+                            }
+                            const key = variation.variationKey || buildLotVariationKey(variation, variationIndex);
+                            variationDeltas.set(key, (variationDeltas.get(key) || 0) + producedValue);
+                        });
+                        if (variationDeltas.size > 0) {
+                            const updatedVariations = (Array.isArray(lotToUpdate.variations) ? lotToUpdate.variations : []).map((variation, variationIndex) => {
+                                const key = buildLotVariationKey(variation, variationIndex);
+                                if (!variationDeltas.has(key)) {
+                                    return variation;
+                                }
+                                const baseProduced = parseLotQuantityValue(variation.produced);
+                                return { ...variation, produced: baseProduced + variationDeltas.get(key) };
+                            });
+                            updatePayload.variations = updatedVariations;
+                        }
+                    }
                     if (lotToUpdate.status === 'future' && newProduced > 0) {
                         updatePayload.status = 'ongoing';
                         updatePayload.startDate = new Date().toISOString();
@@ -2644,11 +2933,46 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         if (showUrgent && urgentProduction.productId && urgentProduction.produced > 0) {
             productionDetails.push({ productId: urgentProduction.productId, produced: parseInt(urgentProduction.produced, 10) });
         }
-        predictedLots.filter(p => !p.isUrgent).forEach((lot, index) => {
-            const producedAmount = parseInt(newEntry.productions[index], 10) || 0;
-            if (lot && producedAmount > 0) {
-                productionDetails.push({ productId: lot.productId, produced: producedAmount });
+
+        regularPredictions.forEach((lot, index) => {
+            const productionState = newEntry.productions[index];
+            if (!productionState) {
+                return;
             }
+
+            const lotVariations = Array.isArray(productionState.variations)
+                ? productionState.variations
+                    .map(variation => ({
+                        variationId: variation.variationId || '',
+                        variationKey: variation.variationKey,
+                        label: variation.label || '',
+                        produced: parseInt(variation.produced, 10) || 0,
+                    }))
+                    .filter(variation => variation.produced > 0)
+                : [];
+
+            const producedAmount = lotVariations.length > 0
+                ? lotVariations.reduce((sum, variation) => sum + variation.produced, 0)
+                : (parseInt(productionState.totalProduced, 10) || 0);
+
+            if (producedAmount <= 0) {
+                return;
+            }
+
+            const detail = {
+                productId: productionState.productId || lot.productId,
+                lotId: productionState.lotId || lot.id || '',
+                produced: producedAmount,
+            };
+
+            if (lotVariations.length > 0) {
+                detail.variations = lotVariations.map(variation => ({
+                    ...variation,
+                    produced: variation.produced,
+                }));
+            }
+
+            productionDetails.push(detail);
         });
 
         const entryId = Date.now().toString();
@@ -2672,8 +2996,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         batch.set(prodDataRef, { [dateKey]: updatedDayData }, { merge: true });
 
         for (const detail of productionDetails) {
-            const lotToUpdate = lots.find(l => l.productId === detail.productId);
-            if(lotToUpdate){
+            const lotToUpdate = resolveLotForDetail(detail, lots);
+            if (lotToUpdate && lotToUpdate.id) {
                 const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id);
                 const newProduced = (lotToUpdate.produced || 0) + detail.produced;
                 const updatePayload = {
@@ -2681,6 +3005,37 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     lastEditedBy: { uid: user.uid, email: user.email },
                     lastEditedAt: now,
                 };
+
+                if (Array.isArray(detail.variations) && detail.variations.length > 0) {
+                    const variationDeltas = new Map();
+                    detail.variations.forEach((variation, variationIndex) => {
+                        const producedValue = parseInt(variation.produced, 10);
+                        if (!Number.isFinite(producedValue) || producedValue === 0) {
+                            return;
+                        }
+                        const variationKey = variation.variationKey || buildLotVariationKey(variation, variationIndex);
+                        variationDeltas.set(
+                            variationKey,
+                            (variationDeltas.get(variationKey) || 0) + producedValue,
+                        );
+                    });
+
+                    if (variationDeltas.size > 0) {
+                        const updatedVariations = (Array.isArray(lotToUpdate.variations) ? lotToUpdate.variations : []).map((variation, variationIndex) => {
+                            const key = buildLotVariationKey(variation, variationIndex);
+                            if (!variationDeltas.has(key)) {
+                                return variation;
+                            }
+                            const baseProduced = parseLotQuantityValue(variation.produced);
+                            return {
+                                ...variation,
+                                produced: baseProduced + variationDeltas.get(key),
+                            };
+                        });
+                        updatePayload.variations = updatedVariations;
+                    }
+                }
+
                 if (lotToUpdate.status === 'future' && newProduced > 0) {
                     updatePayload.status = 'ongoing';
                     updatePayload.startDate = new Date().toISOString();
@@ -2712,7 +3067,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         setNewEntry({ period: '', people: '', availableTime: 60, productId: newEntry.productId, productions: [] });
         setUrgentProduction({productId: '', produced: ''});
         setShowUrgent(false);
-    }, [currentDashboard, isTraveteDashboard, traveteEntrySummary, traveteEntry, allProductionData, dateKey, lots, user, isEntryFormValid, showUrgent, urgentProduction, predictedLots, newEntry, goalPreview, productsForSelectedDate, products, stockProducts]);
+    }, [currentDashboard, isTraveteDashboard, traveteEntrySummary, traveteEntry, allProductionData, dateKey, lots, user, isEntryFormValid, showUrgent, urgentProduction, newEntry, goalPreview, productsForSelectedDate, products, stockProducts, regularPredictions]);
     
     
     const handleSaveTraveteEntry = async (entryId, updatedData) => {
@@ -2862,15 +3217,41 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
       const now = Timestamp.now();
 
       const productionDeltas = new Map();
+      const variationDeltas = new Map();
       const updatedProductions = Array.isArray(updatedData.productions) ? updatedData.productions : [];
 
-      (originalEntry.productionDetails || []).forEach(detail => {
-          productionDeltas.set(detail.productId, (productionDeltas.get(detail.productId) || 0) - detail.produced);
-      });
+      const registerProductionDelta = (detail, sign) => {
+          if (!detail) return;
 
-      updatedProductions.forEach(detail => {
-          productionDeltas.set(detail.productId, (productionDeltas.get(detail.productId) || 0) + detail.produced);
-      });
+          const lot = resolveLotForDetail(detail, lots);
+          const baseProduced = Number.isFinite(parseFloat(detail.produced))
+              ? parseFloat(detail.produced)
+              : sumDetailVariationProduced(detail.variations);
+          const producedValue = Number.isFinite(baseProduced) ? baseProduced : 0;
+          if (producedValue !== 0) {
+              const key = lot ? `lot::${lot.id}` : `product::${detail.productId || ''}`;
+              productionDeltas.set(key, (productionDeltas.get(key) || 0) + sign * producedValue);
+          }
+
+          if (lot && Array.isArray(detail.variations) && detail.variations.length > 0) {
+              detail.variations.forEach((variation, variationIndex) => {
+                  const producedVariation = parseInt(variation.produced, 10) || 0;
+                  if (producedVariation === 0) {
+                      return;
+                  }
+                  const variationKey = variation.variationKey || buildLotVariationKey(variation, variationIndex);
+                  const compositeKey = buildCompositeVariationKey(lot.id, variationKey);
+                  variationDeltas.set(
+                      compositeKey,
+                      (variationDeltas.get(compositeKey) || 0) + sign * producedVariation,
+                  );
+              });
+          }
+      };
+
+      (originalEntry.productionDetails || []).forEach(detail => registerProductionDelta(detail, -1));
+
+      updatedProductions.forEach(detail => registerProductionDelta(detail, 1));
 
       const stockDeltaDetails = [];
       (originalEntry.productionDetails || []).forEach(detail => {
@@ -2905,18 +3286,54 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
           });
       }
 
-      for (const [productId, delta] of productionDeltas.entries()) {
-          if (delta === 0) continue;
+      for (const [deltaKey, delta] of productionDeltas.entries()) {
+          if (!Number.isFinite(delta) || delta === 0) continue;
 
-          const lotToUpdate = lots.find(l => l.productId === productId);
-          if (lotToUpdate) {
-              const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id);
-              batch.update(lotRef, {
-                  produced: increment(delta),
-                  lastEditedBy: { uid: user.uid, email: user.email },
-                  lastEditedAt: now,
-              });
+          let lotToUpdate = null;
+          if (deltaKey.startsWith('lot::')) {
+              const lotId = deltaKey.slice(5);
+              lotToUpdate = lots.find(lot => lot.id === lotId) || null;
+          } else if (deltaKey.startsWith('product::')) {
+              const productId = deltaKey.slice(9);
+              lotToUpdate = lots.find(lot => lot.productId === productId) || null;
           }
+
+          if (!lotToUpdate || !lotToUpdate.id) {
+              continue;
+          }
+
+          const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id);
+          const updatePayload = {
+              produced: increment(delta),
+              lastEditedBy: { uid: user.uid, email: user.email },
+              lastEditedAt: now,
+          };
+
+          const variationDeltaForLot = new Map();
+          variationDeltas.forEach((variationDelta, compositeKey) => {
+              if (!Number.isFinite(variationDelta) || variationDelta === 0) {
+                  return;
+              }
+              const [lotId, variationKey] = splitCompositeVariationKey(compositeKey);
+              if (lotId === lotToUpdate.id) {
+                  variationDeltaForLot.set(variationKey, (variationDeltaForLot.get(variationKey) || 0) + variationDelta);
+              }
+          });
+
+          if (variationDeltaForLot.size > 0) {
+              const updatedVariations = (Array.isArray(lotToUpdate.variations) ? lotToUpdate.variations : []).map((variation, variationIndex) => {
+                  const key = buildLotVariationKey(variation, variationIndex);
+                  if (!variationDeltaForLot.has(key)) {
+                      return variation;
+                  }
+                  const baseProduced = parseLotQuantityValue(variation.produced);
+                  const newProducedValue = Math.max(0, baseProduced + variationDeltaForLot.get(key));
+                  return { ...variation, produced: newProducedValue };
+              });
+              updatePayload.variations = updatedVariations;
+          }
+
+          batch.update(lotRef, updatePayload);
       }
 
       const updatedDayData = productionData.map(e => {
@@ -3036,11 +3453,37 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 movementRefsToDelete.forEach(ref => batch.delete(ref));
 
                 for (const detail of itemDoc.productionDetails) {
-                    const lotToUpdate = lots.find(l => l.productId === detail.productId);
-                    if(lotToUpdate){
+                    const lotToUpdate = resolveLotForDetail(detail, lots);
+                    if (lotToUpdate && lotToUpdate.id) {
                         const newProduced = Math.max(0, (lotToUpdate.produced || 0) - detail.produced);
                         const newStatus = (lotToUpdate.status.startsWith('completed') && newProduced < lotToUpdate.target) ? 'ongoing' : lotToUpdate.status;
-                        batch.update(doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id), { produced: newProduced, status: newStatus });
+                        const updatePayload = { produced: newProduced, status: newStatus };
+
+                        if (Array.isArray(detail.variations) && detail.variations.length > 0) {
+                            const variationDeltas = new Map();
+                            detail.variations.forEach((variation, variationIndex) => {
+                                const producedValue = parseInt(variation.produced, 10);
+                                if (!Number.isFinite(producedValue) || producedValue === 0) {
+                                    return;
+                                }
+                                const key = variation.variationKey || buildLotVariationKey(variation, variationIndex);
+                                variationDeltas.set(key, (variationDeltas.get(key) || 0) - producedValue);
+                            });
+                            if (variationDeltas.size > 0) {
+                                const updatedVariations = (Array.isArray(lotToUpdate.variations) ? lotToUpdate.variations : []).map((variation, variationIndex) => {
+                                    const key = buildLotVariationKey(variation, variationIndex);
+                                    if (!variationDeltas.has(key)) {
+                                        return variation;
+                                    }
+                                    const baseProduced = parseLotQuantityValue(variation.produced);
+                                    const adjusted = Math.max(0, baseProduced + variationDeltas.get(key));
+                                    return { ...variation, produced: adjusted };
+                                });
+                                updatePayload.variations = updatedVariations;
+                            }
+                        }
+
+                        batch.update(doc(db, `dashboards/${currentDashboard.id}/lots`, lotToUpdate.id), updatePayload);
                     }
                 }
             }
@@ -3085,11 +3528,36 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
           }
 
           for (const detail of originalDoc.productionDetails) {
-              const lotToUpdate = lots.find(l => l.productId === detail.productId);
-               if(lotToUpdate){
+              const lotToUpdate = resolveLotForDetail(detail, lots);
+              if (lotToUpdate && lotToUpdate.id) {
                   const newProduced = (lotToUpdate.produced || 0) + detail.produced;
                   const newStatus = (newProduced >= lotToUpdate.target) ? 'completed' : lotToUpdate.status;
-                  batch.update(doc(db, `dashboards/${dashboardId}/lots`, lotToUpdate.id), { produced: newProduced, status: newStatus });
+                  const updatePayload = { produced: newProduced, status: newStatus };
+
+                  if (Array.isArray(detail.variations) && detail.variations.length > 0) {
+                      const variationDeltas = new Map();
+                      detail.variations.forEach((variation, variationIndex) => {
+                          const producedValue = parseInt(variation.produced, 10);
+                          if (!Number.isFinite(producedValue) || producedValue === 0) {
+                              return;
+                          }
+                          const key = variation.variationKey || buildLotVariationKey(variation, variationIndex);
+                          variationDeltas.set(key, (variationDeltas.get(key) || 0) + producedValue);
+                      });
+                      if (variationDeltas.size > 0) {
+                          const updatedVariations = (Array.isArray(lotToUpdate.variations) ? lotToUpdate.variations : []).map((variation, variationIndex) => {
+                              const key = buildLotVariationKey(variation, variationIndex);
+                              if (!variationDeltas.has(key)) {
+                                  return variation;
+                              }
+                              const baseProduced = parseLotQuantityValue(variation.produced);
+                              return { ...variation, produced: baseProduced + variationDeltas.get(key) };
+                          });
+                          updatePayload.variations = updatedVariations;
+                      }
+                  }
+
+                  batch.update(doc(db, `dashboards/${dashboardId}/lots`, lotToUpdate.id), updatePayload);
               }
           }
       }
@@ -3304,11 +3772,35 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         setPredictedLots(allPredictions);
         setGoalPreview(currentGoalPreview);
 
-        const expectedCount = allPredictions.filter(p => !p.isUrgent).length;
-        if (newEntry.productions.length !== expectedCount) {
-            setNewEntry(prev => ({ ...prev, productions: Array(expectedCount).fill('') }));
-        }
-    }, [isTraveteDashboard, traveteEntrySummary.goalDisplay, calculatePredictions, newEntry.productions.length]);
+        const regularPredictions = allPredictions.filter(prediction => !prediction.isUrgent);
+        setNewEntry(prev => {
+            const previousProductions = Array.isArray(prev.productions) ? prev.productions : [];
+            const lookup = new Map();
+            previousProductions.forEach(entry => {
+                if (!entry) return;
+                if (entry.key) {
+                    lookup.set(entry.key, entry);
+                }
+                if (entry.lotId) {
+                    lookup.set(`lot::${entry.lotId}`, entry);
+                }
+                if (entry.productId) {
+                    lookup.set(`product::${entry.productId}`, entry);
+                }
+            });
+
+            const nextProductions = regularPredictions.map((lot, index) => {
+                const key = lot.id || `product-${lot.productId || index}`;
+                const existing = lookup.get(key)
+                    || (lot.id ? lookup.get(`lot::${lot.id}`) : null)
+                    || (lot.productId ? lookup.get(`product::${lot.productId}`) : null)
+                    || null;
+                return buildProductionStateForLot(lot, existing, index);
+            });
+
+            return { ...prev, productions: nextProductions };
+        });
+    }, [isTraveteDashboard, traveteEntrySummary.goalDisplay, calculatePredictions]);
 
     const predictedLotLabel = useMemo(() => {
         if (isTraveteDashboard) return '';
@@ -3693,7 +4185,50 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
     const handleInputChange = (e) => { const { name, value } = e.target; setNewEntry(prev => ({ ...prev, [name]: value, ...(name === 'productId' && { productions: [] }) })); };
     const handleUrgentChange = (e) => setUrgentProduction(prev => ({...prev, [e.target.name]: e.target.value}));
-    const handleProductionChange = (index, value) => { const newProductions = [...newEntry.productions]; newProductions[index] = value; setNewEntry(prev => ({ ...prev, productions: newProductions })); };
+    const handleProductionTotalChange = (index, value) => {
+        setNewEntry(prev => {
+            const productions = Array.isArray(prev.productions) ? [...prev.productions] : [];
+            if (index < 0 || index >= productions.length) {
+                return prev;
+            }
+            const targetProduction = productions[index] || {};
+            productions[index] = { ...targetProduction, totalProduced: value };
+            return { ...prev, productions };
+        });
+    };
+    const handleProductionVariationChange = (index, variationKey, value) => {
+        setNewEntry(prev => {
+            const productions = Array.isArray(prev.productions) ? [...prev.productions] : [];
+            if (index < 0 || index >= productions.length) {
+                return prev;
+            }
+            const targetProduction = productions[index];
+            if (!targetProduction) {
+                return prev;
+            }
+            const variations = Array.isArray(targetProduction.variations)
+                ? targetProduction.variations.map(variation => {
+                    if (variation.variationKey === variationKey || variation.variationId === variationKey) {
+                        return { ...variation, produced: value };
+                    }
+                    return variation;
+                })
+                : [];
+            const totalProduced = variations.reduce((sum, variation) => {
+                const numeric = parseInt(variation.produced, 10);
+                if (!Number.isFinite(numeric)) {
+                    return sum;
+                }
+                return sum + Math.max(0, numeric);
+            }, 0);
+            productions[index] = {
+                ...targetProduction,
+                variations,
+                totalProduced: totalProduced > 0 ? String(totalProduced) : '',
+            };
+            return { ...prev, productions };
+        });
+    };
     const handleTraveteBaseTimeChange = (value) => {
         setTraveteProductForm(prev => {
             const numericValue = parseFloat(value);
@@ -4924,21 +5459,73 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                          </select>
                                      </div>
                                  </div>
-                                 <div className="flex flex-col space-y-4">
-                                     <div className="flex flex-wrap gap-4 items-end">
-                                         <div className='flex flex-wrap gap-4 items-end'>
-                                             {predictedLots.filter(p => !p.isUrgent).map((lot, index) => (
-                                                 <div key={lot.id || index} className="flex flex-col min-w-[100px]">
-                                                     <label className="text-sm truncate" htmlFor={`prod-input-${index}`}>Prod. ({lot.productName})</label>
-                                                     <input id={`prod-input-${index}`} type="number" value={newEntry.productions[index] || ''} onChange={(e) => handleProductionChange(index, e.target.value)} className="p-2 rounded-md bg-gray-100 dark:bg-gray-700" />
-                                                 </div>
-                                             ))}
-                                         </div>
-                                         <div className="min-w-[150px] ml-auto">
-                                             <button type="button" onClick={() => setShowUrgent(p => !p)} className="text-sm text-blue-500 hover:underline mb-2 flex items-center gap-1">
-                                                 <PlusCircle size={14} />{showUrgent ? 'Remover item fora de ordem' : 'Adicionar item fora de ordem'}
-                                             </button>
-                                             {showUrgent && (
+                                <div className="flex flex-col space-y-4">
+                                    <div className="flex flex-wrap gap-4 items-start">
+                                        {regularPredictions.map((lot, index) => {
+                                            const productionState = newEntry.productions[index] || {};
+                                            const variations = Array.isArray(productionState.variations) ? productionState.variations : [];
+                                            const hasVariations = variations.length > 0;
+                                            const lotLabel = lot.productName || lot.name || `Lote ${index + 1}`;
+                                            return (
+                                                <div
+                                                    key={lot.id || lot.productId || `prediction-${index}`}
+                                                    className="flex flex-col gap-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 min-w-[180px]"
+                                                >
+                                                    <div className="flex flex-col">
+                                                        <span className="text-sm font-semibold text-gray-700 dark:text-gray-200 truncate">{lotLabel}</span>
+                                                        {Number.isFinite(lot?.remainingPieces) && (
+                                                            <span className="text-xs text-gray-500 dark:text-gray-400">Restante: {lot.remainingPieces}</span>
+                                                        )}
+                                                    </div>
+                                                    {hasVariations ? (
+                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                            {variations.map(variation => {
+                                                                const variationLabel = variation.label && variation.label.trim().length > 0
+                                                                    ? variation.label
+                                                                    : 'Sem descrição';
+                                                                return (
+                                                                    <div
+                                                                        key={variation.variationKey}
+                                                                        className="p-2 rounded-md bg-white dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 space-y-1"
+                                                                    >
+                                                                        <div className="flex justify-between text-xs font-medium text-gray-600 dark:text-gray-300">
+                                                                            <span className="truncate" title={variationLabel}>{variationLabel}</span>
+                                                                            <span>{variation.currentProduced || 0} / {variation.target || 0}</span>
+                                                                        </div>
+                                                                        <input
+                                                                            type="number"
+                                                                            min="0"
+                                                                            value={variation.produced || ''}
+                                                                            onChange={(e) => handleProductionVariationChange(index, variation.variationKey, e.target.value)}
+                                                                            className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                                        />
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex flex-col gap-1">
+                                                            <label className="text-xs text-gray-500 dark:text-gray-400" htmlFor={`prod-input-${index}`}>
+                                                                Quantidade Produzida
+                                                            </label>
+                                                            <input
+                                                                id={`prod-input-${index}`}
+                                                                type="number"
+                                                                min="0"
+                                                                value={productionState.totalProduced || ''}
+                                                                onChange={(e) => handleProductionTotalChange(index, e.target.value)}
+                                                                className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                        <div className="min-w-[150px] ml-auto">
+                                            <button type="button" onClick={() => setShowUrgent(p => !p)} className="text-sm text-blue-500 hover:underline mb-2 flex items-center gap-1">
+                                                <PlusCircle size={14} />{showUrgent ? 'Remover item fora de ordem' : 'Adicionar item fora de ordem'}
+                                            </button>
+                                            {showUrgent && (
                                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-blue-50 dark:bg-gray-800 rounded-lg">
                                                      <div className="flex flex-col">
                                                          <label htmlFor="urgent-lot">Lote Urgente</label>
@@ -5240,23 +5827,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                           </div>
                                       )}
                                       {!isEditingCurrentLot && lotVariations.length > 0 && (
-                                          <div className="border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-3 bg-white/50 dark:bg-gray-900/30 space-y-2">
-                                              <span className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Grade prevista</span>
-                                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs text-gray-600 dark:text-gray-300">
-                                                  {lotVariations.map(variation => {
-                                                      const label = variation.label && variation.label.trim().length > 0 ? variation.label : 'Sem descrição';
-                                                      const producedValue = parseLotQuantityValue(variation.produced);
-                                                      const targetValue = parseLotQuantityValue(variation.target);
-                                                      const key = variation.variationId || variation.id || `${label}-${targetValue}`;
-                                                      return (
-                                                          <div key={key} className="flex items-center justify-between bg-white/70 dark:bg-gray-900/40 px-3 py-2 rounded-md border border-gray-200 dark:border-gray-700">
-                                                              <span className="font-medium text-sm">{label}</span>
-                                                              <span>{producedValue} / {targetValue}</span>
-                                                          </div>
-                                                      );
-                                                  })}
-                                              </div>
-                                          </div>
+                                          <LotVariationSummary variations={lotVariations} />
                                       )}
                                   </div>
                                   </div>
