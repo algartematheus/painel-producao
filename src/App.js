@@ -1060,7 +1060,7 @@ const PasswordModal = ({ isOpen, onClose, onSuccess }) => {
     const [isLoading, setIsLoading] = useState(false);
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
-    const verifyAdminPassword = useMemo(() => httpsCallable(functions, 'verifyAdminPassword'), [functions]);
+    const verifyAdminPassword = useMemo(() => httpsCallable(functions, 'verifyAdminPassword'), []);
 
     useEffect(() => {
         if(isOpen) {
@@ -3699,6 +3699,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
         if (!product) return;
         const id = Date.now().toString();
+        const machineTypePayload = (!isTraveteDashboard && product.machineType)
+            ? { machineType: product.machineType }
+            : {};
+
         const newLotData = {
             id,
             sequentialId: lotCounter,
@@ -3713,7 +3717,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             startDate: null,
             endDate: null,
             createdBy: { uid: user.uid, email: user.email },
-            ...(isTraveteDashboard ? lotBaseMetadata : { machineType: product.machineType }),
+            ...(isTraveteDashboard ? lotBaseMetadata : machineTypePayload),
         };
         await setDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, id), newLotData);
         setNewLot({ productId: '', target: '', customName: '' });
