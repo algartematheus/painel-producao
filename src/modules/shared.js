@@ -3,37 +3,6 @@ import { getDownloadURL, ref } from 'firebase/storage';
 import { storage } from '../firebase';
 import { TRAVETE_MACHINES, raceBullLogoUrl } from './constants';
 
-const JSPDF_CDN_URL = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
-const JSPDF_AUTOTABLE_CDN_URL = 'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.1/dist/jspdf.plugin.autotable.min.js';
-const XLSX_CDN_URL = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
-
-const loadScriptOnce = (src) => new Promise((resolve, reject) => {
-    if (typeof document === 'undefined') {
-        reject(new Error('Scripts can only be loaded in the browser.'));
-        return;
-    }
-    const existing = document.querySelector(`script[src="${src}"]`);
-    if (existing) {
-        if (existing.dataset.loaded === 'true') {
-            resolve();
-            return;
-        }
-        existing.addEventListener('load', () => resolve());
-        existing.addEventListener('error', (event) => reject(event?.error || new Error(`Falha ao carregar script: ${src}`)));
-        return;
-    }
-    const script = document.createElement('script');
-    script.src = src;
-    script.async = true;
-    script.dataset.loaded = 'false';
-    script.onload = () => {
-        script.dataset.loaded = 'true';
-        resolve();
-    };
-    script.onerror = (event) => reject(event?.error || new Error(`Falha ao carregar script: ${src}`));
-    document.head.appendChild(script);
-});
-
 let jsPdfLoaderPromise = null;
 
 const ensureJsPdfResources = async () => {
@@ -44,18 +13,33 @@ const ensureJsPdfResources = async () => {
         if (typeof window === 'undefined') {
             throw new Error('Exportação de PDF disponível apenas no navegador.');
         }
-        await loadScriptOnce(JSPDF_CDN_URL);
-        const globalJsPdf = window.jspdf;
-        if (!globalJsPdf || !globalJsPdf.jsPDF) {
+        const jsPdfModule = await import('jspdf');
+        const { jsPDF } = jsPdfModule || {};
+        if (!jsPDF) {
             throw new Error('Não foi possível carregar o jsPDF.');
         }
-        if (!globalJsPdf.jsPDF.API?.autoTable) {
-            await loadScriptOnce(JSPDF_AUTOTABLE_CDN_URL);
+
+        const autoTableModule = await import('jspdf-autotable');
+        if (typeof autoTableModule?.applyPlugin === 'function') {
+            autoTableModule.applyPlugin(jsPDF);
         }
-        if (!globalJsPdf.jsPDF.API?.autoTable) {
+
+        if (!jsPDF.API?.autoTable) {
+            const maybeAutoTable = autoTableModule?.default;
+            if (typeof maybeAutoTable === 'function') {
+                try {
+                    maybeAutoTable(jsPDF);
+                } catch {
+                    // Ignore errors caused by invoking the default export as a fallback.
+                }
+            }
+        }
+
+        if (!jsPDF.API?.autoTable) {
             throw new Error('Não foi possível carregar o plugin jsPDF-Autotable.');
         }
-        return globalJsPdf;
+
+        return jsPdfModule;
     })();
     return jsPdfLoaderPromise;
 };
@@ -72,14 +56,14 @@ const ensureXlsxResources = async () => {
             throw new Error('Exportação de planilhas disponível apenas no navegador.');
         }
 
-        await loadScriptOnce(XLSX_CDN_URL);
-        const globalXlsx = window.XLSX;
+        const xlsxModule = await import('xlsx');
+        const XLSX = xlsxModule?.default || xlsxModule;
 
-        if (!globalXlsx || !globalXlsx.utils || !globalXlsx.write) {
+        if (!XLSX || !XLSX.utils || typeof XLSX.write !== 'function') {
             throw new Error('Não foi possível carregar a biblioteca XLSX.');
         }
 
-        return globalXlsx;
+        return XLSX;
     })();
 
     return xlsxLoaderPromise;
@@ -1029,8 +1013,8 @@ const deriveOperationMinutesForPdf = (operation) => {
 };
 
 export const exportSequenciaOperacionalPDF = async (modelo, incluirDados = true, options = {}) => {
-    const globalJsPdf = await ensureJsPdfResources();
-    const { jsPDF } = globalJsPdf;
+    const jsPdfModule = await ensureJsPdfResources();
+    const { jsPDF } = jsPdfModule;
     const doc = new jsPDF();
     const now = new Date();
     const dateLabel = now.toLocaleDateString('pt-BR');
@@ -1170,9 +1154,8 @@ export const exportDashboardPerformancePDF = (options = {}) => {
 
     const reportFilename = buildDashboardReportFilename(dashboardName, selectedDate, 'pdf');
 
-    return ensureJsPdfResources().then((globalJsPdf) => (
+    return ensureJsPdfResources().then(({ jsPDF }) => (
         fetchOperationalLogoDataUrl().then((logoDataUrl) => {
-            const { jsPDF } = globalJsPdf;
             const doc = new jsPDF();
             const now = new Date();
             const pageWidth = doc.internal.pageSize.getWidth();
@@ -1567,9 +1550,9 @@ export const exportStockReportPDF = async (options = {}) => {
         ? generatedAt
         : new Date();
 
-    const globalJsPdf = await ensureJsPdfResources();
+    const jsPdfModule = await ensureJsPdfResources();
     const logoDataUrl = await fetchOperationalLogoDataUrl();
-    const { jsPDF } = globalJsPdf;
+    const { jsPDF } = jsPdfModule;
     const doc = new jsPDF();
     const centerX = doc.internal.pageSize.getWidth() / 2;
 
