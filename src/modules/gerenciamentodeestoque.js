@@ -10,7 +10,8 @@ import { raceBullLogoUrl } from './constants';
 import {
   ConfirmationModal,
   useClickOutside,
-  generateId
+  generateId,
+  usePersistedTheme
 } from './shared';
 
 const StockContext = createContext();
@@ -936,10 +937,7 @@ const StockTrashPage = () => {
 export const StockManagementApp = ({ onNavigateToCrono, onNavigateToReports }) => {
     const [activePage, setActivePage] = useState('dashboard');
     const [confirmation, setConfirmation] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
-    const [theme, setTheme] = useState(() => {
-        if (typeof window === 'undefined') return 'light';
-        return localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    });
+    const { theme, toggleTheme } = usePersistedTheme();
     const [stockExportFormat, setStockExportFormat] = useState(DEFAULT_REPORT_FORMATS[0]?.value || 'pdf');
     const [isExportingStockReport, setIsExportingStockReport] = useState(false);
 
@@ -949,17 +947,6 @@ export const StockManagementApp = ({ onNavigateToCrono, onNavigateToReports }) =
         exportingButton: 'Gerando...',
         formatLabel: 'Formato do relatório',
     }), []);
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        const root = window.document.documentElement;
-        root.classList.toggle('dark', theme === 'dark');
-        localStorage.setItem('theme', theme);
-    }, [theme]);
-
-    const toggleTheme = useCallback(() => {
-        setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
-    }, []);
 
     const handleExportStockReport = useCallback(async (format = stockExportFormat) => {
         setIsExportingStockReport(true);
