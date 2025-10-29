@@ -1060,7 +1060,7 @@ const PasswordModal = ({ isOpen, onClose, onSuccess }) => {
     const [isLoading, setIsLoading] = useState(false);
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
-    const verifyAdminPassword = useMemo(() => httpsCallable(functions, 'verifyAdminPassword'), [functions]);
+    const verifyAdminPassword = useMemo(() => httpsCallable(functions, 'verifyAdminPassword'), []);
 
     useEffect(() => {
         if(isOpen) {
