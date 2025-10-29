@@ -315,41 +315,6 @@ const mapLotVariationsToFormState = (variations = []) => {
     }));
 };
 
-const areLotVariationsEqual = (first = [], second = []) => {
-    if (!Array.isArray(first) || !Array.isArray(second)) {
-        return false;
-    }
-
-    if (first.length !== second.length) {
-        return false;
-    }
-
-    for (let index = 0; index < first.length; index += 1) {
-        const left = first[index];
-        const right = second[index];
-
-        const leftId = typeof left?.variationId === 'string' ? left.variationId : '';
-        const rightId = typeof right?.variationId === 'string' ? right.variationId : '';
-        if (leftId !== rightId) {
-            return false;
-        }
-
-        const leftLabel = typeof left?.label === 'string' ? left.label : '';
-        const rightLabel = typeof right?.label === 'string' ? right.label : '';
-        if (leftLabel !== rightLabel) {
-            return false;
-        }
-
-        const leftTarget = parseLotQuantityValue(left?.target);
-        const rightTarget = parseLotQuantityValue(right?.target);
-        if (leftTarget !== rightTarget) {
-            return false;
-        }
-    }
-
-    return true;
-};
-
 const createEmptyProductDraft = () => ({
     name: '',
     standardTime: '',
