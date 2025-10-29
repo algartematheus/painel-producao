@@ -194,6 +194,128 @@ const createEmptyBillOfMaterialsItem = () => ({
     dashboardIds: [],
 });
 
+const createEmptyProductVariation = () => ({
+    id: generateId('productVariation'),
+    label: '',
+    defaultTarget: '',
+});
+
+const createEmptyProductDraft = () => ({
+    name: '',
+    standardTime: '',
+    billOfMaterials: [],
+    variations: [createEmptyProductVariation()],
+});
+
+const buildFallbackVariationId = (productId, index, label = '') => {
+    const normalizedLabel = typeof label === 'string' ? label.trim().toLowerCase() : '';
+    const slug = normalizedLabel
+        .replace(/[^a-z0-9]+/gi, '-')
+        .replace(/^-+|-+$/g, '');
+    const base = slug.length > 0
+        ? slug
+        : (typeof productId === 'string' && productId.trim().length > 0
+            ? productId.trim()
+            : 'variation');
+    return `${base}-${index + 1}`;
+};
+
+const sanitizeProductVariationsArray = (productId, rawVariations = []) => {
+    if (!Array.isArray(rawVariations) || rawVariations.length === 0) {
+        return [];
+    }
+
+    const seenIds = new Set();
+
+    return rawVariations.map((variation, index) => {
+        const label = typeof variation?.label === 'string' ? variation.label.trim() : '';
+        const baseId = (typeof variation?.id === 'string' && variation.id.trim().length > 0)
+            ? variation.id.trim()
+            : buildFallbackVariationId(productId, index, label);
+
+        let finalId = baseId;
+        let dedupeCounter = 1;
+        while (seenIds.has(finalId)) {
+            dedupeCounter += 1;
+            finalId = `${baseId}-${dedupeCounter}`;
+        }
+        seenIds.add(finalId);
+
+        const rawDefaultTarget = variation?.defaultTarget;
+        let defaultTarget = null;
+        if (typeof rawDefaultTarget === 'number') {
+            defaultTarget = rawDefaultTarget;
+        } else if (typeof rawDefaultTarget === 'string' && rawDefaultTarget.trim().length > 0) {
+            const parsed = parseFloat(rawDefaultTarget);
+            defaultTarget = Number.isFinite(parsed) ? parsed : null;
+        }
+
+        return {
+            id: finalId,
+            label,
+            defaultTarget,
+        };
+    });
+};
+
+const mapProductVariationsToDraft = (productId, rawVariations = []) => {
+    const sanitized = sanitizeProductVariationsArray(productId, rawVariations);
+    if (sanitized.length === 0) {
+        return [createEmptyProductVariation()];
+    }
+
+    return sanitized.map(variation => ({
+        id: variation.id,
+        label: typeof variation.label === 'string' ? variation.label : '',
+        defaultTarget: Number.isFinite(variation.defaultTarget)
+            ? String(variation.defaultTarget)
+            : '',
+    }));
+};
+
+const normalizeProductVariationsForSave = (variations = []) => {
+    if (!Array.isArray(variations)) {
+        return [];
+    }
+
+    const seenIds = new Set();
+
+    return variations.reduce((accumulator, variation) => {
+        const label = typeof variation?.label === 'string' ? variation.label.trim() : '';
+        if (!label) {
+            return accumulator;
+        }
+
+        const rawDefaultTarget = variation?.defaultTarget;
+        let defaultTarget = null;
+        if (typeof rawDefaultTarget === 'number') {
+            defaultTarget = rawDefaultTarget;
+        } else if (typeof rawDefaultTarget === 'string' && rawDefaultTarget.trim().length > 0) {
+            const parsed = parseFloat(rawDefaultTarget);
+            defaultTarget = Number.isFinite(parsed) ? parsed : null;
+        }
+
+        const baseId = (typeof variation?.id === 'string' && variation.id.trim().length > 0)
+            ? variation.id.trim()
+            : generateId('productVariation');
+        let id = baseId;
+        let suffix = 1;
+        while (seenIds.has(id)) {
+            suffix += 1;
+            id = `${baseId}-${suffix}`;
+        }
+        seenIds.add(id);
+
+        accumulator.push({
+            id,
+            label,
+            defaultTarget,
+        });
+
+        return accumulator;
+    }, []);
+};
+
 const roundToFourDecimals = (value) => {
     if (!Number.isFinite(value)) return 0;
     return Math.round(value * 10000) / 10000;
@@ -1748,9 +1870,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const [newLot, setNewLot] = useState({ productId: '', target: '', customName: '' });
     const [editingLotId, setEditingLotId] = useState(null);
     const [editingLotData, setEditingLotData] = useState({ target: '', customName: '' });
-    const [newProduct, setNewProduct] = useState({ name: '', standardTime: '', billOfMaterials: [] });
+    const [newProduct, setNewProduct] = useState(() => createEmptyProductDraft());
     const [editingProductId, setEditingProductId] = useState(null);
-    const [editingProductData, setEditingProductData] = useState({ name: '', standardTime: '', billOfMaterials: [] });
+    const [editingProductData, setEditingProductData] = useState(() => createEmptyProductDraft());
     
     const [newEntry, setNewEntry] = useState({ period: '', people: '', availableTime: 60, productId: '', productions: [] });
     const [traveteProductForm, setTraveteProductForm] = useState(() => createTraveteProductFormState());
@@ -2126,7 +2248,15 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         if (!user || !currentDashboard) return;
 
         const unsubProducts = onSnapshot(query(collection(db, `dashboards/${currentDashboard.id}/products`)), snap => {
-            setProducts(snap.docs.map(d => d.data()));
+            setProducts(snap.docs.map(docSnap => {
+                const data = docSnap.data();
+                const productId = data?.id || docSnap.id;
+                const sanitizedVariations = sanitizeProductVariationsArray(productId, data?.variations);
+                return {
+                    ...data,
+                    variations: sanitizedVariations,
+                };
+            }));
         });
         const unsubLots = onSnapshot(query(collection(db, `dashboards/${currentDashboard.id}/lots`), orderBy("order")), snap => {
             setLots(snap.docs.map(d => d.data()));
@@ -3582,6 +3712,40 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         });
     }, [setNewProduct]);
 
+    const handleNewProductVariationChange = useCallback((index, field, value) => {
+        setNewProduct(prev => {
+            const currentVariations = Array.isArray(prev.variations) ? [...prev.variations] : [createEmptyProductVariation()];
+            const existingVariation = currentVariations[index] || createEmptyProductVariation();
+            const updatedVariation = {
+                ...existingVariation,
+                [field]: value,
+            };
+            currentVariations[index] = updatedVariation;
+            return {
+                ...prev,
+                variations: currentVariations,
+            };
+        });
+    }, []);
+
+    const handleAddNewProductVariation = useCallback(() => {
+        setNewProduct(prev => ({
+            ...prev,
+            variations: [...(Array.isArray(prev.variations) ? prev.variations : []), createEmptyProductVariation()],
+        }));
+    }, []);
+
+    const handleRemoveNewProductVariation = useCallback((index) => {
+        setNewProduct(prev => {
+            const currentVariations = Array.isArray(prev.variations) ? [...prev.variations] : [];
+            const remaining = currentVariations.filter((_, variationIndex) => variationIndex !== index);
+            return {
+                ...prev,
+                variations: remaining.length > 0 ? remaining : [createEmptyProductVariation()],
+            };
+        });
+    }, []);
+
     const handleEditingBillOfMaterialsChange = useCallback((index, field, value) => {
         setEditingProductData(prev => {
             const currentItems = Array.isArray(prev.billOfMaterials) ? [...prev.billOfMaterials] : [];
@@ -3632,6 +3796,40 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             };
         });
     }, [setEditingProductData]);
+
+    const handleEditingProductVariationChange = useCallback((index, field, value) => {
+        setEditingProductData(prev => {
+            const currentVariations = Array.isArray(prev.variations) ? [...prev.variations] : [createEmptyProductVariation()];
+            const existingVariation = currentVariations[index] || createEmptyProductVariation();
+            const updatedVariation = {
+                ...existingVariation,
+                [field]: value,
+            };
+            currentVariations[index] = updatedVariation;
+            return {
+                ...prev,
+                variations: currentVariations,
+            };
+        });
+    }, []);
+
+    const handleAddEditingProductVariation = useCallback(() => {
+        setEditingProductData(prev => ({
+            ...prev,
+            variations: [...(Array.isArray(prev.variations) ? prev.variations : []), createEmptyProductVariation()],
+        }));
+    }, []);
+
+    const handleRemoveEditingProductVariation = useCallback((index) => {
+        setEditingProductData(prev => {
+            const currentVariations = Array.isArray(prev.variations) ? [...prev.variations] : [];
+            const remaining = currentVariations.filter((_, variationIndex) => variationIndex !== index);
+            return {
+                ...prev,
+                variations: remaining.length > 0 ? remaining : [createEmptyProductVariation()],
+            };
+        });
+    }, []);
 
     const handleAddProduct = async (e) => {
         e.preventDefault();
@@ -3705,6 +3903,11 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         }
 
         if (!newProduct.name || !newProduct.standardTime) return;
+        const productVariations = normalizeProductVariationsForSave(newProduct.variations || []);
+        if (productVariations.length === 0) {
+            alert('Adicione ao menos uma variação válida antes de salvar o produto.');
+            return;
+        }
         const id = Date.now().toString();
         const productBillOfMaterials = normalizeBillOfMaterials(newProduct.billOfMaterials || []);
         const newProductData = {
@@ -3716,10 +3919,11 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 changedBy: { uid: user.uid, email: user.email },
             }],
             billOfMaterials: productBillOfMaterials,
+            variations: productVariations,
             createdBy: { uid: user.uid, email: user.email },
         };
         await setDoc(doc(db, `dashboards/${currentDashboard.id}/products`, id), newProductData);
-        setNewProduct({ name: '', standardTime: '', billOfMaterials: [] });
+        setNewProduct(createEmptyProductDraft());
     };
 
     const handleStartEditProduct = (product) => {
@@ -3741,12 +3945,18 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     : [],
             }))
             : [];
-        setEditingProductData({ name: product.name, standardTime: latest, billOfMaterials: mappedBillOfMaterials });
+        const mappedVariations = mapProductVariationsToDraft(product.id, product.variations || []);
+        setEditingProductData({
+            name: product.name,
+            standardTime: latest,
+            billOfMaterials: mappedBillOfMaterials,
+            variations: mappedVariations,
+        });
     };
 
     const cancelProductEditing = useCallback(() => {
         setEditingProductId(null);
-        setEditingProductData({ name: '', standardTime: '', billOfMaterials: [] });
+        setEditingProductData(createEmptyProductDraft());
     }, [setEditingProductData, setEditingProductId]);
 
     const handleEditingProductFieldChange = useCallback((field, value) => {
@@ -3772,16 +3982,22 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         }
         
         const normalizedBillOfMaterials = normalizeBillOfMaterials(editingProductData.billOfMaterials || []);
+        const normalizedVariations = normalizeProductVariationsForSave(editingProductData.variations || []);
+        if (normalizedVariations.length === 0) {
+            alert('Mantenha ao menos uma variação válida ao salvar o produto.');
+            return;
+        }
 
         await updateDoc(doc(db, `dashboards/${currentDashboard.id}/products`, id), {
             name: editingProductData.name,
             standardTimeHistory: newHistory,
             billOfMaterials: normalizedBillOfMaterials,
+            variations: normalizedVariations,
             lastEditedBy: { uid: user.uid, email: user.email },
         });
 
         setEditingProductId(null);
-        setEditingProductData({ name: '', standardTime: '', billOfMaterials: [] });
+        setEditingProductData(createEmptyProductDraft());
     };
 
     const handleSaveObservation = async (entryId, observation) => {
@@ -4793,18 +5009,71 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                                                       {isEditing && (
                                                                           <tr className="bg-gray-50 dark:bg-gray-800/60">
                                                                               <td colSpan={columnCount} className="p-3">
-                                                                                  <BillOfMaterialsEditor
-                                                                                      title="Ficha Técnica"
-                                                                                      items={editingProductData.billOfMaterials || []}
-                                                                                      onChangeItem={handleEditingBillOfMaterialsChange}
-                                                                                      onAddItem={handleAddEditingBillOfMaterialsItem}
-                                                                                      onRemoveItem={handleRemoveEditingBillOfMaterialsItem}
-                                                                                      stockProducts={stockProducts}
-                                                                                      stockCategoryMap={stockCategoryMap}
-                                                                                      emptyLabel="Nenhum componente vinculado ainda."
-                                                                                      dashboards={dashboards}
-                                                                                      currentDashboardId={currentDashboard?.id}
-                                                                                  />
+                                                                                  <div className="space-y-4">
+                                                                                      <div className="space-y-3">
+                                                                                          <div className="flex items-center justify-between">
+                                                                                              <h4 className="text-md font-medium">Tamanhos / Variações</h4>
+                                                                                              <button
+                                                                                                  type="button"
+                                                                                                  onClick={handleAddEditingProductVariation}
+                                                                                                  className="px-3 py-1 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-500"
+                                                                                              >
+                                                                                                  Adicionar variação
+                                                                                              </button>
+                                                                                          </div>
+                                                                                          <div className="space-y-3">
+                                                                                              {(editingProductData.variations || []).map((variation, index) => (
+                                                                                                  <div key={variation.id || index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                                                                                                      <div className="md:col-span-7">
+                                                                                                          <label className="block text-sm font-medium mb-1">Descrição / Tamanho</label>
+                                                                                                          <input
+                                                                                                              type="text"
+                                                                                                              value={variation.label}
+                                                                                                              onChange={(event) => handleEditingProductVariationChange(index, 'label', event.target.value)}
+                                                                                                              className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                                                                              placeholder="Ex.: P, M, G"
+                                                                                                          />
+                                                                                                      </div>
+                                                                                                      <div className="md:col-span-4">
+                                                                                                          <label className="block text-sm font-medium mb-1">Meta padrão</label>
+                                                                                                          <input
+                                                                                                              type="number"
+                                                                                                              min="0"
+                                                                                                              step="1"
+                                                                                                              value={variation.defaultTarget}
+                                                                                                              onChange={(event) => handleEditingProductVariationChange(index, 'defaultTarget', event.target.value)}
+                                                                                                              className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                                                                              placeholder="Qtd"
+                                                                                                          />
+                                                                                                      </div>
+                                                                                                      <div className="md:col-span-1 flex md:justify-center justify-end">
+                                                                                                          <button
+                                                                                                              type="button"
+                                                                                                              onClick={() => handleRemoveEditingProductVariation(index)}
+                                                                                                              disabled={(editingProductData.variations || []).length <= 1}
+                                                                                                              className="p-2 rounded-full bg-red-500 text-white hover:bg-red-400 disabled:opacity-40"
+                                                                                                              aria-label="Remover variação"
+                                                                                                          >
+                                                                                                              <Trash2 size={16} />
+                                                                                                          </button>
+                                                                                                      </div>
+                                                                                                  </div>
+                                                                                              ))}
+                                                                                          </div>
+                                                                                      </div>
+                                                                                      <BillOfMaterialsEditor
+                                                                                          title="Ficha Técnica"
+                                                                                          items={editingProductData.billOfMaterials || []}
+                                                                                          onChangeItem={handleEditingBillOfMaterialsChange}
+                                                                                          onAddItem={handleAddEditingBillOfMaterialsItem}
+                                                                                          onRemoveItem={handleRemoveEditingBillOfMaterialsItem}
+                                                                                          stockProducts={stockProducts}
+                                                                                          stockCategoryMap={stockCategoryMap}
+                                                                                          emptyLabel="Nenhum componente vinculado ainda."
+                                                                                          dashboards={dashboards}
+                                                                                          currentDashboardId={currentDashboard?.id}
+                                                                                      />
+                                                                                  </div>
                                                                               </td>
                                                                           </tr>
                                                                       )}
@@ -4848,6 +5117,57 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                            required
                                            className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
                                        />
+                                   </div>
+                                   <div className="space-y-3">
+                                       <div className="flex items-center justify-between">
+                                           <span className="text-sm font-medium">Tamanhos / Variações</span>
+                                           <button
+                                               type="button"
+                                               onClick={handleAddNewProductVariation}
+                                               className="px-3 py-1 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-500"
+                                           >
+                                               Adicionar variação
+                                           </button>
+                                       </div>
+                                       <div className="space-y-3">
+                                           {(newProduct.variations || []).map((variation, index) => (
+                                               <div key={variation.id || index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                                                   <div className="md:col-span-7">
+                                                       <label className="block text-sm font-medium mb-1">Descrição / Tamanho</label>
+                                                       <input
+                                                           type="text"
+                                                           value={variation.label}
+                                                           onChange={(event) => handleNewProductVariationChange(index, 'label', event.target.value)}
+                                                           className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                           placeholder="Ex.: P, M, G"
+                                                       />
+                                                   </div>
+                                                   <div className="md:col-span-4">
+                                                       <label className="block text-sm font-medium mb-1">Meta padrão</label>
+                                                       <input
+                                                           type="number"
+                                                           min="0"
+                                                           step="1"
+                                                           value={variation.defaultTarget}
+                                                           onChange={(event) => handleNewProductVariationChange(index, 'defaultTarget', event.target.value)}
+                                                           className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                           placeholder="Qtd"
+                                                       />
+                                                   </div>
+                                                   <div className="md:col-span-1 flex md:justify-center justify-end">
+                                                       <button
+                                                           type="button"
+                                                           onClick={() => handleRemoveNewProductVariation(index)}
+                                                           disabled={(newProduct.variations || []).length <= 1}
+                                                           className="p-2 rounded-full bg-red-500 text-white hover:bg-red-400 disabled:opacity-40"
+                                                           aria-label="Remover variação"
+                                                       >
+                                                           <Trash2 size={16} />
+                                                       </button>
+                                                   </div>
+                                               </div>
+                                           ))}
+                                       </div>
                                    </div>
                                    <div className="space-y-3">
                                        <BillOfMaterialsEditor
@@ -5052,7 +5372,15 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
         if (!currentDashboard) return;
 
         const unsubProducts = onSnapshot(query(collection(db, `dashboards/${currentDashboard.id}/products`)), snap => {
-            setProducts(snap.docs.map(d => d.data()));
+            setProducts(snap.docs.map(docSnap => {
+                const data = docSnap.data();
+                const productId = data?.id || docSnap.id;
+                const sanitizedVariations = sanitizeProductVariationsArray(productId, data?.variations);
+                return {
+                    ...data,
+                    variations: sanitizedVariations,
+                };
+            }));
         });
         
         const unsubProdData = onSnapshot(doc(db, `dashboards/${currentDashboard.id}/productionData`, "data"), snap => {
