@@ -2884,7 +2884,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const allPredictions = urgentPrediction ? [urgentPrediction, ...normalPredictions] : normalPredictions;
     const normalGoalSegments = normalPredictions
         .map(prediction => {
-            const value = prediction.remainingPieces ?? prediction.producible ?? 0;
+            const value = prediction.producible ?? prediction.remainingPieces ?? 0;
             return value > 0 ? value : 0;
         })
         .filter((value, index) => value > 0 || index === 0);
