@@ -191,6 +191,7 @@ const createEmptyBillOfMaterialsItem = () => ({
     stockProductId: '',
     stockVariationId: '',
     quantityPerPiece: '',
+    dashboardIds: [],
 });
 
 const roundToFourDecimals = (value) => {
@@ -206,6 +207,7 @@ const applyBillOfMaterialsMovements = ({
     sourceEntryId,
     user,
     movementTimestamp,
+    dashboardId,
 }) => {
     if (!batch || !user || !Array.isArray(productionDetails) || productionDetails.length === 0) {
         return;
@@ -253,6 +255,18 @@ const applyBillOfMaterialsMovements = ({
             const stockProductId = item?.stockProductId;
             const stockVariationId = item?.stockVariationId;
             if (!stockProductId || !stockVariationId) return;
+
+            const allowedDashboards = Array.isArray(item?.dashboardIds)
+                ? item.dashboardIds
+                    .map(id => (typeof id === 'string' ? id.trim() : ''))
+                    .filter(Boolean)
+                : [];
+            if (allowedDashboards.length > 0) {
+                if (!dashboardId || !allowedDashboards.includes(dashboardId)) {
+                    return;
+                }
+            }
+
             const quantityPerPiece = parseFloat(item.quantityPerPiece);
             if (!Number.isFinite(quantityPerPiece) || quantityPerPiece === 0) return;
 
@@ -341,12 +355,19 @@ const BillOfMaterialsEditor = ({
     title,
     addLabel = 'Adicionar Componente',
     emptyLabel = 'Nenhum componente adicionado.',
+    dashboards = [],
+    currentDashboardId = '',
 }) => {
     const availableProducts = useMemo(
         () => stockProducts
             .filter(product => !product.isDeleted)
             .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
         [stockProducts],
+    );
+
+    const dashboardOptions = useMemo(
+        () => (Array.isArray(dashboards) ? dashboards.filter(d => d && d.id) : []),
+        [dashboards],
     );
 
     return (
@@ -358,6 +379,27 @@ const BillOfMaterialsEditor = ({
             {items.map((item, index) => {
                 const product = availableProducts.find(prod => prod.id === item.stockProductId) || null;
                 const variations = Array.isArray(product?.variations) ? product.variations : [];
+                const sanitizedDashboardIds = Array.isArray(item.dashboardIds)
+                    ? item.dashboardIds
+                        .map(id => (typeof id === 'string' ? id.trim() : ''))
+                        .filter(Boolean)
+                    : [];
+
+                const handleDashboardChange = (dashboardId, isChecked) => {
+                    const normalizedId = typeof dashboardId === 'string' ? dashboardId : '';
+                    if (!normalizedId) return;
+                    const nextIdsSet = new Set(sanitizedDashboardIds);
+                    if (isChecked) {
+                        nextIdsSet.add(normalizedId);
+                    } else {
+                        nextIdsSet.delete(normalizedId);
+                    }
+                    const orderedIds = dashboardOptions
+                        .map(option => option.id)
+                        .filter(id => nextIdsSet.has(id));
+                    onChangeItem(index, 'dashboardIds', orderedIds);
+                };
+
                 return (
                     <div key={index} className="grid grid-cols-12 gap-3 items-end">
                         <div className="col-span-5">
@@ -417,6 +459,41 @@ const BillOfMaterialsEditor = ({
                                 <Trash size={16} />
                             </button>
                         </div>
+                        {dashboardOptions.length > 0 && (
+                            <div className="col-span-12">
+                                <fieldset className="space-y-2">
+                                    <legend className="block text-sm font-medium">Quadros aplicáveis</legend>
+                                    <div className="flex flex-wrap gap-2">
+                                        {dashboardOptions.map((dashboard) => {
+                                            const optionId = dashboard.id;
+                                            const isChecked = sanitizedDashboardIds.includes(optionId);
+                                            const labelText = dashboard.name || optionId;
+                                            return (
+                                                <label
+                                                    key={optionId}
+                                                    className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${isChecked ? 'bg-blue-100 border-blue-400 dark:bg-blue-900/40 dark:border-blue-500' : 'bg-gray-100 border-gray-300 dark:bg-gray-800 dark:border-gray-700'}`}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={(event) => handleDashboardChange(optionId, event.target.checked)}
+                                                    />
+                                                    <span>
+                                                        {labelText}
+                                                        {currentDashboardId && currentDashboardId === optionId && (
+                                                            <span className="ml-1 text-[10px] uppercase tracking-wide text-blue-600 dark:text-blue-300">Atual</span>
+                                                        )}
+                                                    </span>
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                        Sem seleção indica que o componente se aplica a todos os quadros.
+                                    </p>
+                                </fieldset>
+                            </div>
+                        )}
                     </div>
                 );
             })}
@@ -2238,6 +2315,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 sourceEntryId: entryId,
                 user,
                 movementTimestamp: now,
+                dashboardId: currentDashboard?.id,
             });
 
             const previewRef = doc(db, `dashboards/${currentDashboard.id}/previews/live`);
@@ -2316,6 +2394,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             sourceEntryId: entryId,
             user,
             movementTimestamp: now,
+            dashboardId: currentDashboard?.id,
         });
 
         const previewRef = doc(db, `dashboards/${currentDashboard.id}/previews/live`);
@@ -2403,6 +2482,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 sourceEntryId: entryId,
                 user,
                 movementTimestamp: now,
+                dashboardId: currentDashboard?.id,
             });
         }
 
@@ -2514,6 +2594,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
               sourceEntryId: entryId,
               user,
               movementTimestamp: now,
+              dashboardId: currentDashboard?.id,
           });
       }
 
@@ -2692,6 +2773,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                   sourceEntryId: originalDoc.id,
                   user,
                   movementTimestamp: Timestamp.now(),
+                  dashboardId,
               });
           }
 
@@ -3433,10 +3515,18 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 const safeQuantity = Number.isFinite(rawQuantity) && rawQuantity >= 0
                     ? parseFloat(rawQuantity.toFixed(4))
                     : 0;
+                const sanitizedDashboardIds = Array.isArray(item.dashboardIds)
+                    ? Array.from(new Set(
+                        item.dashboardIds
+                            .map(id => (typeof id === 'string' ? id.trim() : ''))
+                            .filter(Boolean),
+                    ))
+                    : [];
                 return {
                     stockProductId: item.stockProductId,
                     stockVariationId: item.stockVariationId,
                     quantityPerPiece: safeQuantity,
+                    dashboardIds: sanitizedDashboardIds,
                 };
             });
     }, []);
@@ -3445,12 +3535,26 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         setNewProduct(prev => {
             const currentItems = Array.isArray(prev.billOfMaterials) ? [...prev.billOfMaterials] : [];
             const existingItem = currentItems[index] || createEmptyBillOfMaterialsItem();
-            const nextItem = {
-                ...existingItem,
-                [field]: value,
-            };
-            if (field === 'stockProductId') {
-                nextItem.stockVariationId = '';
+            let nextItem = { ...existingItem };
+
+            if (field === 'dashboardIds') {
+                const sanitized = Array.isArray(value)
+                    ? Array.from(new Set(
+                        value
+                            .map(id => (typeof id === 'string' ? id.trim() : ''))
+                            .filter(Boolean),
+                    ))
+                    : [];
+                nextItem.dashboardIds = sanitized;
+            } else {
+                nextItem = {
+                    ...nextItem,
+                    [field]: value,
+                };
+                if (field === 'stockProductId') {
+                    nextItem.stockVariationId = '';
+                    nextItem.dashboardIds = [];
+                }
             }
             currentItems[index] = nextItem;
             return {
@@ -3482,12 +3586,26 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         setEditingProductData(prev => {
             const currentItems = Array.isArray(prev.billOfMaterials) ? [...prev.billOfMaterials] : [];
             const existingItem = currentItems[index] || createEmptyBillOfMaterialsItem();
-            const nextItem = {
-                ...existingItem,
-                [field]: value,
-            };
-            if (field === 'stockProductId') {
-                nextItem.stockVariationId = '';
+            let nextItem = { ...existingItem };
+
+            if (field === 'dashboardIds') {
+                const sanitized = Array.isArray(value)
+                    ? Array.from(new Set(
+                        value
+                            .map(id => (typeof id === 'string' ? id.trim() : ''))
+                            .filter(Boolean),
+                    ))
+                    : [];
+                nextItem.dashboardIds = sanitized;
+            } else {
+                nextItem = {
+                    ...nextItem,
+                    [field]: value,
+                };
+                if (field === 'stockProductId') {
+                    nextItem.stockVariationId = '';
+                    nextItem.dashboardIds = [];
+                }
             }
             currentItems[index] = nextItem;
             return {
@@ -3616,6 +3734,11 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 quantityPerPiece: item.quantityPerPiece !== undefined && item.quantityPerPiece !== null
                     ? String(item.quantityPerPiece)
                     : '',
+                dashboardIds: Array.isArray(item.dashboardIds)
+                    ? item.dashboardIds
+                        .map(id => (typeof id === 'string' ? id.trim() : ''))
+                        .filter(Boolean)
+                    : [],
             }))
             : [];
         setEditingProductData({ name: product.name, standardTime: latest, billOfMaterials: mappedBillOfMaterials });
@@ -4679,6 +4802,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                                                                       stockProducts={stockProducts}
                                                                                       stockCategoryMap={stockCategoryMap}
                                                                                       emptyLabel="Nenhum componente vinculado ainda."
+                                                                                      dashboards={dashboards}
+                                                                                      currentDashboardId={currentDashboard?.id}
                                                                                   />
                                                                               </td>
                                                                           </tr>
@@ -4734,6 +4859,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                            stockProducts={stockProducts}
                                            stockCategoryMap={stockCategoryMap}
                                            emptyLabel="Nenhum componente vinculado ainda."
+                                           dashboards={dashboards}
+                                           currentDashboardId={currentDashboard?.id}
                                        />
                                    </div>
                                    <button type="submit" className="w-full h-10 bg-green-600 text-white rounded-md">Salvar</button>
@@ -4829,6 +4956,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                             stockProducts={stockProducts}
                             stockCategoryMap={stockCategoryMap}
                             emptyLabel="Nenhum componente vinculado ainda."
+                            dashboards={dashboards}
+                            currentDashboardId={currentDashboard?.id}
                         />
                     </td>
                 </tr>
