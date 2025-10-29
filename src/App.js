@@ -30,6 +30,7 @@ import {
   ConfirmationModal,
   useClickOutside,
   usePrevious,
+  usePersistedTheme,
   buildProductLookupMap,
   getEmployeeProducts,
   sumProducedQuantities,
@@ -1613,13 +1614,7 @@ const LotReport = ({ lots, products }) => {
 
 const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSequence, onNavigateToReports, user, permissions, startTvMode, dashboards, users, roles, currentDashboardIndex, setCurrentDashboardIndex }) => {
     const { logout } = useAuth();
-    const [theme, setTheme] = useState(() => localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
-    useEffect(() => {
-        const root = window.document.documentElement;
-        root.classList.toggle('dark', theme === 'dark');
-        localStorage.setItem('theme', theme);
-    }, [theme]);
-    const toggleTheme = () => setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
+    const { theme, toggleTheme } = usePersistedTheme();
     
     useEffect(() => { if (currentDashboardIndex >= dashboards.length && dashboards.length > 0) { setCurrentDashboardIndex(dashboards.length - 1); } }, [dashboards, currentDashboardIndex, setCurrentDashboardIndex]);
 

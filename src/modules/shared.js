@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { getDownloadURL, ref } from 'firebase/storage';
 import { storage } from '../firebase';
 import { TRAVETE_MACHINES, raceBullLogoUrl } from './constants';
@@ -67,6 +67,61 @@ const ensureXlsxResources = async () => {
     })();
 
     return xlsxLoaderPromise;
+};
+
+const resolvePreferredTheme = ({ storageKey, defaultTheme }) => {
+    if (typeof window === 'undefined') {
+        return defaultTheme;
+    }
+
+    try {
+        const stored = window.localStorage?.getItem(storageKey);
+        if (stored === 'dark' || stored === 'light') {
+            return stored;
+        }
+    } catch {
+        // Ignore localStorage access issues and fall back to other detection strategies.
+    }
+
+    try {
+        const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)')?.matches;
+        if (typeof prefersDark === 'boolean') {
+            return prefersDark ? 'dark' : 'light';
+        }
+    } catch {
+        // Ignore matchMedia issues and use the default theme.
+    }
+
+    return defaultTheme;
+};
+
+export const usePersistedTheme = ({
+    storageKey = 'theme',
+    defaultTheme = 'light',
+    darkClassName = 'dark',
+} = {}) => {
+    const [theme, setTheme] = useState(() => resolvePreferredTheme({ storageKey, defaultTheme }));
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+
+        const root = window.document?.documentElement;
+        if (root) {
+            root.classList.toggle(darkClassName, theme === 'dark');
+        }
+
+        try {
+            window.localStorage?.setItem(storageKey, theme);
+        } catch {
+            // Ignore localStorage write errors to avoid breaking the UI.
+        }
+    }, [theme, storageKey, darkClassName]);
+
+    const toggleTheme = useCallback(() => {
+        setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
+    }, []);
+
+    return { theme, toggleTheme, setTheme };
 };
 
 const formatLocaleNumber = (value) => {

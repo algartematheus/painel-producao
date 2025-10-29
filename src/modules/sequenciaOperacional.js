@@ -16,7 +16,8 @@ import {
   aggregateProductOptionsForSequences,
   exportSequenciaOperacionalPDF,
   createDefaultOperationDestinations,
-  normalizeOperationDestinations
+  normalizeOperationDestinations,
+  usePersistedTheme
 } from './shared';
 import { useAuth } from './auth';
 
@@ -44,21 +45,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
     const [sequenceExportFormat, setSequenceExportFormat] = useState('pdf');
     const [isExportingSequence, setIsExportingSequence] = useState(false);
     const { logout } = useAuth();
-    const [theme, setTheme] = useState(() => {
-        if (typeof window === 'undefined') return 'light';
-        return localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    });
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        const root = window.document.documentElement;
-        root.classList.toggle('dark', theme === 'dark');
-        localStorage.setItem('theme', theme);
-    }, [theme]);
-
-    const toggleTheme = useCallback(() => {
-        setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
-    }, []);
+    const { theme, toggleTheme } = usePersistedTheme();
 
     useEffect(() => {
         const sequencesQuery = query(collection(db, 'sequenciasOperacionais'), orderBy('modelo'));
