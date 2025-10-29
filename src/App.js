@@ -277,7 +277,7 @@ const applyBillOfMaterialsMovements = ({
         const [stockProductId, stockVariationId] = key.split('::');
         const stockRecord = stockProductMap.get(stockProductId);
         if (!stockRecord) return;
-        const { product: stockProduct, variationMap } = stockRecord;
+        const { variationMap } = stockRecord;
         const variation = variationMap.get(stockVariationId);
         if (!variation) return;
 
