@@ -1863,13 +1863,19 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             const plannedForCurrentLot = currentLot ? Math.min(meta, remainingInCurrentLot || 0) : 0;
             const leftoverMetaForNext = Math.max(0, meta - plannedForCurrentLot);
             const manualNextProduced = manualNextLotItem ? manualNextLotItem.produced || 0 : 0;
-            const nextMetaPieces = manualNextLotItem && manualNextProduced > 0
-                ? manualNextProduced
-                : nextLotRemaining;
+
+            let nextMetaPieces = 0;
+            if (manualNextLotItem && manualNextProduced > 0) {
+                nextMetaPieces = manualNextProduced;
+            } else if (leftoverMetaForNext > 0 && nextLotCandidate) {
+                const safeNextRemaining = Math.max(0, nextLotRemaining || 0);
+                nextMetaPieces = safeNextRemaining > 0
+                    ? Math.min(leftoverMetaForNext, safeNextRemaining)
+                    : leftoverMetaForNext;
+            }
 
             const shouldShowNextLot = Boolean(nextLotCandidate)
-                && (manualNextLotItem || leftoverMetaForNext > 0)
-                && (nextMetaPieces > 0);
+                && ((manualNextLotItem && manualNextProduced > 0) || nextMetaPieces > 0);
 
             const machineSuffix = emp.machineType
                 ? emp.machineType.replace('Travete ', '')
@@ -1882,7 +1888,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 ? (shouldShowNextLot && nextLotName ? `${currentLotLabel} / ${nextLotName}` : currentLotLabel)
                 : (shouldShowNextLot && nextLotName ? nextLotName : '-');
 
-            const currentMetaValue = currentLot ? remainingInCurrentLot : (meta > 0 ? meta : 0);
+            const currentMetaValue = currentLot ? plannedForCurrentLot : (meta > 0 ? meta : 0);
             const currentMetaLabel = currentMetaValue > 0
                 ? currentMetaValue.toLocaleString('pt-BR')
                 : (currentLot ? '0' : (meta > 0 ? meta.toLocaleString('pt-BR') : '0'));
@@ -2884,7 +2890,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     const allPredictions = urgentPrediction ? [urgentPrediction, ...normalPredictions] : normalPredictions;
     const normalGoalSegments = normalPredictions
         .map(prediction => {
-            const value = prediction.remainingPieces ?? prediction.producible ?? 0;
+            const value = prediction.producible ?? prediction.remainingPieces ?? 0;
             return value > 0 ? value : 0;
         })
         .filter((value, index) => value > 0 || index === 0);
