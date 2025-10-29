@@ -10,6 +10,46 @@ import {
 } from 'firebase/auth';
 import { raceBullLogoUrl } from './constants';
 
+const isBrowserStorageAvailable = () => {
+    if (typeof window === 'undefined') {
+        return false;
+    }
+    try {
+        const testKey = '__storage_test__';
+        window.localStorage.setItem(testKey, testKey);
+        window.localStorage.removeItem(testKey);
+        return true;
+    } catch (error) {
+        console.warn('LocalStorage is not available.', error);
+        return false;
+    }
+};
+
+const safeLocalStorageGetItem = (key) => {
+    if (!isBrowserStorageAvailable()) {
+        return { value: null, available: false };
+    }
+    try {
+        return { value: window.localStorage.getItem(key), available: true };
+    } catch (error) {
+        console.warn(`Failed to read "${key}" from localStorage.`, error);
+        return { value: null, available: false };
+    }
+};
+
+const safeLocalStorageSetItem = (key, value) => {
+    if (!isBrowserStorageAvailable()) {
+        return false;
+    }
+    try {
+        window.localStorage.setItem(key, value);
+        return true;
+    } catch (error) {
+        console.warn(`Failed to write "${key}" to localStorage.`, error);
+        return false;
+    }
+};
+
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
@@ -53,17 +93,25 @@ export const LoginPage = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
-    const [rememberMe, setRememberMe] = useState(() => {
-        const stored = localStorage.getItem('rememberLoginPersistence');
-        if (stored === null) {
-            return true;
+    const initialStorageStatus = useMemo(() => {
+        const { value, available } = safeLocalStorageGetItem('rememberLoginPersistence');
+        if (value === null) {
+            return { remember: true, available };
         }
-        return stored === 'true';
-    });
+        return { remember: value === 'true', available };
+    }, []);
+    const [rememberMe, setRememberMe] = useState(initialStorageStatus.remember);
+    const [storageAvailable, setStorageAvailable] = useState(initialStorageStatus.available);
 
     useEffect(() => {
-        localStorage.setItem('rememberLoginPersistence', rememberMe ? 'true' : 'false');
-    }, [rememberMe]);
+        if (!storageAvailable) {
+            return;
+        }
+        const success = safeLocalStorageSetItem('rememberLoginPersistence', rememberMe ? 'true' : 'false');
+        if (!success) {
+            setStorageAvailable(false);
+        }
+    }, [rememberMe, storageAvailable]);
 
     const handleLogin = async (e) => {
         e.preventDefault();
@@ -123,11 +171,17 @@ export const LoginPage = () => {
                         <label className="flex items-center text-sm text-gray-600 dark:text-gray-300">
                             <input
                                 type="checkbox"
-                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                                 checked={rememberMe}
                                 onChange={(e) => setRememberMe(e.target.checked)}
+                                disabled={!storageAvailable}
                             />
-                            <span className="ml-2">Manter-me conectado</span>
+                            <span className="ml-2">
+                                Manter-me conectado
+                                {!storageAvailable && (
+                                    <span className="ml-2 text-xs text-red-500">(Preferência indisponível)</span>
+                                )}
+                            </span>
                         </label>
                     </div>
 
