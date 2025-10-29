@@ -2,6 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
+import { getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -17,5 +18,7 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 const storage = getStorage(app);
+const functionsRegion = process.env.REACT_APP_FIREBASE_FUNCTIONS_REGION;
+const functions = functionsRegion ? getFunctions(app, functionsRegion) : getFunctions(app);
 
-export { db, auth, storage };
+export { db, auth, storage, functions };

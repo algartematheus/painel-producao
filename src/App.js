@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PlusCircle, List, Edit, Trash2, Save, XCircle, ChevronLeft, ChevronRight, MessageSquare, Layers, ChevronUp, ChevronDown, Settings, Package, Monitor, ArrowLeft, ArrowRight, UserCog, BarChart, Film, Warehouse, Trash } from 'lucide-react';
-import { db } from './firebase';
+import { db, functions } from './firebase';
 import { AuthProvider, useAuth, LoginPage } from './modules/auth';
 import {
   collection,
@@ -23,9 +23,6 @@ import ReportsModule from './modules/relatorios';
 import { raceBullLogoUrl, initialDashboards, FIXED_PERIODS, TRAVETE_MACHINES, ALL_PERMISSIONS, defaultRoles } from './modules/constants';
 import {
   generateId,
-  sha256Hex,
-  ADMIN_PASSWORD_HASH,
-  IS_VALID_ADMIN_PASSWORD_HASH,
   GlobalStyles,
   ConfirmationModal,
   useClickOutside,
@@ -38,6 +35,7 @@ import {
   resolveProductReference,
   resolveEmployeeStandardTime,
 } from './modules/shared';
+import { httpsCallable } from 'firebase/functions';
 import SummaryCard from './components/SummaryCard';
 import HeaderContainer from './components/HeaderContainer';
 import GlobalNavigation from './components/GlobalNavigation';
@@ -1056,35 +1054,63 @@ const LotObservationModal = ({ isOpen, onClose, lot, onSave }) => {
     );
 };
 
-const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
+const PasswordModal = ({ isOpen, onClose, onSuccess }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
+    const verifyAdminPassword = useMemo(() => httpsCallable(functions, 'verifyAdminPassword'), [functions]);
 
     useEffect(() => {
         if(isOpen) {
             setPassword('');
             setError('');
+            setIsLoading(false);
         }
     }, [isOpen]);
 
     if (!isOpen) return null;
 
     const handleConfirm = async () => {
-        setError('');
-        if (!IS_VALID_ADMIN_PASSWORD_HASH) {
-            setError('Configuração de segurança ausente. Contate o administrador.');
+        if (isLoading) return;
+
+        const trimmedPassword = password.trim();
+        if (!trimmedPassword) {
+            setError('Informe a senha.');
             return;
         }
 
-        const inputHash = await sha256Hex(password.trim());
+        setError('');
+        setIsLoading(true);
 
-        if (IS_VALID_ADMIN_PASSWORD_HASH && inputHash === ADMIN_PASSWORD_HASH) {
-            if(onSuccess) onSuccess();
-            onClose();
-        } else {
-            setError('Senha incorreta.');
+        try {
+            const { data } = await verifyAdminPassword({ password: trimmedPassword });
+            if (data?.valid) {
+                if(onSuccess) onSuccess();
+                onClose();
+            } else {
+                setError('Senha incorreta.');
+            }
+        } catch (err) {
+            console.error('Erro ao validar senha de administrador.', err);
+            let message = 'Não foi possível validar a senha. Tente novamente.';
+            if (err?.code === 'functions/unauthenticated') {
+                message = 'Faça login para continuar.';
+            } else if (err?.code === 'functions/permission-denied') {
+                message = 'Você não tem permissão para executar esta ação.';
+            } else if (err?.code === 'functions/invalid-argument') {
+                message = 'Senha inválida. Verifique e tente novamente.';
+            } else if (err?.code === 'functions/failed-precondition') {
+                message = 'Configuração de segurança indisponível. Contate o administrador.';
+            } else if (err?.code === 'functions/internal') {
+                message = 'Não foi possível validar suas permissões. Tente novamente.';
+            } else if (err?.code === 'functions/unavailable') {
+                message = 'Serviço temporariamente indisponível. Tente novamente em instantes.';
+            }
+            setError(message);
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -1103,7 +1129,13 @@ const PasswordModal = ({ isOpen, onClose, onSuccess, adminConfig }) => {
                  {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
                  <div className="flex justify-end gap-4">
                      <button onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-600">Cancelar</button>
-                     <button onClick={handleConfirm} className="px-4 py-2 rounded-md bg-blue-600 text-white">Confirmar</button>
+                     <button
+                        onClick={handleConfirm}
+                        className="px-4 py-2 rounded-md bg-blue-600 text-white disabled:opacity-60 disabled:cursor-not-allowed"
+                        disabled={isLoading}
+                    >
+                        {isLoading ? 'Validando...' : 'Confirmar'}
+                    </button>
                  </div>
             </div>
         </div>
@@ -3868,7 +3900,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             <ConfirmationModal isOpen={modalState.type === 'confirmation'} onClose={closeModal} onConfirm={modalState.data?.onConfirm} title={modalState.data?.title} message={modalState.data?.message} />
             <ObservationModal isOpen={modalState.type === 'observation'} onClose={closeModal} entry={modalState.data} onSave={handleSaveObservation} />
             <LotObservationModal isOpen={modalState.type === 'lotObservation'} onClose={closeModal} lot={modalState.data} onSave={handleSaveLotObservation} />
-            <PasswordModal isOpen={modalState.type === 'password'} onClose={closeModal} onSuccess={modalState.data?.onSuccess} adminConfig={{}} />
+            <PasswordModal isOpen={modalState.type === 'password'} onClose={closeModal} onSuccess={modalState.data?.onSuccess} />
             <ReasonModal isOpen={modalState.type === 'reason'} onClose={closeModal} onConfirm={modalState.data?.onConfirm} />
             <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={roles} />
             <TvSelectorModal isOpen={modalState.type === 'tvSelector'} onClose={closeModal} onSelect={startTvMode} onStartCarousel={startTvMode} dashboards={dashboards} />

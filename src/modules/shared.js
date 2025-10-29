@@ -655,10 +655,6 @@ export async function sha256Hex(message) {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-export const ADMIN_PASSWORD_HASH = (process.env.REACT_APP_ADMIN_PASSWORD_HASH || '').trim();
-export const IS_VALID_ADMIN_PASSWORD_HASH = /^[a-f0-9]{64}$/i.test(ADMIN_PASSWORD_HASH);
-
-
 // --- ESTILOS GLOBAIS E ANIMAÇÕES ---
 export const GlobalStyles = () => (
     <style>{`
