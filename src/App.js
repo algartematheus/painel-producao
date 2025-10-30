@@ -2663,10 +2663,22 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         const hasProduction = Array.isArray(newEntry.productions)
             ? newEntry.productions.some(item => {
                 if (!item) return false;
+
+                const totalProduced = parseInt(item.totalProduced, 10) || 0;
+
                 if (Array.isArray(item.variations) && item.variations.length > 0) {
-                    return item.variations.some(variation => (parseInt(variation.produced, 10) || 0) > 0);
+                    const variationsTotal = item.variations.reduce((acc, variation) => {
+                        return acc + (parseInt(variation.produced, 10) || 0);
+                    }, 0);
+
+                    if (variationsTotal > 0) {
+                        return true;
+                    }
+
+                    return totalProduced > 0;
                 }
-                return (parseInt(item.totalProduced, 10) || 0) > 0;
+
+                return totalProduced > 0;
             })
             : false;
 
