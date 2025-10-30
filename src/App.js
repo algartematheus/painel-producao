@@ -273,7 +273,6 @@ const buildVariationBillOfMaterialsBackfill = (rawVariations = [], fallbackBillO
 const createEmptyProductVariation = () => ({
     id: generateId('productVariation'),
     label: '',
-    defaultTarget: '',
     billOfMaterials: [],
     usesDefaultBillOfMaterials: false,
 });
@@ -493,12 +492,11 @@ const mapProductVariationsToLotState = (productVariations = []) => {
             ? variation.id.trim()
             : `variation-${index + 1}`;
         const label = typeof variation?.label === 'string' ? variation.label.trim() : '';
-        const defaultTarget = parseLotQuantityValue(variation?.defaultTarget);
 
         return {
             variationId,
             label,
-            target: defaultTarget > 0 ? String(defaultTarget) : '',
+            target: '',
             produced: 0,
         };
     });
@@ -684,15 +682,6 @@ const sanitizeProductVariationsArray = (productId, rawVariations = [], fallbackB
         }
         seenIds.add(finalId);
 
-        const rawDefaultTarget = variation?.defaultTarget;
-        let defaultTarget = null;
-        if (typeof rawDefaultTarget === 'number') {
-            defaultTarget = rawDefaultTarget;
-        } else if (typeof rawDefaultTarget === 'string' && rawDefaultTarget.trim().length > 0) {
-            const parsed = parseFloat(rawDefaultTarget);
-            defaultTarget = Number.isFinite(parsed) ? parsed : null;
-        }
-
         const hasCustomBillOfMaterials = Array.isArray(variation?.billOfMaterials);
         const normalizedBillOfMaterials = hasCustomBillOfMaterials
             ? normalizeBillOfMaterialsItems(variation.billOfMaterials)
@@ -701,7 +690,6 @@ const sanitizeProductVariationsArray = (productId, rawVariations = [], fallbackB
         return {
             id: finalId,
             label,
-            defaultTarget,
             billOfMaterials: normalizedBillOfMaterials,
             usesDefaultBillOfMaterials: !hasCustomBillOfMaterials && normalizedBillOfMaterials.length > 0,
         };
@@ -717,9 +705,6 @@ const mapProductVariationsToDraft = (productId, rawVariations = [], fallbackBill
     return sanitized.map(variation => ({
         id: variation.id,
         label: typeof variation.label === 'string' ? variation.label : '',
-        defaultTarget: Number.isFinite(variation.defaultTarget)
-            ? String(variation.defaultTarget)
-            : '',
         billOfMaterials: mapBillOfMaterialsToDraft(variation.billOfMaterials || []),
         usesDefaultBillOfMaterials: Boolean(variation.usesDefaultBillOfMaterials),
     }));
@@ -737,15 +722,6 @@ const normalizeProductVariationsForSave = (variations = [], fallbackBillOfMateri
         const label = typeof variation?.label === 'string' ? variation.label.trim() : '';
         if (!label) {
             return accumulator;
-        }
-
-        const rawDefaultTarget = variation?.defaultTarget;
-        let defaultTarget = null;
-        if (typeof rawDefaultTarget === 'number') {
-            defaultTarget = rawDefaultTarget;
-        } else if (typeof rawDefaultTarget === 'string' && rawDefaultTarget.trim().length > 0) {
-            const parsed = parseFloat(rawDefaultTarget);
-            defaultTarget = Number.isFinite(parsed) ? parsed : null;
         }
 
         const baseId = (typeof variation?.id === 'string' && variation.id.trim().length > 0)
@@ -766,12 +742,28 @@ const normalizeProductVariationsForSave = (variations = [], fallbackBillOfMateri
             normalizedBillOfMaterials = normalizedFallback.map(item => ({ ...item }));
         }
 
-        accumulator.push({
+        const normalizedVariation = {
             id,
             label,
-            defaultTarget,
             billOfMaterials: normalizedBillOfMaterials,
-        });
+        };
+
+        if (variation?.defaultTarget !== undefined) {
+            const rawDefaultTarget = variation.defaultTarget;
+            let defaultTarget = null;
+            if (typeof rawDefaultTarget === 'number') {
+                defaultTarget = rawDefaultTarget;
+            } else if (typeof rawDefaultTarget === 'string' && rawDefaultTarget.trim().length > 0) {
+                const parsed = parseFloat(rawDefaultTarget);
+                defaultTarget = Number.isFinite(parsed) ? parsed : null;
+            }
+
+            if (defaultTarget === 0 || Number.isFinite(defaultTarget)) {
+                normalizedVariation.defaultTarget = defaultTarget;
+            }
+        }
+
+        accumulator.push(normalizedVariation);
 
         return accumulator;
     }, []);
@@ -2770,11 +2762,10 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             return;
         }
 
-        const total = computeLotTargetFromVariations(mappedVariations);
         setNewLot(prev => ({
             ...prev,
             variations: mappedVariations,
-            target: total > 0 ? String(total) : '0',
+            target: '',
         }));
     }, [
         newLot.productId,
@@ -6366,7 +6357,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                                                                           <div className="space-y-3">
                                                                                               {(editingProductData.variations || []).map((variation, index) => (
                                                                                                   <div key={variation.id || index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end border border-dashed border-gray-200 dark:border-gray-700 rounded-lg p-3">
-                                                                                                      <div className="md:col-span-7">
+                                                                                                      <div className="md:col-span-11">
                                                                                                           <label className="block text-sm font-medium mb-1">Descrição / Tamanho</label>
                                                                                                           <input
                                                                                                               type="text"
@@ -6374,18 +6365,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                                                                                               onChange={(event) => handleEditingProductVariationChange(index, 'label', event.target.value)}
                                                                                                               className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
                                                                                                               placeholder="Ex.: P, M, G"
-                                                                                                          />
-                                                                                                      </div>
-                                                                                                      <div className="md:col-span-4">
-                                                                                                          <label className="block text-sm font-medium mb-1">Meta padrão</label>
-                                                                                                          <input
-                                                                                                              type="number"
-                                                                                                              min="0"
-                                                                                                              step="1"
-                                                                                                              value={variation.defaultTarget}
-                                                                                                              onChange={(event) => handleEditingProductVariationChange(index, 'defaultTarget', event.target.value)}
-                                                                                                              className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                                                                                              placeholder="Qtd"
                                                                                                           />
                                                                                                       </div>
                                                                                                       <div className="md:col-span-1 flex md:justify-center justify-end">
@@ -6491,39 +6470,27 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                            </button>
                                        </div>
                                        <div className="space-y-3">
-                                           {(newProduct.variations || []).map((variation, index) => (
-                                               <div key={variation.id || index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end border border-dashed border-gray-200 dark:border-gray-700 rounded-lg p-3">
-                                                   <div className="md:col-span-7">
-                                                       <label className="block text-sm font-medium mb-1">Descrição / Tamanho</label>
-                                                       <input
-                                                           type="text"
-                                                           value={variation.label}
-                                                           onChange={(event) => handleNewProductVariationChange(index, 'label', event.target.value)}
-                                                           className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                                           placeholder="Ex.: P, M, G"
-                                                       />
-                                                   </div>
-                                                   <div className="md:col-span-4">
-                                                       <label className="block text-sm font-medium mb-1">Meta padrão</label>
-                                                       <input
-                                                           type="number"
-                                                           min="0"
-                                                           step="1"
-                                                           value={variation.defaultTarget}
-                                                           onChange={(event) => handleNewProductVariationChange(index, 'defaultTarget', event.target.value)}
-                                                           className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                                           placeholder="Qtd"
-                                                       />
-                                                   </div>
-                                                   <div className="md:col-span-1 flex md:justify-center justify-end">
-                                                       <button
-                                                           type="button"
-                                                           onClick={() => handleRemoveNewProductVariation(index)}
-                                                           disabled={(newProduct.variations || []).length <= 1}
-                                                           className="p-2 rounded-full bg-red-500 text-white hover:bg-red-400 disabled:opacity-40"
-                                                           aria-label="Remover variação"
-                                                       >
-                                                           <Trash2 size={16} />
+                                                                                          {(newProduct.variations || []).map((variation, index) => (
+                                                                                              <div key={variation.id || index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end border border-dashed border-gray-200 dark:border-gray-700 rounded-lg p-3">
+                                                                                                  <div className="md:col-span-11">
+                                                                                                      <label className="block text-sm font-medium mb-1">Descrição / Tamanho</label>
+                                                                                                      <input
+                                                                                                          type="text"
+                                                                                                          value={variation.label}
+                                                                                                          onChange={(event) => handleNewProductVariationChange(index, 'label', event.target.value)}
+                                                                                                          className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                                                                          placeholder="Ex.: P, M, G"
+                                                                                                      />
+                                                                                                  </div>
+                                                                                                  <div className="md:col-span-1 flex md:justify-center justify-end">
+                                                                                                      <button
+                                                                                                          type="button"
+                                                                                                          onClick={() => handleRemoveNewProductVariation(index)}
+                                                                                                          disabled={(newProduct.variations || []).length <= 1}
+                                                                                                          className="p-2 rounded-full bg-red-500 text-white hover:bg-red-400 disabled:opacity-40"
+                                                                                                          aria-label="Remover variação"
+                                                                                                      >
+                                                                                                          <Trash2 size={16} />
                                                        </button>
                                                    </div>
                                                    <div className="md:col-span-12 space-y-2">
