@@ -1458,40 +1458,55 @@ const EntryEditorModal = ({
                                                     <span className="text-xs text-gray-500 dark:text-gray-400">Restante: {row.remainingPieces}</span>
                                                 )}
                                             </div>
-                                            {hasVariations ? (
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                    {variations.map(variation => {
-                                                        const variationLabel = variation.label && variation.label.trim().length > 0
-                                                            ? variation.label
-                                                            : 'Sem descrição';
-                                                        return (
-                                                            <div
-                                                                key={variation.variationKey}
-                                                                className="p-2 rounded-md bg-white dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 space-y-1"
-                                                            >
-                                                                <div className="flex justify-between text-xs font-medium text-gray-600 dark:text-gray-300">
-                                                                    <span className="truncate" title={variationLabel}>{variationLabel}</span>
-                                                                    <span>{variation.currentProduced || 0} / {variation.target || 0}</span>
-                                                                </div>
-                                                                <input
-                                                                    type="number"
-                                                                    min="0"
-                                                                    value={variation.produced || ''}
-                                                                    onChange={(e) => handleProductionRowVariationChange(index, variation.variationKey, e.target.value)}
-                                                                    className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                                                />
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            ) : (
+                                            <div className="flex flex-col gap-1">
+                                                <label className="text-xs text-gray-500 dark:text-gray-400" htmlFor={`edit-prod-${index}`}>
+                                                    Quantidade Produzida
+                                                </label>
                                                 <input
+                                                    id={`edit-prod-${index}`}
                                                     type="number"
                                                     min="0"
                                                     value={row.produced || ''}
                                                     onChange={(e) => handleProductionRowChange(index, e.target.value)}
-                                                    className="w-24 p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                    className="w-full sm:w-32 p-2 rounded-md bg-gray-100 dark:bg-gray-700"
                                                 />
+                                                {hasVariations && (
+                                                    <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                                                        O total digitado será usado no lançamento. Use as variações abaixo apenas se desejar registrar detalhes.
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {hasVariations && (
+                                                <div className="space-y-2">
+                                                    <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">
+                                                        Variações (opcionais)
+                                                    </span>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                        {variations.map(variation => {
+                                                            const variationLabel = variation.label && variation.label.trim().length > 0
+                                                                ? variation.label
+                                                                : 'Sem descrição';
+                                                            return (
+                                                                <div
+                                                                    key={variation.variationKey}
+                                                                    className="p-2 rounded-md bg-white dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 space-y-1"
+                                                                >
+                                                                    <div className="flex justify-between text-xs font-medium text-gray-600 dark:text-gray-300">
+                                                                        <span className="truncate" title={variationLabel}>{variationLabel}</span>
+                                                                        <span>{variation.currentProduced || 0} / {variation.target || 0}</span>
+                                                                    </div>
+                                                                    <input
+                                                                        type="number"
+                                                                        min="0"
+                                                                        value={variation.produced || ''}
+                                                                        onChange={(e) => handleProductionRowVariationChange(index, variation.variationKey, e.target.value)}
+                                                                        className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                                    />
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
                                             )}
                                         </div>
                                     );
@@ -5727,45 +5742,54 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                                             <span className="text-xs text-gray-500 dark:text-gray-400">Restante: {lot.remainingPieces}</span>
                                                         )}
                                                     </div>
-                                                    {hasVariations ? (
-                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                            {variations.map(variation => {
-                                                                const variationLabel = variation.label && variation.label.trim().length > 0
-                                                                    ? variation.label
-                                                                    : 'Sem descrição';
-                                                                return (
-                                                                    <div
-                                                                        key={variation.variationKey}
-                                                                        className="p-2 rounded-md bg-white dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 space-y-1"
-                                                                    >
-                                                                        <div className="flex justify-between text-xs font-medium text-gray-600 dark:text-gray-300">
-                                                                            <span className="truncate" title={variationLabel}>{variationLabel}</span>
-                                                                            <span>{variation.currentProduced || 0} / {variation.target || 0}</span>
+                                                    <div className="flex flex-col gap-1">
+                                                        <label className="text-xs text-gray-500 dark:text-gray-400" htmlFor={`prod-input-${index}`}>
+                                                            Quantidade Produzida
+                                                        </label>
+                                                        <input
+                                                            id={`prod-input-${index}`}
+                                                            type="number"
+                                                            min="0"
+                                                            value={productionState.totalProduced || ''}
+                                                            onChange={(e) => handleProductionTotalChange(index, e.target.value)}
+                                                            className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                        />
+                                                        {hasVariations && (
+                                                            <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                                                                O total digitado será usado no lançamento. Preencha as variações abaixo apenas se quiser detalhar.
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    {hasVariations && (
+                                                        <div className="space-y-2">
+                                                            <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">
+                                                                Variações (opcionais)
+                                                            </span>
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                                {variations.map(variation => {
+                                                                    const variationLabel = variation.label && variation.label.trim().length > 0
+                                                                        ? variation.label
+                                                                        : 'Sem descrição';
+                                                                    return (
+                                                                        <div
+                                                                            key={variation.variationKey}
+                                                                            className="p-2 rounded-md bg-white dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 space-y-1"
+                                                                        >
+                                                                            <div className="flex justify-between text-xs font-medium text-gray-600 dark:text-gray-300">
+                                                                                <span className="truncate" title={variationLabel}>{variationLabel}</span>
+                                                                                <span>{variation.currentProduced || 0} / {variation.target || 0}</span>
+                                                                            </div>
+                                                                            <input
+                                                                                type="number"
+                                                                                min="0"
+                                                                                value={variation.produced || ''}
+                                                                                onChange={(e) => handleProductionVariationChange(index, variation.variationKey, e.target.value)}
+                                                                                className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                                                            />
                                                                         </div>
-                                                                        <input
-                                                                            type="number"
-                                                                            min="0"
-                                                                            value={variation.produced || ''}
-                                                                            onChange={(e) => handleProductionVariationChange(index, variation.variationKey, e.target.value)}
-                                                                            className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                                                        />
-                                                                    </div>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    ) : (
-                                                        <div className="flex flex-col gap-1">
-                                                            <label className="text-xs text-gray-500 dark:text-gray-400" htmlFor={`prod-input-${index}`}>
-                                                                Quantidade Produzida
-                                                            </label>
-                                                            <input
-                                                                id={`prod-input-${index}`}
-                                                                type="number"
-                                                                min="0"
-                                                                value={productionState.totalProduced || ''}
-                                                                onChange={(e) => handleProductionTotalChange(index, e.target.value)}
-                                                                className="p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                                            />
+                                                                    );
+                                                                })}
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </div>
