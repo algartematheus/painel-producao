@@ -2713,6 +2713,87 @@ export const computeOperationalTimeBreakdown = (operations = []) => {
     return breakdown;
 };
 
+const cloneSequenceBillOfMaterials = (items = []) => {
+    if (!Array.isArray(items)) {
+        return [];
+    }
+    return items.map((item) => ({ ...item }));
+};
+
+const parseSequenceVariationTarget = (value) => {
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : null;
+    }
+    if (typeof value === 'string') {
+        const sanitized = value.replace(/\s+/g, '');
+        if (!sanitized) {
+            return null;
+        }
+        const normalized = sanitized.replace(',', '.');
+        const parsed = parseFloat(normalized);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+};
+
+export const sanitizeProductVariationsForSequence = (
+    rawVariations = [],
+    { fallbackIdPrefix = 'variation', ensureIds = false } = {}
+) => {
+    if (!Array.isArray(rawVariations) || rawVariations.length === 0) {
+        return [];
+    }
+
+    const seenIds = new Set();
+
+    return rawVariations.map((variation, index) => {
+        const labelCandidate = typeof variation?.label === 'string'
+            ? variation.label.trim()
+            : (typeof variation?.name === 'string' ? variation.name.trim() : '');
+
+        const fallbackIdBase = `${fallbackIdPrefix}-${index + 1}`;
+        const baseId = typeof variation?.id === 'string' && variation.id.trim().length > 0
+            ? variation.id.trim()
+            : (ensureIds ? generateId('seqVar') : fallbackIdBase);
+
+        let id = baseId;
+        let dedupeCounter = 1;
+        while (seenIds.has(id)) {
+            dedupeCounter += 1;
+            id = `${baseId}-${dedupeCounter}`;
+        }
+        seenIds.add(id);
+
+        const defaultTarget = parseSequenceVariationTarget(
+            variation?.defaultTarget
+                ?? variation?.meta
+                ?? variation?.goal
+                ?? variation?.defaultMeta
+                ?? null,
+        );
+
+        const billOfMaterials = Array.isArray(variation?.billOfMaterials)
+            ? variation.billOfMaterials.map(item => ({ ...item }))
+            : [];
+
+        const sanitizedVariation = {
+            id,
+            label: labelCandidate,
+            defaultTarget: Number.isFinite(defaultTarget) ? defaultTarget : (defaultTarget === 0 ? 0 : null),
+        };
+
+        if (billOfMaterials.length > 0) {
+            sanitizedVariation.billOfMaterials = billOfMaterials;
+        }
+
+        if (variation?.usesDefaultBillOfMaterials) {
+            sanitizedVariation.usesDefaultBillOfMaterials = true;
+        }
+
+        return sanitizedVariation;
+    });
+};
+
 export const aggregateProductOptionsForSequences = (products = []) => {
     const map = new Map();
 
@@ -2751,6 +2832,7 @@ export const aggregateProductOptionsForSequences = (products = []) => {
                 primaryProduct: null,
                 productionProducts: [],
                 traveteProducts: {},
+                variations: [],
                 relatedProductIds: new Set(),
                 dashboardNames: new Set(),
                 allProducts: [],
@@ -2784,6 +2866,26 @@ export const aggregateProductOptionsForSequences = (products = []) => {
             entry.baseProductId = entry.baseProductId || candidateBaseProductId;
         }
 
+        if (Array.isArray(product.variations) && product.variations.length > 0) {
+            const sanitizedVariations = sanitizeProductVariationsForSequence(
+                product.variations,
+                { fallbackIdPrefix: candidateBaseProductId || product.id || 'variation' }
+            );
+            if (sanitizedVariations.length > 0) {
+                if (!entry.variations || entry.variations.length === 0) {
+                    entry.variations = sanitizedVariations;
+                } else {
+                    const existingIds = new Set(entry.variations.map(variation => variation.id));
+                    sanitizedVariations.forEach((variation) => {
+                        if (!existingIds.has(variation.id)) {
+                            entry.variations.push(variation);
+                            existingIds.add(variation.id);
+                        }
+                    });
+                }
+            }
+        }
+
         map.set(aggregationKey, entry);
     });
 
@@ -2812,6 +2914,31 @@ export const aggregateProductOptionsForSequences = (products = []) => {
 
         const displayLabel = entry.name;
 
+        const variations = Array.isArray(entry.variations)
+            ? entry.variations.map((variation) => {
+                const cloned = {
+                    id: variation.id,
+                    label: variation.label || '',
+                };
+
+                if (variation.defaultTarget === 0 || Number.isFinite(variation.defaultTarget)) {
+                    cloned.defaultTarget = Number(variation.defaultTarget);
+                } else {
+                    cloned.defaultTarget = null;
+                }
+
+                if (Array.isArray(variation.billOfMaterials)) {
+                    cloned.billOfMaterials = cloneSequenceBillOfMaterials(variation.billOfMaterials);
+                }
+
+                if (variation?.usesDefaultBillOfMaterials) {
+                    cloned.usesDefaultBillOfMaterials = true;
+                }
+
+                return cloned;
+            })
+            : [];
+
         return {
             id: entry.primaryProductId,
             name: entry.name,
@@ -2821,6 +2948,7 @@ export const aggregateProductOptionsForSequences = (products = []) => {
             primaryProduct: entry.primaryProduct,
             productionProducts: entry.productionProducts,
             traveteProducts: { ...entry.traveteProducts },
+            variations,
             relatedProductIds: Array.from(entry.relatedProductIds),
             dashboardNames: Array.from(entry.dashboardNames).filter(Boolean).sort((a, b) => a.localeCompare(b)),
             allProducts: entry.allProducts,

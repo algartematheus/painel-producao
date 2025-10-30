@@ -17,6 +17,7 @@ import {
   exportSequenciaOperacionalPDF,
   createDefaultOperationDestinations,
   normalizeOperationDestinations,
+  sanitizeProductVariationsForSequence,
   usePersistedTheme
 } from './shared';
 import { useAuth } from './auth';
@@ -26,6 +27,142 @@ const TRAVETE_VARIATION_CONFIGS = [
     { machineType: 'Travete 1 Agulha', suffix: '1 Agulha', defaultMultiplier: 2, idSuffix: '1agulha' },
     { machineType: 'Travete Convencional', suffix: 'Convencional', defaultMultiplier: 3, idSuffix: 'convencional' },
 ];
+
+const parseVariationTargetInput = (value) => {
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : null;
+    }
+    if (typeof value === 'string') {
+        const sanitized = value.replace(/\s+/g, '');
+        if (!sanitized) {
+            return null;
+        }
+        const normalized = sanitized.replace(',', '.');
+        const parsed = parseFloat(normalized);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+};
+
+const createSequenceVariationState = (overrides = {}) => {
+    const baseId = typeof overrides.id === 'string' && overrides.id.trim().length > 0
+        ? overrides.id.trim()
+        : generateId('seqVar');
+
+    const label = typeof overrides.label === 'string' ? overrides.label : '';
+
+    let defaultTargetInput = '';
+    if (typeof overrides.defaultTargetInput === 'string') {
+        defaultTargetInput = overrides.defaultTargetInput;
+    } else if (overrides.defaultTarget === 0 || Number.isFinite(overrides.defaultTarget)) {
+        defaultTargetInput = String(Number(overrides.defaultTarget));
+    }
+
+    const parsedTarget = parseVariationTargetInput(
+        overrides.defaultTargetInput !== undefined
+            ? overrides.defaultTargetInput
+            : overrides.defaultTarget
+    );
+
+    const billOfMaterials = Array.isArray(overrides.billOfMaterials)
+        ? overrides.billOfMaterials.map(item => ({ ...item }))
+        : [];
+
+    return {
+        id: baseId,
+        label,
+        defaultTarget: Number.isFinite(parsedTarget) ? parsedTarget : null,
+        defaultTargetInput,
+        billOfMaterials,
+        usesDefaultBillOfMaterials: Boolean(overrides.usesDefaultBillOfMaterials),
+    };
+};
+
+const normalizeVariationsForState = (rawVariations = [], fallbackIdPrefix = 'variation') => {
+    const sanitized = sanitizeProductVariationsForSequence(rawVariations, { fallbackIdPrefix });
+    return sanitized.map((variation) => createSequenceVariationState({
+        ...variation,
+        defaultTargetInput: variation.defaultTarget === 0 || Number.isFinite(variation.defaultTarget)
+            ? String(Number(variation.defaultTarget))
+            : '',
+    }));
+};
+
+const prepareVariationsForStorage = (variations = []) => {
+    if (!Array.isArray(variations) || variations.length === 0) {
+        return [];
+    }
+
+    const mapped = variations
+        .map((variation) => {
+            const trimmedLabel = typeof variation?.label === 'string' ? variation.label.trim() : '';
+            const parsedTarget = parseVariationTargetInput(
+                variation?.defaultTargetInput !== undefined
+                    ? variation.defaultTargetInput
+                    : variation?.defaultTarget
+            );
+
+            const normalized = {
+                id: typeof variation?.id === 'string' ? variation.id : '',
+                label: trimmedLabel,
+                defaultTarget: Number.isFinite(parsedTarget) ? parsedTarget : null,
+                billOfMaterials: Array.isArray(variation?.billOfMaterials)
+                    ? variation.billOfMaterials.map(item => ({ ...item }))
+                    : [],
+                usesDefaultBillOfMaterials: Boolean(variation?.usesDefaultBillOfMaterials),
+            };
+
+            if (!normalized.label && normalized.billOfMaterials.length === 0 && normalized.defaultTarget === null) {
+                return null;
+            }
+
+            return normalized;
+        })
+        .filter(Boolean);
+
+    if (mapped.length === 0) {
+        return [];
+    }
+
+    const sanitized = sanitizeProductVariationsForSequence(mapped, {
+        fallbackIdPrefix: 'seqVar',
+        ensureIds: true,
+    });
+
+    return sanitized.filter(variation => typeof variation.label === 'string' && variation.label.trim().length > 0);
+};
+
+const cloneSequenceVariationsForProducts = (variations = []) => {
+    if (!Array.isArray(variations) || variations.length === 0) {
+        return [];
+    }
+
+    return variations.map((variation, index) => {
+        const baseId = typeof variation?.id === 'string' && variation.id.trim().length > 0
+            ? variation.id.trim()
+            : generateId(`seqVar${index + 1}`);
+
+        const defaultTarget = variation?.defaultTarget === 0 || Number.isFinite(variation?.defaultTarget)
+            ? Number(variation.defaultTarget)
+            : null;
+
+        const cloned = {
+            id: baseId,
+            label: typeof variation?.label === 'string' ? variation.label : '',
+            defaultTarget,
+        };
+
+        if (Array.isArray(variation?.billOfMaterials)) {
+            cloned.billOfMaterials = variation.billOfMaterials.map(item => ({ ...item }));
+        }
+
+        if (variation?.usesDefaultBillOfMaterials) {
+            cloned.usesDefaultBillOfMaterials = true;
+        }
+
+        return cloned;
+    });
+};
 
 export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, onNavigateToReports, onNavigateToFichaTecnica, dashboards = [], user }) => {
     const [sequences, setSequences] = useState([]);
@@ -40,6 +177,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
         productId: '',
         baseProductId: '',
     });
+    const [variations, setVariations] = useState([]);
     const [operations, setOperations] = useState([createOperationalSequenceOperation({ numero: '1' })]);
     const [isSaving, setIsSaving] = useState(false);
     const [sequenceExportFormat, setSequenceExportFormat] = useState('pdf');
@@ -96,6 +234,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
         modelName,
         productionMinutes,
         traveteMinutesByMachine,
+        variations: sequenceVariations = [],
     }) => {
         const trimmedName = (modelName || '').trim();
         if (!trimmedName || !dashboards || dashboards.length === 0) {
@@ -111,6 +250,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
         const relatedIds = new Set();
         const dashboardNameSet = new Set();
         const safeTraveteMinutes = traveteMinutesByMachine || {};
+        const sanitizedSequenceVariations = cloneSequenceVariationsForProducts(sequenceVariations);
         const baseTwoNeedleMinutes = Number.isFinite(safeTraveteMinutes['Travete 2 Agulhas'])
             ? parseFloat(safeTraveteMinutes['Travete 2 Agulhas'].toFixed(4))
             : 0;
@@ -144,6 +284,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
                         variationMultiplier: multiplier,
                         standardTime: minutesValue,
                         billOfMaterials: cloneBillOfMaterials(baseBillOfMaterials),
+                        variations: cloneSequenceVariationsForProducts(sequenceVariations),
                         createdAt: creationIso,
                         createdBy: actor,
                     };
@@ -155,6 +296,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
                         dashboardId: dashboard.id,
                         dashboardName: dashboard.name,
                         standardTimeHistory: [],
+                        variations: cloneSequenceVariationsForProducts(sequenceVariations),
                     };
 
                     traveteProducts[config.machineType] = aggregated;
@@ -178,6 +320,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
                 baseProductName: trimmedName,
                 standardTime: safeProductionMinutes,
                 billOfMaterials: cloneBillOfMaterials(baseBillOfMaterials),
+                variations: cloneSequenceVariationsForProducts(sequenceVariations),
                 createdAt: creationIso,
                 createdBy: actor,
             };
@@ -189,6 +332,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
                 dashboardId: dashboard.id,
                 dashboardName: dashboard.name,
                 standardTimeHistory: [],
+                variations: cloneSequenceVariationsForProducts(sequenceVariations),
             };
 
             productionProducts.push(aggregated);
@@ -233,6 +377,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
                 ...productionProducts,
                 ...Object.values(traveteProducts),
             ],
+            variations: sanitizedSequenceVariations,
         };
 
         setProductOptions(prev => [
@@ -260,6 +405,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
             productId: '',
             baseProductId: '',
         });
+        setVariations([]);
         setOperations([createOperationalSequenceOperation({ numero: '1' })]);
     }, []);
 
@@ -299,10 +445,40 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
                 baseProductId: option.baseProductId || '',
                 modelo: option.name || option.primaryProduct?.name || prev.modelo,
             }));
+            setVariations(normalizeVariationsForState(
+                option.variations || [],
+                option.baseProductId || option.id || 'variation'
+            ));
         } else {
             setFormState(prev => ({ ...prev, productId, baseProductId: '', dashboardId: prev.dashboardId }));
         }
-    }, [findProductOptionByProductId]);
+    }, [findProductOptionByProductId, setVariations]);
+
+    const handleAddVariation = useCallback(() => {
+        setVariations(prev => [...prev, createSequenceVariationState()]);
+    }, [setVariations]);
+
+    const handleRemoveVariation = useCallback((variationId) => {
+        setVariations(prev => prev.filter(variation => variation.id !== variationId));
+    }, [setVariations]);
+
+    const handleVariationChange = useCallback((variationId, field, value) => {
+        setVariations(prev => prev.map((variation) => {
+            if (variation.id !== variationId) return variation;
+            if (field === 'label') {
+                return { ...variation, label: value };
+            }
+            if (field === 'defaultTarget') {
+                const parsed = parseVariationTargetInput(value);
+                return {
+                    ...variation,
+                    defaultTargetInput: value,
+                    defaultTarget: Number.isFinite(parsed) ? parsed : null,
+                };
+            }
+            return variation;
+        }));
+    }, [setVariations]);
 
     const handleOperationChange = useCallback((operationId, field, value) => {
         setOperations(prev => prev.map(operation => {
@@ -511,6 +687,20 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
             });
         });
         setOperations(loadedOperations.length > 0 ? loadedOperations : [createOperationalSequenceOperation({ numero: '1' })]);
+        const sequenceVariations = normalizeVariationsForState(
+            sequence.variations || sequence.variacoes || [],
+            resolvedBaseId || sequence.id || 'variation'
+        );
+        if (sequenceVariations.length > 0) {
+            setVariations(sequenceVariations);
+        } else if (matchingOption?.variations?.length > 0) {
+            setVariations(normalizeVariationsForState(
+                matchingOption.variations,
+                resolvedBaseId || matchingOption.baseProductId || matchingOption.id || 'variation'
+            ));
+        } else {
+            setVariations([]);
+        }
     }, [findProductOptionByProductId]);
 
     const updateLinkedProductsStandardTimes = useCallback(async ({ productOption, productionMinutes, traveteMinutesByMachine }) => {
@@ -628,6 +818,15 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
         const productionMinutesOnly = Number.isFinite(breakdown.productionMinutes)
             ? parseFloat(Math.max(0, breakdown.productionMinutes).toFixed(4))
             : tempoMinutosTotal;
+        const variationsForStorage = prepareVariationsForStorage(variations);
+        if (variations.length > 0 && variationsForStorage.length === 0) {
+            const proceedWithoutVariations = typeof window !== 'undefined'
+                ? window.confirm('As variações adicionadas não possuem descrição. Deseja continuar sem salvá-las?')
+                : true;
+            if (!proceedWithoutVariations) {
+                return;
+            }
+        }
 
         setIsSaving(true);
         try {
@@ -640,6 +839,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
                     modelName: trimmedModelo,
                     productionMinutes: productionMinutesOnly,
                     traveteMinutesByMachine,
+                    variations: variationsForStorage,
                 });
             }
 
@@ -668,6 +868,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
                 tempoTotalFormatado: formatSecondsToDurationLabel(tempoSegundosTotal),
                 updatedAt: nowTimestamp,
                 updatedBy: user ? { uid: user.uid, email: user.email } : null,
+                variations: variationsForStorage,
             };
 
             if (!selectedSequenceId) {
@@ -690,7 +891,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
         } finally {
             setIsSaving(false);
         }
-    }, [createProductsForSequence, findProductOptionByProductId, formState, isSaving, operations, selectedSequenceId, updateLinkedProductsStandardTimes, user]);
+    }, [createProductsForSequence, findProductOptionByProductId, formState, isSaving, operations, selectedSequenceId, updateLinkedProductsStandardTimes, user, variations]);
 
     const handleDeleteSequence = useCallback(async () => {
         if (!selectedSequenceId) return;
@@ -887,6 +1088,65 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
                                         Selecione um produto existente apenas se desejar reaproveitar tempos já cadastrados.
                                     </p>
                                 </div>
+                            </div>
+
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-lg font-semibold flex items-center gap-2"><ClipboardList size={18} /> Variações do Modelo</h3>
+                                    <button
+                                        type="button"
+                                        onClick={handleAddVariation}
+                                        className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-500"
+                                    >
+                                        <PlusCircle size={16} /> Adicionar variação
+                                    </button>
+                                </div>
+                                {variations.length === 0 ? (
+                                    <p className="text-sm text-gray-500 dark:text-gray-400">Nenhuma variação cadastrada. Utilize o botão acima para adicionar.</p>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {variations.map((variation) => (
+                                            <div
+                                                key={variation.id}
+                                                className="grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] gap-3 bg-gray-50 dark:bg-gray-800/60 p-3 rounded-lg"
+                                            >
+                                                <div className="flex flex-col">
+                                                    <label className="text-sm font-medium">Descrição</label>
+                                                    <input
+                                                        type="text"
+                                                        value={variation.label}
+                                                        onChange={(e) => handleVariationChange(variation.id, 'label', e.target.value)}
+                                                        className="p-2 rounded-md bg-white dark:bg-gray-700"
+                                                        placeholder="Ex: Lavagem escura"
+                                                    />
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <label className="text-sm font-medium">Meta inicial</label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={variation.defaultTargetInput}
+                                                        onChange={(e) => handleVariationChange(variation.id, 'defaultTarget', e.target.value)}
+                                                        className="p-2 rounded-md bg-white dark:bg-gray-700"
+                                                        placeholder="Ex: 120"
+                                                    />
+                                                </div>
+                                                <div className="flex items-end justify-end">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRemoveVariation(variation.id)}
+                                                        className="p-2 text-red-500 hover:text-red-400"
+                                                        title="Remover variação"
+                                                    >
+                                                        <Trash size={16} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                <p className="text-xs text-gray-500 dark:text-gray-400">As variações criadas aqui serão replicadas automaticamente nos módulos de Produção e Estoque.</p>
                             </div>
 
                             <div className="space-y-3">
