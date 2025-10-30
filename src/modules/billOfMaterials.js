@@ -172,6 +172,8 @@ export const applyBillOfMaterialsMovements = ({
     user,
     movementTimestamp,
     dashboardId,
+    suppressMovementRecords = false,
+    suppressStockUpdates = false,
 }) => {
     if (!batch || !user || !Array.isArray(productionDetails) || productionDetails.length === 0) {
         return;
@@ -276,7 +278,9 @@ export const applyBillOfMaterialsMovements = ({
     }
 
     const productUpdates = new Map();
-    const movements = [];
+    const movementRecords = [];
+    let hasStockUpdates = false;
+    let hasMovementGeneration = false;
     const timestamp = movementTimestamp || Timestamp.now();
 
     consumptionByVariation.forEach((consumption, key) => {
@@ -288,54 +292,64 @@ export const applyBillOfMaterialsMovements = ({
         const variation = variationMap.get(stockVariationId);
         if (!variation) return;
 
-        const baseStockValue = parseFloat(variation.currentStock);
-        const baseStock = Number.isFinite(baseStockValue) ? baseStockValue : 0;
-        const updatedStock = baseStock - consumption;
+        if (!suppressStockUpdates) {
+            const baseStockValue = parseFloat(variation.currentStock);
+            const baseStock = Number.isFinite(baseStockValue) ? baseStockValue : 0;
+            const updatedStock = baseStock - consumption;
 
-        if (!productUpdates.has(stockProductId)) {
-            productUpdates.set(stockProductId, new Map());
+            if (!productUpdates.has(stockProductId)) {
+                productUpdates.set(stockProductId, new Map());
+            }
+            productUpdates.get(stockProductId).set(stockVariationId, updatedStock);
+            hasStockUpdates = true;
         }
-        productUpdates.get(stockProductId).set(stockVariationId, updatedStock);
 
-        const quantity = Math.abs(consumption);
-        if (quantity === 0) return;
+        if (!suppressMovementRecords) {
+            const quantity = Math.abs(consumption);
+            if (quantity === 0) return;
 
-        movements.push({
-            productId: stockProductId,
-            variationId: stockVariationId,
-            quantity,
-            type: consumption > 0 ? 'Saída' : 'Entrada',
-        });
+            movementRecords.push({
+                productId: stockProductId,
+                variationId: stockVariationId,
+                quantity,
+                type: consumption > 0 ? 'Saída' : 'Entrada',
+            });
+            hasMovementGeneration = true;
+        }
     });
 
-    if (productUpdates.size === 0 || movements.length === 0) {
+    if (!hasStockUpdates && !hasMovementGeneration) {
         return;
     }
 
-    productUpdates.forEach((variationUpdates, stockProductId) => {
-        const stockRecord = stockProductMap.get(stockProductId);
-        if (!stockRecord) return;
-        const updatedVariations = (stockRecord.product.variations || []).map((variation) => {
-            if (!variationUpdates.has(variation.id)) {
-                return variation;
-            }
-            const newValue = roundToFourDecimals(variationUpdates.get(variation.id));
-            return { ...variation, currentStock: newValue };
+    if (!suppressStockUpdates && hasStockUpdates) {
+        productUpdates.forEach((variationUpdates, stockProductId) => {
+            const stockRecord = stockProductMap.get(stockProductId);
+            if (!stockRecord) return;
+            const updatedVariations = (stockRecord.product.variations || []).map((variation) => {
+                if (!variationUpdates.has(variation.id)) {
+                    return variation;
+                }
+                const newValue = roundToFourDecimals(variationUpdates.get(variation.id));
+                return { ...variation, currentStock: newValue };
+            });
+            batch.update(doc(db, `stock/data/products`, stockProductId), { variations: updatedVariations });
         });
-        batch.update(doc(db, `stock/data/products`, stockProductId), { variations: updatedVariations });
-    });
+    }
 
-    movements.forEach((movement) => {
-        const movementId = generateId('mov');
-        batch.set(doc(db, `stock/data/movements`, movementId), {
-            ...movement,
-            quantity: roundToFourDecimals(movement.quantity),
-            user: user.uid,
-            userEmail: user.email,
-            timestamp,
-            ...(sourceEntryId ? { sourceEntryId } : {}),
+    if (!suppressMovementRecords && hasMovementGeneration) {
+        movementRecords.forEach((movement) => {
+            const movementId = generateId('mov');
+            batch.set(doc(db, `stock/data/movements`, movementId), {
+                ...movement,
+                quantity: roundToFourDecimals(movement.quantity),
+                user: user.uid,
+                userEmail: user.email,
+                timestamp,
+                ...(sourceEntryId ? { sourceEntryId } : {}),
+            });
         });
-    });
+    }
 };
 
 export default applyBillOfMaterialsMovements;
