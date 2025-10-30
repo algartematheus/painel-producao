@@ -2267,9 +2267,10 @@ export const computeDefaultPredictionsForEdit = ({ peopleValue, availableTimeVal
                 break;
             }
 
-            const producibleFloat = remainingTime / standardTime;
-            const roundedProducible = Math.round(producibleFloat);
-            const producible = Math.min(remainingPieces, Math.max(0, roundedProducible));
+            const producible = Math.min(
+                remainingPieces,
+                Math.floor(remainingTime / standardTime)
+            );
 
             if (producible <= 0) {
                 break;
@@ -2286,6 +2287,7 @@ export const computeDefaultPredictionsForEdit = ({ peopleValue, availableTimeVal
             });
 
             remainingTime -= producible * standardTime;
+            remainingTime = Math.max(0, remainingTime);
         }
     }
 
@@ -2295,8 +2297,7 @@ export const computeDefaultPredictionsForEdit = ({ peopleValue, availableTimeVal
         const standardTime = standardTimeRaw !== undefined ? parseFloat(standardTimeRaw) : NaN;
 
         if (!Number.isNaN(standardTime) && standardTime > 0 && remainingTime >= standardTime) {
-            const producibleFloat = remainingTime / standardTime;
-            const producible = Math.max(0, Math.round(producibleFloat));
+            const producible = Math.max(0, Math.floor(remainingTime / standardTime));
 
             if (producible > 0) {
                 predictions.push({
@@ -2308,6 +2309,8 @@ export const computeDefaultPredictionsForEdit = ({ peopleValue, availableTimeVal
                     plannedPieces: producible,
                     standardTime,
                 });
+                remainingTime -= producible * standardTime;
+                remainingTime = Math.max(0, remainingTime);
             }
         }
     }
