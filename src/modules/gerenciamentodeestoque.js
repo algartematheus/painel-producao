@@ -92,14 +92,43 @@ export const StockProvider = ({ children }) => {
     }, [user]);
 
     const updateProduct = useCallback(async (productId, productData) => {
-        const { id, ...dataToUpdate } = productData;
+        const { id, variations = [], ...dataToUpdate } = productData;
         const productRef = doc(db, "stock/data/products", productId);
+        const existingProduct = products.find(p => p.id === productId);
+        const existingVariationsMap = new Map((existingProduct?.variations || []).map(v => [v.id, v]));
+
+        const normalizedVariations = variations.map(variation => {
+            const { isNew, ...rest } = variation;
+            const parsedInitialStock = parseInt(rest.initialStock, 10) || 0;
+            const existingVariation = rest.id ? existingVariationsMap.get(rest.id) : undefined;
+
+            if (existingVariation) {
+                return {
+                    ...existingVariation,
+                    ...rest,
+                    initialStock: parsedInitialStock,
+                    currentStock: existingVariation.currentStock
+                };
+            }
+
+            const generatedId = rest.id || generateId('var');
+            const inferredCurrentStock = typeof rest.currentStock === 'number' ? rest.currentStock : parsedInitialStock;
+
+            return {
+                ...rest,
+                id: generatedId,
+                initialStock: parsedInitialStock,
+                currentStock: inferredCurrentStock
+            };
+        });
+
         await updateDoc(productRef, {
             ...dataToUpdate,
+            variations: normalizedVariations,
             lastEditedBy: { uid: user.uid, email: user.email },
             lastEditedAt: Timestamp.now(),
         });
-    }, [user]);
+    }, [user, products]);
 
     const deleteProduct = useCallback(async (productId) => {
         await updateDoc(doc(db, "stock/data/products", productId), { 
@@ -678,6 +707,11 @@ const ProductModal = ({ isOpen, onClose, productToEdit }) => {
     const initialProductState = useMemo(() => ({ name: '', categoryId: '', minStock: '', leadTimeInMonths: '', variations: [{ name: '', initialStock: '' }] }), []);
     const [productData, setProductData] = useState(initialProductState);
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+    const hasNewVariation = useMemo(() => {
+        if (!productToEdit) return false;
+        const existingIds = new Set((productToEdit.variations || []).map(v => v.id));
+        return productData.variations.some(v => !existingIds.has(v.id));
+    }, [productData.variations, productToEdit]);
     
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
@@ -691,7 +725,7 @@ const ProductModal = ({ isOpen, onClose, productToEdit }) => {
                     categoryId: productToEdit.categoryId,
                     minStock: productToEdit.minStock,
                     leadTimeInMonths: productToEdit.leadTimeInMonths || '',
-                    variations: productToEdit.variations.map(v => ({...v}))
+                    variations: productToEdit.variations.map(v => ({ ...v }))
                 });
             } else {
                 setProductData({ ...initialProductState, categoryId: categories[0]?.id || '' });
@@ -730,30 +764,59 @@ const ProductModal = ({ isOpen, onClose, productToEdit }) => {
         const { name, value } = e.target;
         const variations = [...productData.variations];
         variations[index][name] = value;
-        setProductData(prev => ({...prev, variations}));
+        setProductData(prev => ({ ...prev, variations }));
     };
-    
+
     const addVariation = () => {
-        setProductData(prev => ({...prev, variations: [...prev.variations, {name: '', initialStock: ''}]}));
+        setProductData(prev => ({
+            ...prev,
+            variations: [
+                ...prev.variations,
+                productToEdit
+                    ? { id: generateId('var'), name: '', initialStock: '', currentStock: 0, isNew: true }
+                    : { name: '', initialStock: '' }
+            ]
+        }));
     };
-    
+
     const removeVariation = (index) => {
-        if(productData.variations.length <= 1) return;
+        if (productData.variations.length <= 1) return;
         const variations = [...productData.variations];
         variations.splice(index, 1);
-        setProductData(prev => ({...prev, variations}));
+        setProductData(prev => ({ ...prev, variations }));
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        const normalizedVariations = productData.variations.map(variation => {
+            const { isNew, ...rest } = variation;
+            const parsedInitialStock = parseInt(rest.initialStock, 10) || 0;
+            const existingVariation = productToEdit?.variations.find(v => v.id === rest.id);
+
+            if (existingVariation) {
+                return {
+                    ...existingVariation,
+                    ...rest,
+                    initialStock: parsedInitialStock,
+                    currentStock: existingVariation.currentStock
+                };
+            }
+
+            const generatedId = rest.id || generateId('var');
+
+            return {
+                ...rest,
+                id: generatedId,
+                initialStock: parsedInitialStock,
+                currentStock: parsedInitialStock
+            };
+        });
+
         const data = {
             ...productData,
-            minStock: parseInt(productData.minStock),
+            minStock: parseInt(productData.minStock, 10) || 0,
             leadTimeInMonths: parseFloat(productData.leadTimeInMonths) || 0,
-            variations: productData.variations.map(v => ({
-                ...v,
-                initialStock: parseInt(v.initialStock)
-            }))
+            variations: normalizedVariations
         };
         if (productToEdit) {
             await updateProduct(productToEdit.id, data);
@@ -810,17 +873,22 @@ const ProductModal = ({ isOpen, onClose, productToEdit }) => {
                                  </div>
                                  <div className="col-span-5">
                                      <label className="text-xs">Estoque Inicial</label>
-                                     <input name="initialStock" type="number" min="0" value={variation.initialStock} onChange={(e) => handleVariationChange(index, e)} required disabled={!!productToEdit} className="w-full p-2 rounded-md bg-white dark:bg-gray-700 disabled:opacity-50"/>
-                                 </div>
-                                 <div className="col-span-1">
+                                     <input name="initialStock" type="number" min="0" value={variation.initialStock} onChange={(e) => handleVariationChange(index, e)} required className="w-full p-2 rounded-md bg-white dark:bg-gray-700"/>
+                                </div>
+                                <div className="col-span-1">
                                      <label className="text-xs">&nbsp;</label>
                                      <button type="button" onClick={() => removeVariation(index)} disabled={productData.variations.length <= 1} className="p-2 text-red-500 disabled:opacity-30">
                                          <MinusCircle size={20} />
                                      </button>
-                                 </div>
-                             </div>
+                                </div>
+                            </div>
                         ))}
-                        <button type="button" onClick={addVariation} disabled={!!productToEdit} className="mt-2 text-sm text-blue-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed">+ Adicionar Variação</button>
+                        <button type="button" onClick={addVariation} className="mt-2 text-sm text-blue-600 hover:underline">+ Adicionar Variação</button>
+                        {hasNewVariation && (
+                            <p className="mt-2 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md p-2">
+                                Adicionar uma nova variação recalcula o estoque total com base no estoque inicial informado para ela.
+                            </p>
+                        )}
                     </div>
 
 
