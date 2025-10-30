@@ -1,4 +1,8 @@
-import { computeDefaultPredictionsForEdit } from './shared';
+import {
+    computeDefaultPredictionsForEdit,
+    computeMetaFromStandardTime,
+    computeEfficiencyPercentage,
+} from './shared';
 
 describe('computeDefaultPredictionsForEdit', () => {
     it('limits planned pieces to the floor of the available time ratio for active lots', () => {
@@ -65,5 +69,39 @@ describe('computeDefaultPredictionsForEdit', () => {
         expect(prediction.plannedPieces).toBe(expectedFloor);
         expect(prediction.remainingPieces).toBe(expectedFloor);
         expect(prediction.plannedPieces * standardTime).toBeLessThanOrEqual(totalAvailableTime);
+    });
+});
+
+describe('computeMetaFromStandardTime', () => {
+    it('floors the goal when the ratio is greater than one but below the next whole number', () => {
+        const standardTime = 100;
+        const availableTime = 160;
+
+        const meta = computeMetaFromStandardTime(standardTime, availableTime);
+
+        expect(meta).toBe(1);
+    });
+
+    it('returns zero when the available time is insufficient for a complete piece', () => {
+        const standardTime = 100;
+        const availableTime = 99;
+
+        const meta = computeMetaFromStandardTime(standardTime, availableTime);
+
+        expect(meta).toBe(0);
+    });
+});
+
+describe('computeEfficiencyPercentage', () => {
+    it('keeps the efficiency aligned with the floored meta value', () => {
+        const standardTime = 100;
+        const availableTime = 160;
+        const producedPieces = 1;
+
+        const meta = computeMetaFromStandardTime(standardTime, availableTime);
+        const efficiency = computeEfficiencyPercentage(producedPieces, standardTime, availableTime);
+
+        expect(meta).toBe(1);
+        expect(efficiency).toBe(62.5);
     });
 });
