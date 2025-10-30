@@ -1957,7 +1957,13 @@ export const resolveEmployeeStandardTime = (employee, firstProductDetail, produc
 
 export const computeMetaFromStandardTime = (standardTime, availableTime) => {
     if (!(standardTime > 0 && availableTime > 0)) return 0;
-    return Math.round(availableTime / standardTime);
+
+    const ratio = availableTime / standardTime;
+    if (!Number.isFinite(ratio) || ratio <= 0) {
+        return 0;
+    }
+
+    return Math.floor(ratio);
 };
 
 export const computeEfficiencyPercentage = (produced, standardTime, availableTime) => {
