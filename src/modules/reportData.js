@@ -419,18 +419,24 @@ const buildProcessedDailyEntries = (entries = []) => {
 
     let cumulativeProduction = 0;
     let cumulativeGoal = 0;
-    let cumulativeEfficiencySum = 0;
+    let cumulativeTimeValue = 0;
+    let cumulativeAvailableTime = 0;
 
-    return sorted.map((entry, index) => {
+    return sorted.map((entry) => {
         const producedValue = Number(entry.totalProduced) || 0;
         const goalValue = Number(entry.numericGoal) || 0;
         const efficiencyValue = Number(entry.efficiency) || 0;
+        const timeValue = Number(entry.totalTimeValue) || 0;
+        const availableTimeValue = Number(entry.totalAvailableTime) || 0;
 
         cumulativeProduction += producedValue;
         cumulativeGoal += goalValue;
-        cumulativeEfficiencySum += efficiencyValue;
+        cumulativeTimeValue += timeValue;
+        cumulativeAvailableTime += availableTimeValue;
 
-        const cumulativeEfficiency = parseFloat((cumulativeEfficiencySum / (index + 1)).toFixed(2));
+        const cumulativeEfficiency = cumulativeAvailableTime > 0
+            ? parseFloat(((cumulativeTimeValue / cumulativeAvailableTime) * 100).toFixed(2))
+            : 0;
 
         return {
             period: formatPeriodLabelWithDate(entry.date, entry.period),
@@ -879,6 +885,8 @@ export const fetchDashboardPerformanceIndicators = async ({
                 period: entry.period || '',
                 people,
                 availableTime,
+                totalTimeValue,
+                totalAvailableTime,
                 goalForDisplay,
                 numericGoal,
                 totalProduced,
