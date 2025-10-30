@@ -2935,6 +2935,23 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             const updatedDayData = [...(allProductionData[dateKey] || []), newEntryData];
             batch.set(prodDataRef, { [dateKey]: updatedDayData }, { merge: true });
 
+            const movementDetails = buildBillOfMaterialsMovementDetails({
+                updatedDetails: traveteEntrySummary.productionDetails,
+            });
+
+            if (movementDetails.length > 0) {
+                applyBillOfMaterialsMovements({
+                    batch,
+                    productionDetails: movementDetails,
+                    productSources: [productsForSelectedDate, products],
+                    stockProducts,
+                    sourceEntryId: entryId,
+                    user,
+                    movementTimestamp: now,
+                    dashboardId: 'travete',
+                });
+            }
+
             for (const detail of traveteEntrySummary.productionDetails) {
                 const lotToUpdate = detail.lotId
                     ? lots.find(l => l.id === detail.lotId)
@@ -3159,6 +3176,32 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         const prodDataRef = doc(db, `dashboards/${currentDashboard.id}/productionData`, 'data');
         const now = Timestamp.now();
 
+        const originalProductionDetails = Array.isArray(originalEntry.productionDetails)
+            ? originalEntry.productionDetails
+            : [];
+        const updatedProductionDetails = Array.isArray(computed.productionDetails)
+            ? computed.productionDetails
+            : [];
+
+        const movementDetails = buildBillOfMaterialsMovementDetails({
+            originalDetails: originalProductionDetails,
+            updatedDetails: updatedProductionDetails,
+        });
+
+        const finalMovementDetails = buildBillOfMaterialsMovementDetails({
+            updatedDetails: updatedProductionDetails,
+        });
+
+        let movementRefsToDelete = [];
+        if (originalProductionDetails.length > 0 || updatedProductionDetails.length > 0) {
+            const movementsQuery = query(
+                collection(db, 'stock/data/movements'),
+                where('sourceEntryId', '==', entryId)
+            );
+            const movementSnapshot = await getDocs(movementsQuery);
+            movementRefsToDelete = movementSnapshot.docs.map(movementDoc => movementDoc.ref);
+        }
+
         const productionDeltas = new Map();
         const accumulateDetail = (detail, sign) => {
             const lotTarget = detail.lotId
@@ -3217,6 +3260,36 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         });
 
         batch.set(prodDataRef, { [dateKey]: updatedDayData }, { merge: true });
+
+        movementRefsToDelete.forEach(ref => batch.delete(ref));
+
+        if (movementDetails.length > 0) {
+            applyBillOfMaterialsMovements({
+                batch,
+                productionDetails: movementDetails,
+                productSources: [productsForSelectedDate, products],
+                stockProducts,
+                sourceEntryId: entryId,
+                user,
+                movementTimestamp: now,
+                dashboardId: 'travete',
+                suppressMovementRecords: true,
+            });
+        }
+
+        if (finalMovementDetails.length > 0) {
+            applyBillOfMaterialsMovements({
+                batch,
+                productionDetails: finalMovementDetails,
+                productSources: [productsForSelectedDate, products],
+                stockProducts,
+                sourceEntryId: entryId,
+                user,
+                movementTimestamp: now,
+                dashboardId: 'travete',
+                suppressStockUpdates: true,
+            });
+        }
 
         try {
             await batch.commit();
