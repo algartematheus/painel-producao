@@ -3725,7 +3725,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     }
 
     const totalAvailableMinutes = availableTime * people;
-    let timeForNormal = totalAvailableMinutes - timeConsumedByUrgent;
+    let timeForNormal = Math.max(0, totalAvailableMinutes - timeConsumedByUrgent);
     const normalPredictions = [];
 
     if (timeForNormal > 0) {
@@ -3757,11 +3757,11 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     break;
                 }
 
-                // CÁLCULO PRINCIPAL: usar arredondamento para o inteiro mais próximo (Math.round)
-                const producibleFloat = timeForNormal / productForLot.standardTime;
-                const roundedProducible = Math.round(producibleFloat); // 79.71 -> 80
-                // garantir ao menos 1 (mas já garantimos timeForNormal >= standardTime)
-                const producible = Math.min(remainingPiecesInLot, Math.max(0, roundedProducible));
+                // CÁLCULO PRINCIPAL: limitar ao inteiro inferior disponível (Math.floor)
+                const producible = Math.min(
+                    remainingPiecesInLot,
+                    Math.floor(timeForNormal / productForLot.standardTime)
+                );
 
                 if (producible <= 0) {
                     // nada a produzir (proteção), sai do loop
@@ -3777,6 +3777,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
                 // subtrai o tempo "consumido" por essa previsão
                 timeForNormal -= producible * productForLot.standardTime;
+                timeForNormal = Math.max(0, timeForNormal);
 
                 // evita loops estranhos: se o tempo ficar <= 0, encerra
                 if (timeForNormal <= 0) break;
@@ -3785,8 +3786,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             // fallback: usuário escolheu produto que não está em activeLots — calcula o que dá para produzir
             const selectedProduct = currentProducts.find(p => p.id === newEntry.productId);
             if (selectedProduct && selectedProduct.standardTime > 0) {
-                const producibleFloat = timeForNormal / selectedProduct.standardTime;
-                const producible = Math.round(producibleFloat);
+                const producible = Math.floor(timeForNormal / selectedProduct.standardTime);
                 if (producible > 0) {
                     normalPredictions.push({
                         id: `nolot-${selectedProduct.id}`,
@@ -3795,6 +3795,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                         producible,
                         remainingPieces: producible,
                     });
+                    timeForNormal -= producible * selectedProduct.standardTime;
+                    timeForNormal = Math.max(0, timeForNormal);
                 }
             }
         }
