@@ -36,7 +36,7 @@ import {
   resolveProductReference,
   resolveEmployeeStandardTime,
 } from './modules/shared';
-import { applyBillOfMaterialsMovements, roundToFourDecimals } from './modules/billOfMaterials';
+import { applyBillOfMaterialsMovements, roundToFourDecimals, buildBillOfMaterialsMovementDetails } from './modules/billOfMaterials';
 import { httpsCallable } from 'firebase/functions';
 import SummaryCard from './components/SummaryCard';
 import HeaderContainer from './components/HeaderContainer';
@@ -523,6 +523,100 @@ const sanitizeLotVariationsForStorage = (variations = []) => {
             };
         })
         .filter(variation => variation.variationId || variation.label || variation.variationKey);
+};
+
+const buildLotProductionDetailsForBillOfMaterials = (lotData = {}) => {
+    if (!lotData) {
+        return [];
+    }
+
+    const productId = typeof lotData.productId === 'string' ? lotData.productId : '';
+    const productBaseId = typeof lotData.productBaseId === 'string' ? lotData.productBaseId : '';
+
+    const rawVariations = Array.isArray(lotData.variations) ? lotData.variations : [];
+    const normalizedVariations = rawVariations
+        .map((variation, index) => {
+            const producedValue = parseLotQuantityValue(variation?.target ?? variation?.produced);
+            if (producedValue <= 0) {
+                return null;
+            }
+            const variationKey = variation?.variationKey || buildLotVariationKey(variation, index);
+            return {
+                ...variation,
+                variationKey,
+                produced: producedValue,
+            };
+        })
+        .filter(Boolean);
+
+    if (normalizedVariations.length > 0) {
+        const totalProduced = normalizedVariations.reduce((sum, variation) => sum + variation.produced, 0);
+        if (totalProduced <= 0) {
+            return [];
+        }
+        return [
+            {
+                productId,
+                productBaseId,
+                produced: totalProduced,
+                variations: normalizedVariations,
+            },
+        ];
+    }
+
+    const targetValue = parseLotQuantityValue(lotData?.target);
+    if (targetValue <= 0) {
+        return [];
+    }
+
+    return [
+        {
+            productId,
+            productBaseId,
+            produced: targetValue,
+        },
+    ];
+};
+
+const applyBillOfMaterialsForLotCreation = async ({
+    lotData,
+    productSources = [],
+    stockProducts = [],
+    user,
+    dashboardId,
+}) => {
+    if (!lotData || !user) {
+        return;
+    }
+
+    const productionDetails = buildLotProductionDetailsForBillOfMaterials(lotData);
+    if (productionDetails.length === 0) {
+        return;
+    }
+
+    const movementDetails = buildBillOfMaterialsMovementDetails({ updatedDetails: productionDetails });
+    if (movementDetails.length === 0) {
+        return;
+    }
+
+    const batch = writeBatch(db);
+
+    applyBillOfMaterialsMovements({
+        batch,
+        productionDetails: movementDetails,
+        productSources,
+        stockProducts,
+        sourceEntryId: lotData.id,
+        user,
+        movementTimestamp: Timestamp.now(),
+        dashboardId,
+    });
+
+    try {
+        await batch.commit();
+    } catch (error) {
+        console.error('Erro ao registrar baixas de materiais para o lote:', error);
+    }
 };
 
 const mapLotVariationsToFormState = (variations = []) => {
@@ -2858,17 +2952,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 }
             }
 
-            applyBillOfMaterialsMovements({
-                batch,
-                productionDetails: traveteEntrySummary.productionDetails,
-                productSources: [products, productsForSelectedDate],
-                stockProducts,
-                sourceEntryId: entryId,
-                user,
-                movementTimestamp: now,
-                dashboardId: currentDashboard?.id,
-            });
-
             const previewRef = doc(db, `dashboards/${currentDashboard.id}/previews/live`);
             batch.delete(previewRef);
 
@@ -3003,17 +3086,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             }
         }
 
-        applyBillOfMaterialsMovements({
-            batch,
-            productionDetails,
-            productSources: [productsForSelectedDate, products],
-            stockProducts,
-            sourceEntryId: entryId,
-            user,
-            movementTimestamp: now,
-            dashboardId: currentDashboard?.id,
-        });
-
         const previewRef = doc(db, `dashboards/${currentDashboard.id}/previews/live`);
         batch.delete(previewRef);
 
@@ -3069,39 +3141,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
         (originalEntry.productionDetails || []).forEach(detail => accumulateDetail(detail, -1));
         computed.productionDetails.forEach(detail => accumulateDetail(detail, 1));
-
-        const stockDeltaDetails = [];
-        (originalEntry.productionDetails || []).forEach(detail => {
-            const producedValue = parseFloat(detail.produced);
-            if (!Number.isFinite(producedValue) || producedValue === 0) return;
-            stockDeltaDetails.push({
-                productId: detail.productId || '',
-                productBaseId: detail.productBaseId || '',
-                produced: -producedValue,
-            });
-        });
-        computed.productionDetails.forEach(detail => {
-            const producedValue = parseFloat(detail.produced);
-            if (!Number.isFinite(producedValue) || producedValue === 0) return;
-            stockDeltaDetails.push({
-                productId: detail.productId || '',
-                productBaseId: detail.productBaseId || '',
-                produced: producedValue,
-            });
-        });
-
-        if (stockDeltaDetails.length > 0) {
-            applyBillOfMaterialsMovements({
-                batch,
-                productionDetails: stockDeltaDetails,
-                productSources: [products, productsForSelectedDate],
-                stockProducts,
-                sourceEntryId: entryId,
-                user,
-                movementTimestamp: now,
-                dashboardId: currentDashboard?.id,
-            });
-        }
 
         for (const [lotId, delta] of productionDeltas.entries()) {
             if (delta === 0) continue;
@@ -3207,39 +3246,6 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
       (originalEntry.productionDetails || []).forEach(detail => registerProductionDelta(detail, -1));
 
       updatedProductions.forEach(detail => registerProductionDelta(detail, 1));
-
-      const stockDeltaDetails = [];
-      (originalEntry.productionDetails || []).forEach(detail => {
-          const producedValue = parseFloat(detail.produced);
-          if (!Number.isFinite(producedValue) || producedValue === 0) return;
-          stockDeltaDetails.push({
-              productId: detail.productId || '',
-              productBaseId: detail.productBaseId || '',
-              produced: -producedValue,
-          });
-      });
-      updatedProductions.forEach(detail => {
-          const producedValue = parseFloat(detail.produced);
-          if (!Number.isFinite(producedValue) || producedValue === 0) return;
-          stockDeltaDetails.push({
-              productId: detail.productId || '',
-              productBaseId: detail.productBaseId || '',
-              produced: producedValue,
-          });
-      });
-
-      if (stockDeltaDetails.length > 0) {
-          applyBillOfMaterialsMovements({
-              batch,
-              productionDetails: stockDeltaDetails,
-              productSources: [productsForSelectedDate, products],
-              stockProducts,
-              sourceEntryId: entryId,
-              user,
-              movementTimestamp: now,
-              dashboardId: currentDashboard?.id,
-          });
-      }
 
       for (const [deltaKey, delta] of productionDeltas.entries()) {
           if (!Number.isFinite(delta) || delta === 0) continue;
@@ -4969,6 +4975,13 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             }));
         }
         await setDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, id), newLotData);
+        await applyBillOfMaterialsForLotCreation({
+            lotData: newLotData,
+            productSources: [productsForSelectedDate, products],
+            stockProducts,
+            user,
+            dashboardId: currentDashboard?.id,
+        });
         setNewLot(createEmptyLotFormState());
     };
     const handleStartEditLot = (lot) => {
