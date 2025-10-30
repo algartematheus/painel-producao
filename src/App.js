@@ -3373,6 +3373,69 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             batch.set(doc(db, "trash", trashId), trashItem);
 
             if (itemType === 'lot') {
+                const movementsQuery = query(
+                    collection(db, 'stock/data/movements'),
+                    where('sourceEntryId', '==', itemId)
+                );
+                const movementSnapshot = await getDocs(movementsQuery);
+                const stockAdjustments = new Map();
+                const movementRefsToDelete = [];
+
+                movementSnapshot.forEach(movementDoc => {
+                    const data = movementDoc.data();
+                    const quantityValue = parseFloat(data.quantity);
+                    if (!Number.isFinite(quantityValue) || quantityValue === 0) {
+                        movementRefsToDelete.push(movementDoc.ref);
+                        return;
+                    }
+                    const key = `${data.productId}::${data.variationId}`;
+                    const direction = data.type === 'Saída' ? 1 : -1;
+                    stockAdjustments.set(key, (stockAdjustments.get(key) || 0) + (direction * quantityValue));
+                    movementRefsToDelete.push(movementDoc.ref);
+                });
+
+                if (stockAdjustments.size > 0) {
+                    const stockProductMap = new Map();
+                    stockProducts.forEach(product => {
+                        if (product?.id) {
+                            stockProductMap.set(product.id, product);
+                        }
+                    });
+
+                    const productUpdates = new Map();
+                    stockAdjustments.forEach((delta, key) => {
+                        if (!Number.isFinite(delta) || delta === 0) return;
+                        const [stockProductId, stockVariationId] = key.split('::');
+                        const stockProduct = stockProductMap.get(stockProductId);
+                        if (!stockProduct) return;
+                        const variation = (stockProduct.variations || []).find(v => v.id === stockVariationId);
+                        if (!variation) return;
+                        if (!productUpdates.has(stockProductId)) {
+                            productUpdates.set(stockProductId, new Map());
+                        }
+                        const variationUpdates = productUpdates.get(stockProductId);
+                        const baseValue = variationUpdates.has(stockVariationId)
+                            ? variationUpdates.get(stockVariationId)
+                            : (Number.isFinite(parseFloat(variation.currentStock))
+                                ? parseFloat(variation.currentStock)
+                                : 0);
+                        variationUpdates.set(stockVariationId, baseValue + delta);
+                    });
+
+                    productUpdates.forEach((variationMap, stockProductId) => {
+                        const stockProduct = stockProductMap.get(stockProductId);
+                        if (!stockProduct) return;
+                        const updatedVariations = (stockProduct.variations || []).map(variation => {
+                            if (!variationMap.has(variation.id)) return variation;
+                            const newValue = roundToFourDecimals(variationMap.get(variation.id));
+                            return { ...variation, currentStock: newValue };
+                        });
+                        batch.update(doc(db, `stock/data/products`, stockProductId), { variations: updatedVariations });
+                    });
+                }
+
+                movementRefsToDelete.forEach(ref => batch.delete(ref));
+
                 batch.delete(doc(db, `dashboards/${currentDashboard.id}/lots`, itemId));
             } else if (itemType === 'product') {
                 batch.delete(doc(db, `dashboards/${currentDashboard.id}/products`, itemId));
@@ -5142,11 +5205,39 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         const wasCompleted = lot.status.startsWith('completed');
         const isCompletingNow = newTarget > 0 && lot.produced >= newTarget && !wasCompleted;
 
+        const updatedLotForBillOfMaterials = {
+            ...lot,
+            target: newTarget,
+            variations: normalizedVariations.length > 0 ? normalizedVariations : [],
+        };
+
+        const originalBillOfMaterialsDetails = buildLotProductionDetailsForBillOfMaterials(lot);
+        const updatedBillOfMaterialsDetails = buildLotProductionDetailsForBillOfMaterials(updatedLotForBillOfMaterials);
+        const billOfMaterialsChanged = JSON.stringify(originalBillOfMaterialsDetails) !== JSON.stringify(updatedBillOfMaterialsDetails);
+
+        let movementDetails = [];
+        let movementRefsToDelete = [];
+
+        if (billOfMaterialsChanged) {
+            movementDetails = buildBillOfMaterialsMovementDetails({
+                originalDetails: originalBillOfMaterialsDetails,
+                updatedDetails: updatedBillOfMaterialsDetails,
+            });
+
+            const movementsQuery = query(
+                collection(db, 'stock/data/movements'),
+                where('sourceEntryId', '==', lotId)
+            );
+            const movementSnapshot = await getDocs(movementsQuery);
+            movementRefsToDelete = movementSnapshot.docs.map(movementDoc => movementDoc.ref);
+        }
+
+        const timestamp = Timestamp.now();
         const updatePayload = {
             target: newTarget,
             customName: editingLotData.customName,
             lastEditedBy: { uid: user.uid, email: user.email },
-            lastEditedAt: Timestamp.now(),
+            lastEditedAt: timestamp,
         };
 
         if (normalizedVariations.length > 0) {
@@ -5161,7 +5252,28 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             updatePayload.endDate = null;
         }
 
-        await updateDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, lotId), updatePayload);
+        const batch = writeBatch(db);
+        const lotRef = doc(db, `dashboards/${currentDashboard.id}/lots`, lotId);
+        batch.update(lotRef, updatePayload);
+
+        if (billOfMaterialsChanged) {
+            movementRefsToDelete.forEach(ref => batch.delete(ref));
+
+            if (movementDetails.length > 0) {
+                applyBillOfMaterialsMovements({
+                    batch,
+                    productionDetails: movementDetails,
+                    productSources: [productsForSelectedDate, products],
+                    stockProducts,
+                    sourceEntryId: lotId,
+                    user,
+                    movementTimestamp: timestamp,
+                    dashboardId: currentDashboard?.id,
+                });
+            }
+        }
+
+        await batch.commit();
         handleCancelLotEdit();
     };
     const newLotVariations = Array.isArray(newLot.variations) ? newLot.variations : [];
