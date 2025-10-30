@@ -1,4 +1,4 @@
-import { applyBillOfMaterialsMovements } from './billOfMaterials';
+import { applyBillOfMaterialsMovements, buildBillOfMaterialsMovementDetails } from './billOfMaterials';
 
 const mockDoc = jest.fn((dbArg, ...segments) => segments.join('/'));
 let mockGenerateIdCounter = 0;
@@ -175,5 +175,76 @@ describe('applyBillOfMaterialsMovements', () => {
         expect(movementPayloads).toEqual(expect.not.arrayContaining([
             expect.objectContaining({ productId: 'stock-component-c' }),
         ]));
+    });
+});
+
+describe('buildBillOfMaterialsMovementDetails', () => {
+    it('creates movement entries with variation data and signs', () => {
+        const originalDetails = [
+            {
+                productId: 'prod-1',
+                produced: 10,
+                variations: [
+                    { variationId: 'var-a', produced: 4 },
+                    { variationId: 'var-b', produced: 6 },
+                ],
+            },
+        ];
+
+        const updatedDetails = [
+            {
+                productId: 'prod-1',
+                produced: 12,
+                variations: [
+                    { variationId: 'var-a', produced: 5 },
+                    { variationId: 'var-b', produced: 7 },
+                ],
+            },
+            {
+                productBaseId: 'base-2',
+                produced: 3,
+            },
+        ];
+
+        const result = buildBillOfMaterialsMovementDetails({ originalDetails, updatedDetails });
+
+        expect(result).toEqual([
+            {
+                productId: 'prod-1',
+                productBaseId: '',
+                produced: -10,
+                variations: [
+                    { variationId: 'var-a', produced: -4 },
+                    { variationId: 'var-b', produced: -6 },
+                ],
+            },
+            {
+                productId: 'prod-1',
+                productBaseId: '',
+                produced: 12,
+                variations: [
+                    { variationId: 'var-a', produced: 5 },
+                    { variationId: 'var-b', produced: 7 },
+                ],
+            },
+            {
+                productId: '',
+                productBaseId: 'base-2',
+                produced: 3,
+            },
+        ]);
+    });
+
+    it('filters out empty movements when there is no delta', () => {
+        const originalDetails = [
+            { productId: 'prod-1', produced: 0 },
+        ];
+        const updatedDetails = [
+            { productId: 'prod-1', produced: 0 },
+        ];
+
+        const result = buildBillOfMaterialsMovementDetails({ originalDetails, updatedDetails });
+
+        expect(result).toEqual([]);
     });
 });
