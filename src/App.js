@@ -384,7 +384,11 @@ const buildProductionStateForLot = (lot, existingState = null, fallbackIndex = 0
             }
             return sum + Math.max(0, value);
         }, 0);
-        totalProduced = existingTotal > 0 ? String(existingTotal) : '';
+        if (existingTotal > 0) {
+            totalProduced = String(existingTotal);
+        } else if (existingState) {
+            totalProduced = existingState.totalProduced || '';
+        }
     } else if (existingState) {
         totalProduced = existingState.totalProduced || '';
     }
@@ -1068,10 +1072,11 @@ const EntryEditorModal = ({
                 }
                 return sum + Math.max(0, numeric);
             }, 0);
+            const previousTotalProduced = targetRow.produced ?? '';
             const nextRow = {
                 ...targetRow,
                 variations,
-                produced: totalProduced > 0 ? String(totalProduced) : '',
+                produced: totalProduced > 0 ? String(totalProduced) : previousTotalProduced,
             };
             const nextRows = rows.map((row, idx) => (idx === rowIndex ? nextRow : row));
             return { ...prev, productionRows: nextRows };
@@ -4196,10 +4201,11 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 }
                 return sum + Math.max(0, numeric);
             }, 0);
+            const previousTotalProduced = targetProduction.totalProduced ?? '';
             productions[index] = {
                 ...targetProduction,
                 variations,
-                totalProduced: totalProduced > 0 ? String(totalProduced) : '',
+                totalProduced: totalProduced > 0 ? String(totalProduced) : previousTotalProduced,
             };
             return { ...prev, productions };
         });
