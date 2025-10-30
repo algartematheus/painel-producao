@@ -3094,7 +3094,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         setNewEntry({ period: '', people: '', availableTime: 60, productId: newEntry.productId, productions: [] });
         setUrgentProduction({productId: '', produced: ''});
         setShowUrgent(false);
-    }, [currentDashboard, isTraveteDashboard, traveteEntrySummary, traveteEntry, allProductionData, dateKey, lots, user, isEntryFormValid, showUrgent, urgentProduction, newEntry, goalPreview, productsForSelectedDate, products, stockProducts, regularPredictions]);
+    }, [currentDashboard, isTraveteDashboard, traveteEntrySummary, traveteEntry, allProductionData, dateKey, lots, user, isEntryFormValid, showUrgent, urgentProduction, newEntry, goalPreview, productsForSelectedDate, regularPredictions]);
     
     
     const handleSaveTraveteEntry = async (entryId, updatedData) => {
