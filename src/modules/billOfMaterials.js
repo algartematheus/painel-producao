@@ -2,6 +2,69 @@ import { doc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { generateId, buildProductLookupMap } from './shared';
 
+export const buildBillOfMaterialsMovementDetails = ({
+    originalDetails = [],
+    updatedDetails = [],
+} = {}) => {
+    const normalizeDetail = (detail, sign) => {
+        if (!detail) {
+            return null;
+        }
+
+        const productId = typeof detail.productId === 'string' ? detail.productId : '';
+        const productBaseId = typeof detail.productBaseId === 'string' ? detail.productBaseId : '';
+        const producedValue = parseFloat(detail.produced);
+        const variations = Array.isArray(detail.variations) ? detail.variations : [];
+
+        const normalizedVariations = variations
+            .map(variation => {
+                const producedVariation = parseFloat(variation?.produced);
+                if (!Number.isFinite(producedVariation) || producedVariation === 0) {
+                    return null;
+                }
+                return {
+                    ...variation,
+                    produced: sign * producedVariation,
+                };
+            })
+            .filter(Boolean);
+
+        const hasVariationMovements = normalizedVariations.length > 0;
+
+        const hasProducedValue = Number.isFinite(producedValue) && producedValue !== 0;
+        const produced = hasProducedValue ? sign * producedValue : 0;
+
+        if (!hasVariationMovements && !hasProducedValue) {
+            return null;
+        }
+
+        return {
+            productId,
+            productBaseId,
+            produced,
+            ...(hasVariationMovements ? { variations: normalizedVariations } : {}),
+        };
+    };
+
+    const movements = [];
+
+    originalDetails.forEach(detail => {
+        const normalized = normalizeDetail(detail, -1);
+        if (normalized) {
+            movements.push(normalized);
+        }
+    });
+
+    updatedDetails.forEach(detail => {
+        const normalized = normalizeDetail(detail, 1);
+        if (normalized) {
+            movements.push(normalized);
+        }
+    });
+
+    return movements;
+};
+
 export const roundToFourDecimals = (value) => {
     if (!Number.isFinite(value)) return 0;
     return Math.round(value * 10000) / 10000;
