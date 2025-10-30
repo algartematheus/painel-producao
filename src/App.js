@@ -194,10 +194,87 @@ const createEmptyBillOfMaterialsItem = () => ({
     dashboardIds: [],
 });
 
+const normalizeBillOfMaterialsItems = (items = []) => {
+    if (!Array.isArray(items) || items.length === 0) {
+        return [];
+    }
+
+    return items
+        .map((item) => {
+            const parsedQuantity = parseFloat(item?.quantityPerPiece);
+            const safeQuantity = Number.isFinite(parsedQuantity) && parsedQuantity >= 0
+                ? parseFloat(parsedQuantity.toFixed(4))
+                : 0;
+            const sanitizedDashboardIds = Array.isArray(item?.dashboardIds)
+                ? Array.from(new Set(
+                    item.dashboardIds
+                        .map(id => (typeof id === 'string' ? id.trim() : ''))
+                        .filter(Boolean),
+                ))
+                : [];
+            const stockProductId = typeof item?.stockProductId === 'string' ? item.stockProductId : '';
+            const stockVariationId = typeof item?.stockVariationId === 'string' ? item.stockVariationId : '';
+
+            return {
+                stockProductId,
+                stockVariationId,
+                quantityPerPiece: safeQuantity,
+                dashboardIds: sanitizedDashboardIds,
+            };
+        })
+        .filter(item => item.stockProductId && item.stockVariationId);
+};
+
+const mapBillOfMaterialsToDraft = (items = []) => {
+    if (!Array.isArray(items) || items.length === 0) {
+        return [];
+    }
+
+    return items.map(item => ({
+        stockProductId: typeof item?.stockProductId === 'string' ? item.stockProductId : '',
+        stockVariationId: typeof item?.stockVariationId === 'string' ? item.stockVariationId : '',
+        quantityPerPiece: item?.quantityPerPiece !== undefined && item?.quantityPerPiece !== null
+            ? String(item.quantityPerPiece)
+            : '',
+        dashboardIds: Array.isArray(item?.dashboardIds)
+            ? item.dashboardIds
+                .map(id => (typeof id === 'string' ? id.trim() : ''))
+                .filter(Boolean)
+            : [],
+    }));
+};
+
+const buildVariationBillOfMaterialsBackfill = (rawVariations = [], fallbackBillOfMaterials = []) => {
+    if (!Array.isArray(rawVariations) || rawVariations.length === 0) {
+        return { needsBackfill: false, variations: [] };
+    }
+
+    const normalizedFallback = normalizeBillOfMaterialsItems(fallbackBillOfMaterials);
+    if (normalizedFallback.length === 0) {
+        return { needsBackfill: false, variations: rawVariations };
+    }
+
+    let needsBackfill = false;
+    const updatedVariations = rawVariations.map((variation) => {
+        if (Array.isArray(variation?.billOfMaterials)) {
+            return variation;
+        }
+        needsBackfill = true;
+        return {
+            ...variation,
+            billOfMaterials: normalizedFallback.map(item => ({ ...item })),
+        };
+    });
+
+    return { needsBackfill, variations: updatedVariations };
+};
+
 const createEmptyProductVariation = () => ({
     id: generateId('productVariation'),
     label: '',
     defaultTarget: '',
+    billOfMaterials: [],
+    usesDefaultBillOfMaterials: false,
 });
 
 const createEmptyLotFormState = () => ({
@@ -479,12 +556,13 @@ const buildFallbackVariationId = (productId, index, label = '') => {
     return `${base}-${index + 1}`;
 };
 
-const sanitizeProductVariationsArray = (productId, rawVariations = []) => {
+const sanitizeProductVariationsArray = (productId, rawVariations = [], fallbackBillOfMaterials = []) => {
     if (!Array.isArray(rawVariations) || rawVariations.length === 0) {
         return [];
     }
 
     const seenIds = new Set();
+    const normalizedFallback = normalizeBillOfMaterialsItems(fallbackBillOfMaterials);
 
     return rawVariations.map((variation, index) => {
         const label = typeof variation?.label === 'string' ? variation.label.trim() : '';
@@ -509,16 +587,23 @@ const sanitizeProductVariationsArray = (productId, rawVariations = []) => {
             defaultTarget = Number.isFinite(parsed) ? parsed : null;
         }
 
+        const hasCustomBillOfMaterials = Array.isArray(variation?.billOfMaterials);
+        const normalizedBillOfMaterials = hasCustomBillOfMaterials
+            ? normalizeBillOfMaterialsItems(variation.billOfMaterials)
+            : normalizedFallback.map(item => ({ ...item }));
+
         return {
             id: finalId,
             label,
             defaultTarget,
+            billOfMaterials: normalizedBillOfMaterials,
+            usesDefaultBillOfMaterials: !hasCustomBillOfMaterials && normalizedBillOfMaterials.length > 0,
         };
     });
 };
 
-const mapProductVariationsToDraft = (productId, rawVariations = []) => {
-    const sanitized = sanitizeProductVariationsArray(productId, rawVariations);
+const mapProductVariationsToDraft = (productId, rawVariations = [], fallbackBillOfMaterials = []) => {
+    const sanitized = sanitizeProductVariationsArray(productId, rawVariations, fallbackBillOfMaterials);
     if (sanitized.length === 0) {
         return [createEmptyProductVariation()];
     }
@@ -529,15 +614,18 @@ const mapProductVariationsToDraft = (productId, rawVariations = []) => {
         defaultTarget: Number.isFinite(variation.defaultTarget)
             ? String(variation.defaultTarget)
             : '',
+        billOfMaterials: mapBillOfMaterialsToDraft(variation.billOfMaterials || []),
+        usesDefaultBillOfMaterials: Boolean(variation.usesDefaultBillOfMaterials),
     }));
 };
 
-const normalizeProductVariationsForSave = (variations = []) => {
+const normalizeProductVariationsForSave = (variations = [], fallbackBillOfMaterials = []) => {
     if (!Array.isArray(variations)) {
         return [];
     }
 
     const seenIds = new Set();
+    const normalizedFallback = normalizeBillOfMaterialsItems(fallbackBillOfMaterials);
 
     return variations.reduce((accumulator, variation) => {
         const label = typeof variation?.label === 'string' ? variation.label.trim() : '';
@@ -565,10 +653,18 @@ const normalizeProductVariationsForSave = (variations = []) => {
         }
         seenIds.add(id);
 
+        let normalizedBillOfMaterials = normalizeBillOfMaterialsItems(variation?.billOfMaterials || []);
+        const inheritsDefault = Boolean(variation?.usesDefaultBillOfMaterials);
+        const shouldFallbackToDefault = (!Array.isArray(variation?.billOfMaterials) || (inheritsDefault && normalizedBillOfMaterials.length === 0)) && normalizedFallback.length > 0;
+        if (shouldFallbackToDefault) {
+            normalizedBillOfMaterials = normalizedFallback.map(item => ({ ...item }));
+        }
+
         accumulator.push({
             id,
             label,
             defaultTarget,
+            billOfMaterials: normalizedBillOfMaterials,
         });
 
         return accumulator;
@@ -2634,15 +2730,33 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         if (!user || !currentDashboard) return;
 
         const unsubProducts = onSnapshot(query(collection(db, `dashboards/${currentDashboard.id}/products`)), snap => {
-            setProducts(snap.docs.map(docSnap => {
+            const pendingBackfills = [];
+            const mappedProducts = snap.docs.map(docSnap => {
                 const data = docSnap.data();
                 const productId = data?.id || docSnap.id;
-                const sanitizedVariations = sanitizeProductVariationsArray(productId, data?.variations);
+                const productBillOfMaterials = normalizeBillOfMaterialsItems(data?.billOfMaterials || []);
+                const rawVariations = Array.isArray(data?.variations) ? data.variations : [];
+                const { needsBackfill, variations: variationsForStorage } = buildVariationBillOfMaterialsBackfill(rawVariations, productBillOfMaterials);
+                if (needsBackfill) {
+                    pendingBackfills.push({
+                        docRef: doc(db, `dashboards/${currentDashboard.id}/products`, docSnap.id),
+                        variations: variationsForStorage,
+                    });
+                }
+                const sanitizedVariations = sanitizeProductVariationsArray(productId, variationsForStorage, productBillOfMaterials);
                 return {
                     ...data,
+                    id: productId,
+                    billOfMaterials: productBillOfMaterials,
                     variations: sanitizedVariations,
                 };
-            }));
+            });
+            setProducts(mappedProducts);
+            pendingBackfills.forEach(({ docRef, variations }) => {
+                updateDoc(docRef, { variations }).catch((error) => {
+                    console.error('Falha ao atualizar ficha técnica das variações durante backfill:', error);
+                });
+            });
         });
         const unsubLots = onSnapshot(query(collection(db, `dashboards/${currentDashboard.id}/lots`), orderBy("order")), snap => {
             setLots(snap.docs.map(docSnap => {
@@ -4349,29 +4463,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         }));
     };
     
-    const normalizeBillOfMaterials = useCallback((items = []) => {
-        return items
-            .filter(item => item && item.stockProductId && item.stockVariationId)
-            .map(item => {
-                const rawQuantity = parseFloat(item.quantityPerPiece);
-                const safeQuantity = Number.isFinite(rawQuantity) && rawQuantity >= 0
-                    ? parseFloat(rawQuantity.toFixed(4))
-                    : 0;
-                const sanitizedDashboardIds = Array.isArray(item.dashboardIds)
-                    ? Array.from(new Set(
-                        item.dashboardIds
-                            .map(id => (typeof id === 'string' ? id.trim() : ''))
-                            .filter(Boolean),
-                    ))
-                    : [];
-                return {
-                    stockProductId: item.stockProductId,
-                    stockVariationId: item.stockVariationId,
-                    quantityPerPiece: safeQuantity,
-                    dashboardIds: sanitizedDashboardIds,
-                };
-            });
-    }, []);
+    const normalizeBillOfMaterials = useCallback((items = []) => normalizeBillOfMaterialsItems(items), []);
 
     const handleNewProductBillOfMaterialsChange = useCallback((index, field, value) => {
         setNewProduct(prev => {
@@ -4440,10 +4532,103 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         });
     }, []);
 
+    const handleNewProductVariationBillOfMaterialsChange = useCallback((variationIndex, itemIndex, field, value) => {
+        setNewProduct(prev => {
+            const currentVariations = Array.isArray(prev.variations) ? [...prev.variations] : [createEmptyProductVariation()];
+            const existingVariation = currentVariations[variationIndex] || createEmptyProductVariation();
+            const currentItems = Array.isArray(existingVariation.billOfMaterials)
+                ? [...existingVariation.billOfMaterials]
+                : [];
+            const existingItem = currentItems[itemIndex] || createEmptyBillOfMaterialsItem();
+            let nextItem = { ...existingItem };
+
+            if (field === 'dashboardIds') {
+                const sanitized = Array.isArray(value)
+                    ? Array.from(new Set(
+                        value
+                            .map(id => (typeof id === 'string' ? id.trim() : ''))
+                            .filter(Boolean),
+                    ))
+                    : [];
+                nextItem.dashboardIds = sanitized;
+            } else {
+                nextItem = {
+                    ...nextItem,
+                    [field]: value,
+                };
+                if (field === 'stockProductId') {
+                    nextItem.stockVariationId = '';
+                    nextItem.dashboardIds = [];
+                }
+            }
+
+            currentItems[itemIndex] = nextItem;
+            currentVariations[variationIndex] = {
+                ...existingVariation,
+                billOfMaterials: currentItems,
+                usesDefaultBillOfMaterials: false,
+            };
+
+            return {
+                ...prev,
+                variations: currentVariations,
+            };
+        });
+    }, []);
+
+    const handleAddNewProductVariationBillOfMaterialsItem = useCallback((variationIndex) => {
+        setNewProduct(prev => {
+            const currentVariations = Array.isArray(prev.variations) ? [...prev.variations] : [createEmptyProductVariation()];
+            const existingVariation = currentVariations[variationIndex] || createEmptyProductVariation();
+            const currentItems = Array.isArray(existingVariation.billOfMaterials)
+                ? [...existingVariation.billOfMaterials]
+                : [];
+            currentVariations[variationIndex] = {
+                ...existingVariation,
+                billOfMaterials: [...currentItems, createEmptyBillOfMaterialsItem()],
+                usesDefaultBillOfMaterials: false,
+            };
+            return {
+                ...prev,
+                variations: currentVariations,
+            };
+        });
+    }, []);
+
+    const handleRemoveNewProductVariationBillOfMaterialsItem = useCallback((variationIndex, itemIndex) => {
+        setNewProduct(prev => {
+            const fallbackHasItems = Array.isArray(prev.billOfMaterials) && prev.billOfMaterials.length > 0;
+            const currentVariations = Array.isArray(prev.variations) ? [...prev.variations] : [createEmptyProductVariation()];
+            const existingVariation = currentVariations[variationIndex] || createEmptyProductVariation();
+            const currentItems = Array.isArray(existingVariation.billOfMaterials)
+                ? [...existingVariation.billOfMaterials]
+                : [];
+            const filtered = currentItems.filter((_, idx) => idx !== itemIndex);
+            currentVariations[variationIndex] = {
+                ...existingVariation,
+                billOfMaterials: filtered,
+                usesDefaultBillOfMaterials: filtered.length === 0 ? fallbackHasItems : false,
+            };
+            return {
+                ...prev,
+                variations: currentVariations,
+            };
+        });
+    }, []);
+
     const handleAddNewProductVariation = useCallback(() => {
         setNewProduct(prev => ({
             ...prev,
-            variations: [...(Array.isArray(prev.variations) ? prev.variations : []), createEmptyProductVariation()],
+            variations: [
+                ...(Array.isArray(prev.variations) ? prev.variations : []),
+                {
+                    ...createEmptyProductVariation(),
+                    billOfMaterials: Array.isArray(prev.billOfMaterials)
+                        ? prev.billOfMaterials.map(item => ({ ...item }))
+                        : [],
+                    usesDefaultBillOfMaterials: Array.isArray(prev.billOfMaterials) && prev.billOfMaterials.length > 0,
+                },
+            ],
         }));
     }, []);
 
@@ -4453,7 +4638,15 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             const remaining = currentVariations.filter((_, variationIndex) => variationIndex !== index);
             return {
                 ...prev,
-                variations: remaining.length > 0 ? remaining : [createEmptyProductVariation()],
+                variations: remaining.length > 0
+                    ? remaining
+                    : [{
+                        ...createEmptyProductVariation(),
+                        billOfMaterials: Array.isArray(prev.billOfMaterials)
+                            ? prev.billOfMaterials.map(item => ({ ...item }))
+                            : [],
+                        usesDefaultBillOfMaterials: Array.isArray(prev.billOfMaterials) && prev.billOfMaterials.length > 0,
+                    }],
             };
         });
     }, []);
@@ -4525,10 +4718,103 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         });
     }, []);
 
+    const handleEditingProductVariationBillOfMaterialsChange = useCallback((variationIndex, itemIndex, field, value) => {
+        setEditingProductData(prev => {
+            const currentVariations = Array.isArray(prev.variations) ? [...prev.variations] : [createEmptyProductVariation()];
+            const existingVariation = currentVariations[variationIndex] || createEmptyProductVariation();
+            const currentItems = Array.isArray(existingVariation.billOfMaterials)
+                ? [...existingVariation.billOfMaterials]
+                : [];
+            const existingItem = currentItems[itemIndex] || createEmptyBillOfMaterialsItem();
+            let nextItem = { ...existingItem };
+
+            if (field === 'dashboardIds') {
+                const sanitized = Array.isArray(value)
+                    ? Array.from(new Set(
+                        value
+                            .map(id => (typeof id === 'string' ? id.trim() : ''))
+                            .filter(Boolean),
+                    ))
+                    : [];
+                nextItem.dashboardIds = sanitized;
+            } else {
+                nextItem = {
+                    ...nextItem,
+                    [field]: value,
+                };
+                if (field === 'stockProductId') {
+                    nextItem.stockVariationId = '';
+                    nextItem.dashboardIds = [];
+                }
+            }
+
+            currentItems[itemIndex] = nextItem;
+            currentVariations[variationIndex] = {
+                ...existingVariation,
+                billOfMaterials: currentItems,
+                usesDefaultBillOfMaterials: false,
+            };
+
+            return {
+                ...prev,
+                variations: currentVariations,
+            };
+        });
+    }, []);
+
+    const handleAddEditingProductVariationBillOfMaterialsItem = useCallback((variationIndex) => {
+        setEditingProductData(prev => {
+            const currentVariations = Array.isArray(prev.variations) ? [...prev.variations] : [createEmptyProductVariation()];
+            const existingVariation = currentVariations[variationIndex] || createEmptyProductVariation();
+            const currentItems = Array.isArray(existingVariation.billOfMaterials)
+                ? [...existingVariation.billOfMaterials]
+                : [];
+            currentVariations[variationIndex] = {
+                ...existingVariation,
+                billOfMaterials: [...currentItems, createEmptyBillOfMaterialsItem()],
+                usesDefaultBillOfMaterials: false,
+            };
+            return {
+                ...prev,
+                variations: currentVariations,
+            };
+        });
+    }, []);
+
+    const handleRemoveEditingProductVariationBillOfMaterialsItem = useCallback((variationIndex, itemIndex) => {
+        setEditingProductData(prev => {
+            const fallbackHasItems = Array.isArray(prev.billOfMaterials) && prev.billOfMaterials.length > 0;
+            const currentVariations = Array.isArray(prev.variations) ? [...prev.variations] : [createEmptyProductVariation()];
+            const existingVariation = currentVariations[variationIndex] || createEmptyProductVariation();
+            const currentItems = Array.isArray(existingVariation.billOfMaterials)
+                ? [...existingVariation.billOfMaterials]
+                : [];
+            const filtered = currentItems.filter((_, idx) => idx !== itemIndex);
+            currentVariations[variationIndex] = {
+                ...existingVariation,
+                billOfMaterials: filtered,
+                usesDefaultBillOfMaterials: filtered.length === 0 ? fallbackHasItems : false,
+            };
+            return {
+                ...prev,
+                variations: currentVariations,
+            };
+        });
+    }, []);
+
     const handleAddEditingProductVariation = useCallback(() => {
         setEditingProductData(prev => ({
             ...prev,
-            variations: [...(Array.isArray(prev.variations) ? prev.variations : []), createEmptyProductVariation()],
+            variations: [
+                ...(Array.isArray(prev.variations) ? prev.variations : []),
+                {
+                    ...createEmptyProductVariation(),
+                    billOfMaterials: Array.isArray(prev.billOfMaterials)
+                        ? prev.billOfMaterials.map(item => ({ ...item }))
+                        : [],
+                    usesDefaultBillOfMaterials: Array.isArray(prev.billOfMaterials) && prev.billOfMaterials.length > 0,
+                },
+            ],
         }));
     }, []);
 
@@ -4538,7 +4824,15 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             const remaining = currentVariations.filter((_, variationIndex) => variationIndex !== index);
             return {
                 ...prev,
-                variations: remaining.length > 0 ? remaining : [createEmptyProductVariation()],
+                variations: remaining.length > 0
+                    ? remaining
+                    : [{
+                        ...createEmptyProductVariation(),
+                        billOfMaterials: Array.isArray(prev.billOfMaterials)
+                            ? prev.billOfMaterials.map(item => ({ ...item }))
+                            : [],
+                        usesDefaultBillOfMaterials: Array.isArray(prev.billOfMaterials) && prev.billOfMaterials.length > 0,
+                    }],
             };
         });
     }, []);
@@ -4615,13 +4909,20 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         }
 
         if (!newProduct.name || !newProduct.standardTime) return;
-        const productVariations = normalizeProductVariationsForSave(newProduct.variations || []);
+        const productBillOfMaterials = normalizeBillOfMaterials(newProduct.billOfMaterials || []);
+        const preparedVariationsForSave = (newProduct.variations || []).map(variation => {
+            const hasCustomItems = Array.isArray(variation?.billOfMaterials) && variation.billOfMaterials.length > 0;
+            const shouldInheritDefault = !hasCustomItems && productBillOfMaterials.length > 0;
+            return shouldInheritDefault
+                ? { ...variation, usesDefaultBillOfMaterials: true }
+                : variation;
+        });
+        const productVariations = normalizeProductVariationsForSave(preparedVariationsForSave, productBillOfMaterials);
         if (productVariations.length === 0) {
             alert('Adicione ao menos uma variação válida antes de salvar o produto.');
             return;
         }
         const id = Date.now().toString();
-        const productBillOfMaterials = normalizeBillOfMaterials(newProduct.billOfMaterials || []);
         const newProductData = {
             id,
             name: newProduct.name,
@@ -4643,21 +4944,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         setEditingProductId(product.id);
         const history = product.standardTimeHistory || [];
         const latest = history.length > 0 ? history[history.length - 1].time : product.standardTime || '';
-        const mappedBillOfMaterials = Array.isArray(product.billOfMaterials)
-            ? product.billOfMaterials.map(item => ({
-                stockProductId: item.stockProductId || '',
-                stockVariationId: item.stockVariationId || '',
-                quantityPerPiece: item.quantityPerPiece !== undefined && item.quantityPerPiece !== null
-                    ? String(item.quantityPerPiece)
-                    : '',
-                dashboardIds: Array.isArray(item.dashboardIds)
-                    ? item.dashboardIds
-                        .map(id => (typeof id === 'string' ? id.trim() : ''))
-                        .filter(Boolean)
-                    : [],
-            }))
-            : [];
-        const mappedVariations = mapProductVariationsToDraft(product.id, product.variations || []);
+        const mappedBillOfMaterials = mapBillOfMaterialsToDraft(product.billOfMaterials || []);
+        const mappedVariations = mapProductVariationsToDraft(product.id, product.variations || [], product.billOfMaterials || []);
         setEditingProductData({
             name: product.name,
             standardTime: latest,
@@ -4694,7 +4982,14 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         }
         
         const normalizedBillOfMaterials = normalizeBillOfMaterials(editingProductData.billOfMaterials || []);
-        const normalizedVariations = normalizeProductVariationsForSave(editingProductData.variations || []);
+        const preparedEditingVariations = (editingProductData.variations || []).map(variation => {
+            const hasCustomItems = Array.isArray(variation?.billOfMaterials) && variation.billOfMaterials.length > 0;
+            const shouldInheritDefault = !hasCustomItems && normalizedBillOfMaterials.length > 0;
+            return shouldInheritDefault
+                ? { ...variation, usesDefaultBillOfMaterials: true }
+                : variation;
+        });
+        const normalizedVariations = normalizeProductVariationsForSave(preparedEditingVariations, normalizedBillOfMaterials);
         if (normalizedVariations.length === 0) {
             alert('Mantenha ao menos uma variação válida ao salvar o produto.');
             return;
@@ -6027,7 +6322,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                                                                           </div>
                                                                                           <div className="space-y-3">
                                                                                               {(editingProductData.variations || []).map((variation, index) => (
-                                                                                                  <div key={variation.id || index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                                                                                                  <div key={variation.id || index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end border border-dashed border-gray-200 dark:border-gray-700 rounded-lg p-3">
                                                                                                       <div className="md:col-span-7">
                                                                                                           <label className="block text-sm font-medium mb-1">Descrição / Tamanho</label>
                                                                                                           <input
@@ -6060,6 +6355,25 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                                                                                           >
                                                                                                               <Trash2 size={16} />
                                                                                                           </button>
+                                                                                                      </div>
+                                                                                                      <div className="md:col-span-12 space-y-2">
+                                                                                                          <BillOfMaterialsEditor
+                                                                                                              title="Ficha Técnica da variação"
+                                                                                                              items={variation.billOfMaterials || []}
+                                                                                                              onChangeItem={(itemIndex, field, value) => handleEditingProductVariationBillOfMaterialsChange(index, itemIndex, field, value)}
+                                                                                                              onAddItem={() => handleAddEditingProductVariationBillOfMaterialsItem(index)}
+                                                                                                              onRemoveItem={(itemIndex) => handleRemoveEditingProductVariationBillOfMaterialsItem(index, itemIndex)}
+                                                                                                              stockProducts={stockProducts}
+                                                                                                              stockCategoryMap={stockCategoryMap}
+                                                                                                              dashboards={dashboards}
+                                                                                                              currentDashboardId={currentDashboard?.id}
+                                                                                                              emptyLabel="Nenhum componente vinculado para esta variação."
+                                                                                                          />
+                                                                                                          {variation.usesDefaultBillOfMaterials && (
+                                                                                                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                                                                                  Herdando a ficha técnica padrão até ser personalizada.
+                                                                                                              </p>
+                                                                                                          )}
                                                                                                       </div>
                                                                                                   </div>
                                                                                               ))}
@@ -6135,7 +6449,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                        </div>
                                        <div className="space-y-3">
                                            {(newProduct.variations || []).map((variation, index) => (
-                                               <div key={variation.id || index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                                               <div key={variation.id || index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end border border-dashed border-gray-200 dark:border-gray-700 rounded-lg p-3">
                                                    <div className="md:col-span-7">
                                                        <label className="block text-sm font-medium mb-1">Descrição / Tamanho</label>
                                                        <input
@@ -6168,6 +6482,25 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                                        >
                                                            <Trash2 size={16} />
                                                        </button>
+                                                   </div>
+                                                   <div className="md:col-span-12 space-y-2">
+                                                       <BillOfMaterialsEditor
+                                                           title="Ficha Técnica da variação"
+                                                           items={variation.billOfMaterials || []}
+                                                           onChangeItem={(itemIndex, field, value) => handleNewProductVariationBillOfMaterialsChange(index, itemIndex, field, value)}
+                                                           onAddItem={() => handleAddNewProductVariationBillOfMaterialsItem(index)}
+                                                           onRemoveItem={(itemIndex) => handleRemoveNewProductVariationBillOfMaterialsItem(index, itemIndex)}
+                                                           stockProducts={stockProducts}
+                                                           stockCategoryMap={stockCategoryMap}
+                                                           dashboards={dashboards}
+                                                           currentDashboardId={currentDashboard?.id}
+                                                           emptyLabel="Nenhum componente vinculado para esta variação."
+                                                       />
+                                                       {variation.usesDefaultBillOfMaterials && (
+                                                           <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                               Herdando a ficha técnica padrão até ser personalizada.
+                                                           </p>
+                                                       )}
                                                    </div>
                                                </div>
                                            ))}
@@ -6379,9 +6712,13 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             setProducts(snap.docs.map(docSnap => {
                 const data = docSnap.data();
                 const productId = data?.id || docSnap.id;
-                const sanitizedVariations = sanitizeProductVariationsArray(productId, data?.variations);
+                const productBillOfMaterials = normalizeBillOfMaterialsItems(data?.billOfMaterials || []);
+                const rawVariations = Array.isArray(data?.variations) ? data.variations : [];
+                const sanitizedVariations = sanitizeProductVariationsArray(productId, rawVariations, productBillOfMaterials);
                 return {
                     ...data,
+                    id: productId,
+                    billOfMaterials: productBillOfMaterials,
                     variations: sanitizedVariations,
                 };
             }));
