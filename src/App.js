@@ -5220,10 +5220,15 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
         let movementDetails = [];
         let movementRefsToDelete = [];
+        let finalMovementDetails = [];
 
         if (billOfMaterialsChanged) {
             movementDetails = buildBillOfMaterialsMovementDetails({
                 originalDetails: originalBillOfMaterialsDetails,
+                updatedDetails: updatedBillOfMaterialsDetails,
+            });
+
+            finalMovementDetails = buildBillOfMaterialsMovementDetails({
                 updatedDetails: updatedBillOfMaterialsDetails,
             });
 
@@ -5272,6 +5277,21 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     user,
                     movementTimestamp: timestamp,
                     dashboardId: currentDashboard?.id,
+                    suppressMovementRecords: true,
+                });
+            }
+
+            if (finalMovementDetails.length > 0) {
+                applyBillOfMaterialsMovements({
+                    batch,
+                    productionDetails: finalMovementDetails,
+                    productSources: [productsForSelectedDate, products],
+                    stockProducts,
+                    sourceEntryId: lotId,
+                    user,
+                    movementTimestamp: timestamp,
+                    dashboardId: currentDashboard?.id,
+                    suppressStockUpdates: true,
                 });
             }
         }
