@@ -36,6 +36,7 @@ import {
   resolveProductReference,
   resolveEmployeeStandardTime,
 } from './modules/shared';
+import { applyBillOfMaterialsMovements, roundToFourDecimals } from './modules/billOfMaterials';
 import { httpsCallable } from 'firebase/functions';
 import SummaryCard from './components/SummaryCard';
 import HeaderContainer from './components/HeaderContainer';
@@ -508,18 +509,20 @@ const sanitizeLotVariationsForStorage = (variations = []) => {
                 : typeof variation?.id === 'string' && variation.id.trim().length > 0
                     ? variation.id.trim()
                     : `variation-${index + 1}`;
+            const variationKey = buildLotVariationKey(variation, index);
             const label = typeof variation?.label === 'string' ? variation.label.trim() : '';
             const target = parseLotQuantityValue(variation?.target);
             const produced = parseLotQuantityValue(variation?.produced);
 
             return {
                 variationId,
+                variationKey,
                 label,
                 target,
                 produced,
             };
         })
-        .filter(variation => variation.variationId || variation.label);
+        .filter(variation => variation.variationId || variation.label || variation.variationKey);
 };
 
 const mapLotVariationsToFormState = (variations = []) => {
@@ -528,8 +531,9 @@ const mapLotVariationsToFormState = (variations = []) => {
         return [];
     }
 
-    return sanitized.map(variation => ({
+    return sanitized.map((variation, index) => ({
         variationId: variation.variationId,
+        variationKey: variation.variationKey || buildLotVariationKey(variation, index),
         label: variation.label,
         target: String(variation.target),
         produced: variation.produced,
@@ -669,169 +673,6 @@ const normalizeProductVariationsForSave = (variations = [], fallbackBillOfMateri
 
         return accumulator;
     }, []);
-};
-
-const roundToFourDecimals = (value) => {
-    if (!Number.isFinite(value)) return 0;
-    return Math.round(value * 10000) / 10000;
-};
-
-const applyBillOfMaterialsMovements = ({
-    batch,
-    productionDetails,
-    productSources = [],
-    stockProducts = [],
-    sourceEntryId,
-    user,
-    movementTimestamp,
-    dashboardId,
-}) => {
-    if (!batch || !user || !Array.isArray(productionDetails) || productionDetails.length === 0) {
-        return;
-    }
-
-    const productMap = buildProductLookupMap(...productSources);
-    const baseProductMap = new Map();
-    productSources.forEach((list) => {
-        (list || []).forEach((product) => {
-            if (product?.baseProductId && !baseProductMap.has(product.baseProductId)) {
-                baseProductMap.set(product.baseProductId, product);
-            }
-        });
-    });
-
-    const stockProductMap = new Map();
-    stockProducts.forEach((product) => {
-        if (!product?.id) return;
-        const variationMap = new Map();
-        (product.variations || []).forEach((variation) => {
-            if (variation?.id) {
-                variationMap.set(variation.id, variation);
-            }
-        });
-        stockProductMap.set(product.id, { product, variationMap });
-    });
-
-    const consumptionByVariation = new Map();
-
-    productionDetails.forEach((detail) => {
-        let producedValue = parseFloat(detail?.produced);
-        if (!Number.isFinite(producedValue) || producedValue === 0) {
-            const variationTotal = Array.isArray(detail?.variations)
-                ? detail.variations.reduce((sum, variation) => {
-                    const numeric = parseFloat(variation?.produced);
-                    if (!Number.isFinite(numeric) || numeric === 0) {
-                        return sum;
-                    }
-                    return sum + numeric;
-                }, 0)
-                : 0;
-            producedValue = variationTotal;
-        }
-        if (!Number.isFinite(producedValue) || producedValue === 0) return;
-
-        let product = detail?.productId ? productMap.get(detail.productId) : null;
-        if (!product && detail?.productBaseId) {
-            const baseProduct = baseProductMap.get(detail.productBaseId);
-            if (baseProduct) {
-                product = productMap.get(baseProduct.id) || baseProduct;
-            }
-        }
-        if (!product) return;
-
-        const billOfMaterials = Array.isArray(product.billOfMaterials) ? product.billOfMaterials : [];
-        billOfMaterials.forEach((item) => {
-            const stockProductId = item?.stockProductId;
-            const stockVariationId = item?.stockVariationId;
-            if (!stockProductId || !stockVariationId) return;
-
-            const allowedDashboards = Array.isArray(item?.dashboardIds)
-                ? item.dashboardIds
-                    .map(id => (typeof id === 'string' ? id.trim() : ''))
-                    .filter(Boolean)
-                : [];
-            if (allowedDashboards.length > 0) {
-                if (!dashboardId || !allowedDashboards.includes(dashboardId)) {
-                    return;
-                }
-            }
-
-            const quantityPerPiece = parseFloat(item.quantityPerPiece);
-            if (!Number.isFinite(quantityPerPiece) || quantityPerPiece === 0) return;
-
-            const consumption = producedValue * quantityPerPiece;
-            if (!Number.isFinite(consumption) || consumption === 0) return;
-
-            const key = `${stockProductId}::${stockVariationId}`;
-            consumptionByVariation.set(key, (consumptionByVariation.get(key) || 0) + consumption);
-        });
-    });
-
-    if (consumptionByVariation.size === 0) {
-        return;
-    }
-
-    const productUpdates = new Map();
-    const movements = [];
-    const timestamp = movementTimestamp || Timestamp.now();
-
-    consumptionByVariation.forEach((consumption, key) => {
-        if (!Number.isFinite(consumption) || consumption === 0) return;
-        const [stockProductId, stockVariationId] = key.split('::');
-        const stockRecord = stockProductMap.get(stockProductId);
-        if (!stockRecord) return;
-        const { variationMap } = stockRecord;
-        const variation = variationMap.get(stockVariationId);
-        if (!variation) return;
-
-        const baseStockValue = parseFloat(variation.currentStock);
-        const baseStock = Number.isFinite(baseStockValue) ? baseStockValue : 0;
-        const updatedStock = baseStock - consumption;
-
-        if (!productUpdates.has(stockProductId)) {
-            productUpdates.set(stockProductId, new Map());
-        }
-        productUpdates.get(stockProductId).set(stockVariationId, updatedStock);
-
-        const quantity = Math.abs(consumption);
-        if (quantity === 0) return;
-
-        movements.push({
-            productId: stockProductId,
-            variationId: stockVariationId,
-            quantity,
-            type: consumption > 0 ? 'Saída' : 'Entrada',
-        });
-    });
-
-    if (productUpdates.size === 0 || movements.length === 0) {
-        return;
-    }
-
-    productUpdates.forEach((variationUpdates, stockProductId) => {
-        const stockRecord = stockProductMap.get(stockProductId);
-        if (!stockRecord) return;
-        const updatedVariations = (stockRecord.product.variations || []).map((variation) => {
-            if (!variationUpdates.has(variation.id)) {
-                return variation;
-            }
-            const newValue = roundToFourDecimals(variationUpdates.get(variation.id));
-            return { ...variation, currentStock: newValue };
-        });
-        batch.update(doc(db, `stock/data/products`, stockProductId), { variations: updatedVariations });
-    });
-
-    movements.forEach((movement) => {
-        const movementId = generateId('mov');
-        batch.set(doc(db, `stock/data/movements`, movementId), {
-            ...movement,
-            quantity: roundToFourDecimals(movement.quantity),
-            user: user.uid,
-            userEmail: user.email,
-            timestamp,
-            ...(sourceEntryId ? { sourceEntryId } : {}),
-        });
-    });
 };
 
 const BillOfMaterialsEditor = ({
