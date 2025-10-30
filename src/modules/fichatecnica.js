@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import { ClipboardList, Layers, Warehouse, FileText, Box, PlusCircle, Trash } from 'lucide-react';
 import HeaderContainer from '../components/HeaderContainer';
 import GlobalNavigation from '../components/GlobalNavigation';
@@ -593,6 +593,7 @@ const FichaTecnicaModule = ({
             ? product.variations
             : [];
         setEditingProduct({
+            ...product,
             dashboardId: selectedDashboardId,
             productId: product.id,
             productName: product.name,
@@ -672,6 +673,121 @@ const FichaTecnicaModule = ({
         setEditingVariationId(DEFAULT_VARIATION_OPTION);
     }, []);
 
+    const syncTraveteBillOfMaterials = useCallback(async ({
+        baseProductId,
+        baseProductName,
+        defaultBillOfMaterials = null,
+        variationBillOfMaterials = null,
+        dashboardId: sourceDashboardId = '',
+    }) => {
+        const normalizedBaseId = typeof baseProductId === 'string' ? baseProductId.trim() : '';
+        const normalizedBaseName = typeof baseProductName === 'string' ? baseProductName.trim() : '';
+        const hasDefaultUpdate = Array.isArray(defaultBillOfMaterials);
+        const hasVariationUpdate = Array.isArray(variationBillOfMaterials);
+        const normalizedDashboardId = typeof sourceDashboardId === 'string' ? sourceDashboardId.trim() : '';
+
+        if (!hasDefaultUpdate && !hasVariationUpdate) {
+            return;
+        }
+
+        const traveteCollection = collection(db, 'dashboards/travete/products');
+        const seenDocIds = new Set();
+        const traveteDocs = [];
+
+        const runQuery = async (field, value) => {
+            if (!value) return;
+            const traveteQuery = query(traveteCollection, where(field, '==', value));
+            const snap = await getDocs(traveteQuery);
+            snap.forEach((docSnap) => {
+                if (!seenDocIds.has(docSnap.id)) {
+                    seenDocIds.add(docSnap.id);
+                    traveteDocs.push(docSnap);
+                }
+            });
+        };
+
+        if (normalizedBaseId) {
+            await runQuery('baseProductId', normalizedBaseId);
+        }
+
+        if (traveteDocs.length === 0 && normalizedBaseName) {
+            await runQuery('baseProductName', normalizedBaseName);
+        }
+
+        if (traveteDocs.length === 0) {
+            return;
+        }
+
+        const timestamp = new Date().toISOString();
+        const batch = writeBatch(db);
+        let hasAnyUpdates = false;
+
+        traveteDocs.forEach((docSnap) => {
+            const data = docSnap.data() || {};
+            const payload = {};
+            let docHasUpdates = false;
+
+            if (hasDefaultUpdate) {
+                payload.billOfMaterials = defaultBillOfMaterials.map(item => ({ ...item }));
+                docHasUpdates = true;
+            }
+
+            const existingVariations = Array.isArray(data.variations) ? data.variations : [];
+            if (existingVariations.length > 0 && (hasDefaultUpdate || (hasVariationUpdate && normalizedDashboardId))) {
+                let variationsChanged = false;
+                const nextVariations = existingVariations.map((variation) => {
+                    const usesDefault = Boolean(variation?.usesDefaultBillOfMaterials);
+                    const dashboards = Array.isArray(variation?.dashboardIds)
+                        ? variation.dashboardIds
+                            .map(id => (typeof id === 'string' ? id.trim() : ''))
+                            .filter(Boolean)
+                        : [];
+
+                    if (usesDefault && hasDefaultUpdate) {
+                        variationsChanged = true;
+                        return {
+                            ...variation,
+                            billOfMaterials: defaultBillOfMaterials.map(item => ({ ...item })),
+                        };
+                    }
+
+                    if (
+                        hasVariationUpdate
+                        && !usesDefault
+                        && normalizedDashboardId
+                        && dashboards.includes(normalizedDashboardId)
+                    ) {
+                        variationsChanged = true;
+                        return {
+                            ...variation,
+                            billOfMaterials: variationBillOfMaterials.map(item => ({ ...item })),
+                        };
+                    }
+
+                    return variation;
+                });
+
+                if (variationsChanged) {
+                    payload.variations = nextVariations;
+                    docHasUpdates = true;
+                }
+            }
+
+            if (docHasUpdates) {
+                if (user) {
+                    payload.lastUpdatedAt = timestamp;
+                    payload.lastUpdatedBy = { uid: user.uid, email: user.email };
+                }
+                batch.set(docSnap.ref, payload, { merge: true });
+                hasAnyUpdates = true;
+            }
+        });
+
+        if (hasAnyUpdates) {
+            await batch.commit();
+        }
+    }, [user]);
+
     const handleSaveEditing = useCallback(async () => {
         if (!editingProduct) return;
         setIsSaving(true);
@@ -683,10 +799,18 @@ const FichaTecnicaModule = ({
             if (editingVariationId === DEFAULT_VARIATION_OPTION) {
                 const payload = { billOfMaterials: normalizedItems };
                 if (user) {
-                    payload.lastUpdatedAt = new Date().toISOString();
+                    const timestamp = new Date().toISOString();
+                    payload.lastUpdatedAt = timestamp;
                     payload.lastUpdatedBy = { uid: user.uid, email: user.email };
                 }
                 await setDoc(productRef, payload, { merge: true });
+
+                await syncTraveteBillOfMaterials({
+                    baseProductId: editingProduct?.baseProductId || editingProduct?.productId || '',
+                    baseProductName: editingProduct?.baseProductName || editingProduct?.productName || '',
+                    defaultBillOfMaterials: normalizedItems,
+                    dashboardId: editingProduct.dashboardId,
+                });
             } else {
                 const productSnap = await getDoc(productRef);
                 if (!productSnap.exists()) {
@@ -696,25 +820,35 @@ const FichaTecnicaModule = ({
                 const productBillOfMaterials = normalizeBillOfMaterialsItems(productData?.billOfMaterials || []);
                 const rawVariations = Array.isArray(productData?.variations) ? productData.variations : [];
                 const { variations: variationsForStorage } = buildVariationBillOfMaterialsBackfill(rawVariations, productBillOfMaterials);
+                let variationItemsForSave = normalizedItems;
                 const updatedVariations = variationsForStorage.map((variation) => {
                     const variationId = typeof variation?.id === 'string' ? variation.id : '';
                     if (variationId === editingVariationId) {
-                        const variationItemsForSave = normalizedItems.length === 0 && productBillOfMaterials.length > 0
+                        const itemsToPersist = normalizedItems.length === 0 && productBillOfMaterials.length > 0
                             ? productBillOfMaterials.map(item => ({ ...item }))
                             : normalizedItems;
+                        variationItemsForSave = itemsToPersist;
                         return {
                             ...variation,
-                            billOfMaterials: variationItemsForSave,
+                            billOfMaterials: itemsToPersist,
                         };
                     }
                     return variation;
                 });
                 const payload = { variations: updatedVariations };
                 if (user) {
-                    payload.lastUpdatedAt = new Date().toISOString();
+                    const timestamp = new Date().toISOString();
+                    payload.lastUpdatedAt = timestamp;
                     payload.lastUpdatedBy = { uid: user.uid, email: user.email };
                 }
                 await setDoc(productRef, payload, { merge: true });
+
+                await syncTraveteBillOfMaterials({
+                    baseProductId: productData?.baseProductId || editingProduct?.baseProductId || editingProduct?.productId || '',
+                    baseProductName: productData?.baseProductName || editingProduct?.baseProductName || editingProduct?.productName || '',
+                    variationBillOfMaterials: variationItemsForSave,
+                    dashboardId: editingProduct.dashboardId,
+                });
             }
 
             setEditingProduct(null);
@@ -728,7 +862,7 @@ const FichaTecnicaModule = ({
         } finally {
             setIsSaving(false);
         }
-    }, [editingItems, editingProduct, editingVariationId, user]);
+    }, [editingItems, editingProduct, editingVariationId, syncTraveteBillOfMaterials, user]);
 
     const renderBillOfMaterialsList = useCallback((product) => {
         const defaultItems = Array.isArray(product.billOfMaterials) ? product.billOfMaterials : [];
