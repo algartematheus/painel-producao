@@ -2779,8 +2779,11 @@ export const sanitizeProductVariationsForSequence = (
         const sanitizedVariation = {
             id,
             label: labelCandidate,
-            defaultTarget: Number.isFinite(defaultTarget) ? defaultTarget : (defaultTarget === 0 ? 0 : null),
         };
+
+        if (defaultTarget === 0 || Number.isFinite(defaultTarget)) {
+            sanitizedVariation.defaultTarget = Number(defaultTarget);
+        }
 
         if (billOfMaterials.length > 0) {
             sanitizedVariation.billOfMaterials = billOfMaterials;
@@ -2923,8 +2926,6 @@ export const aggregateProductOptionsForSequences = (products = []) => {
 
                 if (variation.defaultTarget === 0 || Number.isFinite(variation.defaultTarget)) {
                     cloned.defaultTarget = Number(variation.defaultTarget);
-                } else {
-                    cloned.defaultTarget = null;
                 }
 
                 if (Array.isArray(variation.billOfMaterials)) {

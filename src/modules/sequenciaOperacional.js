@@ -142,15 +142,14 @@ const cloneSequenceVariationsForProducts = (variations = []) => {
             ? variation.id.trim()
             : generateId(`seqVar${index + 1}`);
 
-        const defaultTarget = variation?.defaultTarget === 0 || Number.isFinite(variation?.defaultTarget)
-            ? Number(variation.defaultTarget)
-            : null;
-
         const cloned = {
             id: baseId,
             label: typeof variation?.label === 'string' ? variation.label : '',
-            defaultTarget,
         };
+
+        if (variation?.defaultTarget === 0 || Number.isFinite(variation?.defaultTarget)) {
+            cloned.defaultTarget = Number(variation.defaultTarget);
+        }
 
         if (Array.isArray(variation?.billOfMaterials)) {
             cloned.billOfMaterials = variation.billOfMaterials.map(item => ({ ...item }));

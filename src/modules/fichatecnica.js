@@ -111,27 +111,34 @@ const sanitizeProductVariations = (productId, rawVariations = [], fallbackBillOf
         }
         seenIds.add(finalId);
 
-        const rawDefaultTarget = variation?.defaultTarget;
-        let defaultTarget = null;
-        if (typeof rawDefaultTarget === 'number') {
-            defaultTarget = rawDefaultTarget;
-        } else if (typeof rawDefaultTarget === 'string' && rawDefaultTarget.trim().length > 0) {
-            const parsed = parseFloat(rawDefaultTarget);
-            defaultTarget = Number.isFinite(parsed) ? parsed : null;
-        }
-
         const hasCustomBillOfMaterials = Array.isArray(variation?.billOfMaterials);
         const normalizedBillOfMaterials = hasCustomBillOfMaterials
             ? normalizeBillOfMaterialsItems(variation.billOfMaterials)
             : normalizedFallback.map(item => ({ ...item }));
 
-        return {
+        const sanitizedVariation = {
             id: finalId,
             label,
-            defaultTarget,
             billOfMaterials: normalizedBillOfMaterials,
             usesDefaultBillOfMaterials: !hasCustomBillOfMaterials && normalizedBillOfMaterials.length > 0,
         };
+
+        if (variation?.defaultTarget !== undefined) {
+            const rawDefaultTarget = variation.defaultTarget;
+            let defaultTarget = null;
+            if (typeof rawDefaultTarget === 'number') {
+                defaultTarget = rawDefaultTarget;
+            } else if (typeof rawDefaultTarget === 'string' && rawDefaultTarget.trim().length > 0) {
+                const parsed = parseFloat(rawDefaultTarget);
+                defaultTarget = Number.isFinite(parsed) ? parsed : null;
+            }
+
+            if (defaultTarget === 0 || Number.isFinite(defaultTarget)) {
+                sanitizedVariation.defaultTarget = defaultTarget;
+            }
+        }
+
+        return sanitizedVariation;
     });
 };
 
