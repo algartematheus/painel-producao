@@ -3873,7 +3873,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
     
     const processedData = useMemo(() => {
         if (isTraveteDashboard || !productionData || productionData.length === 0) return [];
-        let cumulativeProduction = 0, cumulativeGoal = 0, cumulativeEfficiencySum = 0;
+        let cumulativeProduction = 0, cumulativeGoal = 0, cumulativeTimeValue = 0, cumulativeAvailableTime = 0;
         return [...productionData].sort((a, b) => (a.period || "").localeCompare(b.period || "")).map((item, index) => {
             let totalTimeValue = 0, totalProducedInPeriod = 0;
             const producedForDisplay = (item.productionDetails || []).map(d => `${d.produced || 0}`).join(' / ');
@@ -3888,8 +3888,11 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             const goalForDisplay = joinGoalSegments(goalSegments);
             cumulativeProduction += totalProducedInPeriod;
             cumulativeGoal += numericGoal;
-            cumulativeEfficiencySum += efficiency;
-            const cumulativeEfficiency = parseFloat((cumulativeEfficiencySum / (index + 1)).toFixed(2));
+            cumulativeTimeValue += totalTimeValue;
+            cumulativeAvailableTime += totalAvailableTime;
+            const cumulativeEfficiency = cumulativeAvailableTime > 0
+                ? parseFloat(((cumulativeTimeValue / cumulativeAvailableTime) * 100).toFixed(2))
+                : 0;
             return { ...item, produced: totalProducedInPeriod, goal: numericGoal, goalForDisplay, producedForDisplay, efficiency, cumulativeProduction, cumulativeGoal, cumulativeEfficiency };
         });
     }, [isTraveteDashboard, productionData, productMapForSelectedDate]);
@@ -6965,7 +6968,7 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
 
     const processedData = useMemo(() => {
         if (isTraveteDashboard || !productionData || productionData.length === 0) return [];
-        let cumulativeProduction = 0, cumulativeGoal = 0, cumulativeEfficiencySum = 0;
+        let cumulativeProduction = 0, cumulativeGoal = 0, cumulativeTimeValue = 0, cumulativeAvailableTime = 0;
         return [...productionData].sort((a,b)=>(a.period||"").localeCompare(b.period||"")).map((item, index) => {
             let totalTimeValue = 0, totalProducedInPeriod = 0;
             const producedForDisplay = (item.productionDetails || []).map(d => `${d.produced || 0}`).join(' / ');
@@ -6983,8 +6986,11 @@ const TvModeDisplay = ({ tvOptions, stopTvMode, dashboards }) => {
             const goalForDisplay = joinGoalSegments(goalSegments);
             cumulativeProduction += totalProducedInPeriod;
             cumulativeGoal += numericGoal;
-            cumulativeEfficiencySum += efficiency;
-            const cumulativeEfficiency = parseFloat((cumulativeEfficiencySum / (index + 1)).toFixed(2));
+            cumulativeTimeValue += totalTimeValue;
+            cumulativeAvailableTime += totalAvailableTime;
+            const cumulativeEfficiency = cumulativeAvailableTime > 0
+                ? parseFloat(((cumulativeTimeValue / cumulativeAvailableTime) * 100).toFixed(2))
+                : 0;
             return { ...item, produced:totalProducedInPeriod, goal:numericGoal, goalForDisplay, producedForDisplay, efficiency, cumulativeProduction, cumulativeGoal, cumulativeEfficiency };
         });
     }, [isTraveteDashboard, productionData, productMapForSelectedDate]);
