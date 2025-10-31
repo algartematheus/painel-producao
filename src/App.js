@@ -1835,6 +1835,31 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles, dashboards, defaultLot
         [availableDashboards],
     );
 
+    const LOT_FLOW_SPLIT_MODE_OPTIONS = useMemo(
+        () => ([
+            { value: 'never', label: 'Não dividir automaticamente' },
+            { value: 'always', label: 'Dividir automaticamente' },
+            { value: 'manual', label: 'Perguntar ao migrar' },
+        ]),
+        [],
+    );
+
+    const normalizeSplitMode = useCallback(
+        (value, fallback = 'never') => {
+            const normalized = typeof value === 'string' ? value.toLowerCase() : '';
+            if (LOT_FLOW_SPLIT_MODE_OPTIONS.some((option) => option.value === normalized)) {
+                return normalized;
+            }
+
+            if (typeof value === 'boolean') {
+                return value ? 'always' : 'never';
+            }
+
+            return fallback;
+        },
+        [LOT_FLOW_SPLIT_MODE_OPTIONS],
+    );
+
     const cloneSteps = useCallback((steps) => steps.map((step) => ({ ...step })), []);
 
     const buildNormalizedSteps = useCallback(
@@ -1853,16 +1878,19 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles, dashboards, defaultLot
                 }
 
                 seen.add(dashboardId);
+                const fallbackSplitMode = typeof step?.split === 'boolean'
+                    ? (step.split ? 'always' : 'never')
+                    : 'never';
                 result.push({
                     dashboardId,
                     mode: typeof step?.mode === 'string' ? step.mode.toLowerCase() : 'auto',
-                    split: Boolean(step?.split),
+                    splitMode: normalizeSplitMode(step?.splitMode, fallbackSplitMode),
                 });
             });
 
             return result;
         },
-        [dashboardById],
+        [dashboardById, normalizeSplitMode],
     );
 
     const defaultLotFlowSteps = useMemo(() => {
@@ -1874,7 +1902,7 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles, dashboards, defaultLot
         return availableDashboards.map((dashboard) => ({
             dashboardId: dashboard.id,
             mode: 'auto',
-            split: false,
+            splitMode: 'never',
         }));
     }, [availableDashboards, buildNormalizedSteps, defaultLotFlow]);
 
@@ -2003,7 +2031,7 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles, dashboards, defaultLot
         const newStep = {
             dashboardId,
             mode: defaults?.mode || 'auto',
-            split: Boolean(defaults?.split),
+            splitMode: normalizeSplitMode(defaults?.splitMode),
         };
 
         let updated = false;
@@ -2072,19 +2100,19 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles, dashboards, defaultLot
         }
     };
 
-    const handleLotFlowSplitChange = (dashboardId, value) => {
-        const normalized = Boolean(value);
+    const handleLotFlowSplitModeChange = (dashboardId, value) => {
+        const normalized = normalizeSplitMode(value);
         let updated = false;
         setLotFlowSteps((prev) => {
             const next = prev.map((step) => {
                 if (step.dashboardId !== dashboardId) {
                     return step;
                 }
-                if (Boolean(step.split) === normalized) {
+                if (step.splitMode === normalized) {
                     return step;
                 }
                 updated = true;
-                return { ...step, split: normalized };
+                return { ...step, splitMode: normalized };
             });
             return updated ? next : prev;
         });
@@ -2104,11 +2132,15 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles, dashboards, defaultLot
         clearLotFlowFeedback();
 
         try {
-            const payload = lotFlowSteps.map((step) => ({
-                dashboardId: step.dashboardId,
-                mode: typeof step.mode === 'string' ? step.mode : 'auto',
-                split: Boolean(step.split),
-            }));
+            const payload = lotFlowSteps.map((step) => {
+                const resolvedSplitMode = normalizeSplitMode(step.splitMode);
+                return {
+                    dashboardId: step.dashboardId,
+                    mode: typeof step.mode === 'string' ? step.mode : 'auto',
+                    splitMode: resolvedSplitMode,
+                    split: resolvedSplitMode === 'always',
+                };
+            });
 
             const lotFlowRef = doc(db, 'settings', 'lotFlow');
             await setDoc(lotFlowRef, { steps: payload, updatedAt: serverTimestamp() }, { merge: true });
@@ -2282,15 +2314,20 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles, dashboards, defaultLot
                                                                         <option value="manual">Manual</option>
                                                                     </select>
                                                                 </div>
-                                                                <label className="flex items-center gap-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md px-3 py-2">
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={Boolean(step.split)}
-                                                                        onChange={(e) => handleLotFlowSplitChange(step.dashboardId, e.target.checked)}
-                                                                        className="h-5 w-5 text-blue-600 focus:ring-blue-500"
-                                                                    />
-                                                                    <span className="text-sm">Dividir lote ao migrar</span>
-                                                                </label>
+                                                                <div>
+                                                                    <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Divisão do lote</label>
+                                                                    <select
+                                                                        value={step.splitMode}
+                                                                        onChange={(e) => handleLotFlowSplitModeChange(step.dashboardId, e.target.value)}
+                                                                        className="w-full p-2 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700"
+                                                                    >
+                                                                        {LOT_FLOW_SPLIT_MODE_OPTIONS.map((option) => (
+                                                                            <option key={option.value} value={option.value}>
+                                                                                {option.label}
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     );
@@ -8212,6 +8249,33 @@ const AppContent = () => {
                             batch.set(docRef, dash);
                         });
                         await batch.commit();
+                        try {
+                            const lotFlowRef = doc(db, 'settings', 'lotFlow');
+                            const lotFlowSnap = await getDoc(lotFlowRef);
+                            if (!lotFlowSnap.exists()) {
+                                const normalizedSteps = defaultLotFlow.map((step) => {
+                                    const splitMode = typeof step.splitMode === 'string' ? step.splitMode : 'never';
+                                    return {
+                                        dashboardId: step.dashboardId,
+                                        mode: typeof step.mode === 'string' ? step.mode : 'auto',
+                                        splitMode,
+                                        split: splitMode === 'always',
+                                    };
+                                });
+                                await setDoc(
+                                    lotFlowRef,
+                                    { steps: normalizedSteps, updatedAt: serverTimestamp() },
+                                    { merge: true },
+                                );
+                                console.log('Fluxo de lotes padrão criado com sucesso.');
+                            }
+                        } catch (error) {
+                            if (error?.code === 'permission-denied') {
+                                console.warn('Sem permissão para criar fluxo de lotes padrão. Prosseguindo.', error);
+                            } else {
+                                console.error('Falha ao configurar fluxo de lotes padrão.', error);
+                            }
+                        }
                         console.log("Dashboards iniciais criados com sucesso.");
                         if (!isActive) return;
                         setDashboards(initialDashboards.map(dash => ({ ...dash })));
