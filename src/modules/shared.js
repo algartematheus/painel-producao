@@ -1075,7 +1075,7 @@ export const exportSequenciaOperacionalPDF = async (modelo, incluirDados = true,
     const sanitizedBlankLineCount = Math.max(1, Math.floor(Number(blankLineCount) || 0) || 25);
 
     const logoDataUrl = await fetchOperationalLogoDataUrl();
-    const ensureLogo = () => addRaceBullLogoToPdf(doc, logoDataUrl);
+    const ensureLogo = () => addRaceBullLogoToPdf(doc, logoDataUrl, { align: 'right' });
     ensureLogo();
 
     doc.setFontSize(14);
