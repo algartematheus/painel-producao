@@ -213,6 +213,10 @@ const LaundryDashboard = ({
     }, [orderedLots]);
 
     const numberFormatter = useMemo(() => new Intl.NumberFormat('pt-BR'), []);
+    const durationFormatter = useMemo(() => new Intl.NumberFormat('pt-BR', {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+    }), []);
 
     const [returnModal, setReturnModal] = useState({ isOpen: false, lot: null, mode: 'partial' });
     const [returnQuantities, setReturnQuantities] = useState({});
@@ -306,7 +310,7 @@ const LaundryDashboard = ({
                     contentClassName="space-y-2 text-sm text-gray-600 dark:text-gray-300"
                 >
                     {metrics.averageDuration > 0
-                        ? <p>{metrics.averageDuration.toFixed(1)} dias</p>
+                        ? <p>{durationFormatter.format(metrics.averageDuration)} dias</p>
                         : <p>Nenhuma devolução concluída até o momento.</p>}
                 </SummaryCard>
                 <SummaryCard
@@ -442,7 +446,7 @@ const LaundryDashboard = ({
                                             <td className="p-4 text-center align-top">{formatDateTime(lot.laundrySentAt)}</td>
                                             <td className="p-4 text-center align-top">{formatDateTime(lot.laundryReturnedAt)}</td>
                                             <td className="p-4 text-center align-top">
-                                                {duration !== null ? `${duration.toFixed(1)} dias` : '--'}
+                                                {duration !== null ? `${durationFormatter.format(duration)} dias` : '--'}
                                             </td>
                                             <td className="p-4 align-top">
                                                 <div className="flex flex-col gap-3 items-center">

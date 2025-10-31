@@ -108,4 +108,39 @@ describe('LaundryDashboard', () => {
       notes: '',
     });
   });
+
+  it('validates partial return quantities before submitting', async () => {
+    const onRegisterReturn = jest.fn().mockResolvedValue(undefined);
+
+    render(
+      <LaundryDashboard
+        lots={sampleLots}
+        lotFilter="ongoing"
+        onLotFilterChange={jest.fn()}
+        onLotStatusChange={jest.fn()}
+        onStartEditLot={jest.fn()}
+        onMoveLot={jest.fn()}
+        onDeleteLot={jest.fn()}
+        onOpenObservation={jest.fn()}
+        canManageLots={true}
+        LotVariationSummaryComponent={StubVariationSummary}
+        onRegisterReturn={onRegisterReturn}
+      />
+    );
+
+    fireEvent.click(screen.getByText('Parcial'));
+
+    const inputs = screen.getAllByLabelText('Quantidade a registrar');
+    inputs.forEach(input => {
+      fireEvent.change(input, { target: { value: '0' } });
+    });
+
+    fireEvent.click(screen.getByText('Registrar devolução'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Informe ao menos uma quantidade devolvida.')).toBeInTheDocument();
+    });
+
+    expect(onRegisterReturn).not.toHaveBeenCalled();
+  });
 });
