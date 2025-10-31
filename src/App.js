@@ -292,6 +292,7 @@ const createEmptyLotVariationDraft = () => ({
     label: '',
     target: '',
     produced: 0,
+    splitCode: '',
 });
 
 const createEmptyLotFormState = () => ({
@@ -350,6 +351,14 @@ const buildLotVariationKey = (variation, index = 0) => {
     if (variation.id) {
         return `id::${variation.id}`;
     }
+    const splitCode = typeof variation.splitCode === 'string'
+        ? variation.splitCode.trim().toLowerCase()
+        : typeof variation.childSuffix === 'string'
+            ? variation.childSuffix.trim().toLowerCase()
+            : '';
+    if (splitCode) {
+        return `splitCode::${splitCode}::${index}`;
+    }
     const label = typeof variation.label === 'string' ? variation.label.trim().toLowerCase() : '';
     if (label) {
         return `label::${label}::${index}`;
@@ -367,6 +376,11 @@ const normalizeLotVariationState = (variation, index = 0, existing = null) => {
         target: parseLotQuantityValue(variation?.target),
         produced: existingProduced || '',
         currentProduced: parseLotQuantityValue(variation?.produced),
+        splitCode: typeof variation?.splitCode === 'string'
+            ? variation.splitCode
+            : typeof variation?.childSuffix === 'string'
+                ? variation.childSuffix
+                : '',
     };
 };
 
@@ -469,13 +483,25 @@ const LotVariationSummary = ({ variations = [], title = 'Grade prevista' }) => {
                         : `Var. ${index + 1}`;
                     const producedValue = parseLotQuantityValue(variation?.produced);
                     const targetValue = parseLotQuantityValue(variation?.target);
+                    const splitCode = typeof variation?.splitCode === 'string'
+                        ? variation.splitCode
+                        : typeof variation?.childSuffix === 'string'
+                            ? variation.childSuffix
+                            : '';
                     const key = variation?.variationId || variation?.id || buildLotVariationKey(variation, index);
                     return (
                         <div
                             key={key}
                             className="flex items-center justify-between bg-white/70 dark:bg-gray-900/40 px-3 py-2 rounded-md border border-gray-200 dark:border-gray-700"
                         >
-                            <span className="font-medium text-sm truncate" title={label}>{label}</span>
+                            <div className="flex flex-col min-w-0 mr-2">
+                                <span className="font-medium text-sm truncate" title={label}>{label}</span>
+                                {splitCode && (
+                                    <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate" title={splitCode}>
+                                        Código: {splitCode}
+                                    </span>
+                                )}
+                            </div>
                             <span>{producedValue} / {targetValue}</span>
                         </div>
                     );
@@ -512,6 +538,7 @@ const mapProductVariationsToLotState = (productVariations = []) => {
             label,
             target: '',
             produced: 0,
+            splitCode: '',
         };
     });
 };
@@ -533,6 +560,12 @@ const sanitizeLotVariationsForStorage = (variations = []) => {
             const label = typeof variation?.label === 'string' ? variation.label.trim() : '';
             const target = parseLotQuantityValue(variation?.target);
             const produced = parseLotQuantityValue(variation?.produced);
+            const rawSplitCode = typeof variation?.splitCode === 'string'
+                ? variation.splitCode
+                : typeof variation?.childSuffix === 'string'
+                    ? variation.childSuffix
+                    : '';
+            const splitCode = typeof rawSplitCode === 'string' ? rawSplitCode.trim() : '';
 
             return {
                 variationId,
@@ -540,6 +573,7 @@ const sanitizeLotVariationsForStorage = (variations = []) => {
                 label,
                 target,
                 produced,
+                ...(splitCode ? { splitCode, childSuffix: splitCode } : { splitCode: '', childSuffix: '' }),
             };
         })
         .filter(variation => variation.variationId || variation.label || variation.variationKey);
@@ -651,6 +685,11 @@ const mapLotVariationsToFormState = (variations = []) => {
         label: variation.label,
         target: String(variation.target),
         produced: variation.produced,
+        splitCode: typeof variation.splitCode === 'string'
+            ? variation.splitCode
+            : typeof variation.childSuffix === 'string'
+                ? variation.childSuffix
+                : '',
     }));
 };
 
@@ -5567,6 +5606,23 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         });
     }, []);
 
+    const handleNewLotVariationSplitCodeChange = useCallback((identifier, value) => {
+        setNewLot(prev => {
+            const existing = Array.isArray(prev.variations) ? prev.variations : [];
+            const updatedVariations = existing.map((variation, index) => {
+                const key = variation.variationId || buildLotVariationKey(variation, index);
+                if (key !== identifier) {
+                    return variation;
+                }
+                return { ...variation, splitCode: value };
+            });
+            return {
+                ...prev,
+                variations: updatedVariations,
+            };
+        });
+    }, []);
+
     const handleNewLotVariationTargetChange = useCallback((identifier, value) => {
         const normalizedValue = normalizeLotInputValue(value);
         setNewLot(prev => {
@@ -5628,6 +5684,23 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                     return variation;
                 }
                 return { ...variation, label: value };
+            });
+            return {
+                ...prev,
+                variations: updatedVariations,
+            };
+        });
+    }, []);
+
+    const handleEditingLotVariationSplitCodeChange = useCallback((identifier, value) => {
+        setEditingLotData(prev => {
+            const existing = Array.isArray(prev.variations) ? prev.variations : [];
+            const updatedVariations = existing.map((variation, index) => {
+                const key = variation.variationId || buildLotVariationKey(variation, index);
+                if (key !== identifier) {
+                    return variation;
+                }
+                return { ...variation, splitCode: value };
             });
             return {
                 ...prev,
@@ -6659,18 +6732,28 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                                                           className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
                                                                           placeholder="Nome da variação"
                                                                       />
+                                                                  <div className="space-y-1">
+                                                                      <label className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Sufixo (Lavanderia)</label>
+                                                                      <input
+                                                                          type="text"
+                                                                          value={variation.splitCode || ''}
+                                                                          onChange={event => handleNewLotVariationSplitCodeChange(identifier, event.target.value)}
+                                                                          className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
+                                                                          placeholder="Ex.: azul, 010.claro"
+                                                                      />
                                                                   </div>
-                                                                  <button
-                                                                      type="button"
-                                                                      onClick={() => handleRemoveNewLotVariation(identifier)}
-                                                                      className="p-2 rounded-md bg-red-50 dark:bg-red-900/40 text-red-600 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/60"
-                                                                      title="Remover variação"
+                                                              </div>
+                                                              <button
+                                                                  type="button"
+                                                                  onClick={() => handleRemoveNewLotVariation(identifier)}
+                                                                  className="p-2 rounded-md bg-red-50 dark:bg-red-900/40 text-red-600 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/60"
+                                                                  title="Remover variação"
                                                                   >
                                                                       <Trash size={16} />
                                                                   </button>
                                                           </div>
-                                                          <div className="space-y-1">
-                                                              <label className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Meta (peças)</label>
+                                                              <div className="space-y-1">
+                                                                  <label className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Meta (peças)</label>
                                                                       <input
                                                                           type="number"
                                                                           min="0"
@@ -6851,6 +6934,16 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                                                                               className="w-full p-2 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700"
                                                                               placeholder="Nome da variação"
                                                                           />
+                                                                          <div className="space-y-1">
+                                                                              <label className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Sufixo (Lavanderia)</label>
+                                                                              <input
+                                                                                  type="text"
+                                                                                  value={variation.splitCode || ''}
+                                                                                  onChange={event => handleEditingLotVariationSplitCodeChange(identifier, event.target.value)}
+                                                                                  className="w-full p-2 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700"
+                                                                                  placeholder="Ex.: azul, 010.claro"
+                                                                              />
+                                                                          </div>
                                                                       </div>
                                                                       <button
                                                                           type="button"

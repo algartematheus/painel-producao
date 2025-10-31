@@ -566,6 +566,18 @@ const buildVariationDisplayLabel = (variation, index) => {
   return `Variação ${index + 1}`;
 };
 
+const slugifyValue = (value = '') => {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+};
+
 const buildVariationSplitBlueprints = ({ lotData, currentDashboardId, nextDashboardId, sourceLotId }) => {
   const rawVariations = Array.isArray(lotData?.variations) ? lotData.variations : [];
   if (rawVariations.length === 0) {
@@ -580,11 +592,18 @@ const buildVariationSplitBlueprints = ({ lotData, currentDashboardId, nextDashbo
         ? variation.variationId.trim()
         : '';
       const variationKey = variation?.variationKey || buildLotVariationKey(variation, index);
-      const identifier = sanitizeLotIdSegment(variationId || variationKey, `variation-${index + 1}`);
+      const rawSplitCode = typeof variation?.splitCode === 'string'
+        ? variation.splitCode.trim()
+        : typeof variation?.childSuffix === 'string'
+          ? variation.childSuffix.trim()
+          : '';
+      const displayLabel = buildVariationDisplayLabel(variation, index);
+      const identifierSource = rawSplitCode || slugifyValue(displayLabel) || variationId || variationKey;
+      const identifier = sanitizeLotIdSegment(identifierSource, `variation-${index + 1}`);
       const childLotId = `${sourceLotId}::${identifier}`;
 
-      const displayLabel = buildVariationDisplayLabel(variation, index);
-      const childName = `${baseCode} - ${displayLabel}`.trim();
+      const childSuffix = rawSplitCode || displayLabel;
+      const childName = `${baseCode} - ${childSuffix}`.trim();
 
       const normalizedVariation = cloneDeep(variation) || {};
       normalizedVariation.target = 0;
@@ -593,6 +612,8 @@ const buildVariationSplitBlueprints = ({ lotData, currentDashboardId, nextDashbo
       if (variationId) {
         normalizedVariation.variationId = variationId;
       }
+      normalizedVariation.splitCode = rawSplitCode;
+      normalizedVariation.childSuffix = rawSplitCode;
 
       const producedValue = parseLotQuantityValue(variation?.produced ?? variation?.target);
       const bomVariation = cloneDeep(variation) || {};
@@ -602,6 +623,8 @@ const buildVariationSplitBlueprints = ({ lotData, currentDashboardId, nextDashbo
       }
       bomVariation.produced = producedValue;
       bomVariation.target = producedValue;
+      bomVariation.splitCode = rawSplitCode;
+      bomVariation.childSuffix = rawSplitCode;
 
       const bomLotData = {
         id: childLotId,
