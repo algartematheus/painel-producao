@@ -40,13 +40,17 @@ describe('stockImporter', () => {
         expect(snapshots).toEqual([
             {
                 productCode: '016',
+                grade: ['PP', 'P', 'M', 'G', 'GG'],
+                warnings: [],
                 variations: [
                     {
                         ref: '016.01',
+                        grade: ['PP', 'P', 'M', 'G', 'GG'],
                         tamanhos: { PP: 10, P: 20, M: 30, G: 40, GG: 50 },
                     },
                     {
                         ref: '016.02',
+                        grade: ['34', '36', '38', '40'],
                         tamanhos: { '34': 5, '36': 10, '38': 15, '40': 20 },
                     },
                 ],
@@ -89,18 +93,24 @@ describe('stockImporter', () => {
         expect(snapshots).toEqual([
             {
                 productCode: '016',
+                grade: ['PP', 'P', 'M'],
+                warnings: [],
                 variations: [
                     {
                         ref: '016.01',
+                        grade: ['PP', 'P', 'M'],
                         tamanhos: { PP: 12, P: 8, M: 4 },
                     },
                 ],
             },
             {
                 productCode: '017',
+                grade: ['34', '36', '38', '40'],
+                warnings: [],
                 variations: [
                     {
                         ref: '017.01',
+                        grade: ['34', '36', '38', '40'],
                         tamanhos: { '34': 1, '36': 2, '38': 3, '40': 4 },
                     },
                 ],

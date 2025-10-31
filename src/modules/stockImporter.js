@@ -89,7 +89,7 @@ const extractQuantitiesFromLine = (line) => {
         return [];
     }
     const normalized = line.normalize('NFD');
-    const [_, tail = ''] = normalized.split(/a\s*produzir/i);
+    const [, tail = ''] = normalized.split(/a\s*produzir/i);
     return tail
         .split(/[^0-9,.-]+/)
         .map(sanitizeNumberToken)
@@ -165,12 +165,20 @@ export const parseLinesIntoBlocks = (lines = []) => {
 
         blocks.push({
             ref,
+            grade: grades.slice(),
             tamanhos: mapped,
         });
         i = produceLineIndex;
     }
 
     return blocks;
+};
+
+const areGradesEqual = (gradeA = [], gradeB = []) => {
+    if (gradeA.length !== gradeB.length) {
+        return false;
+    }
+    return gradeA.every((value, index) => value === gradeB[index]);
 };
 
 const aggregateBlocksIntoSnapshots = (blocks = []) => {
@@ -182,19 +190,29 @@ const aggregateBlocksIntoSnapshots = (blocks = []) => {
         }
         const [prefix] = ref.split('.');
         const safePrefix = prefix || ref;
+        const grade = Array.isArray(block?.grade) ? block.grade : [];
         if (!grouped.has(safePrefix)) {
-            grouped.set(safePrefix, []);
+            grouped.set(safePrefix, {
+                productCode: safePrefix,
+                grade: grade.slice(),
+                variations: [],
+                warnings: [],
+            });
         }
-        grouped.get(safePrefix).push(block);
+        const group = grouped.get(safePrefix);
+        if (!group.grade.length && grade.length) {
+            group.grade = grade.slice();
+        } else if (grade.length && !areGradesEqual(group.grade, grade)) {
+            group.warnings.push(`Grade divergente detectada para ${ref}: [${grade.join(', ')}] (mantida grade original [${group.grade.join(', ')}])`);
+        }
+        group.variations.push({
+            ref,
+            grade: grade.slice(),
+            tamanhos: block.tamanhos,
+        });
     });
 
-    return Array.from(grouped.entries()).map(([productCode, productBlocks]) => ({
-        productCode,
-        variations: productBlocks.map((block) => ({
-            ref: block.ref,
-            tamanhos: block.tamanhos,
-        })),
-    }));
+    return Array.from(grouped.values());
 };
 
 const extractPdfLines = async (arrayBuffer) => {
