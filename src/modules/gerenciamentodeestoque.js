@@ -13,6 +13,37 @@ import {
   generateId,
   usePersistedTheme
 } from './shared';
+import { importStockFile, flattenSnapshotsToVariations } from './stockImporter';
+
+const arrayBufferToBase64 = (arrayBuffer) => {
+    if (!(arrayBuffer instanceof ArrayBuffer)) {
+        return '';
+    }
+
+    if (typeof Buffer !== 'undefined') {
+        return Buffer.from(arrayBuffer).toString('base64');
+    }
+
+    if (typeof window !== 'undefined' && typeof window.btoa === 'function') {
+        let binary = '';
+        const bytes = new Uint8Array(arrayBuffer);
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.subarray(i, i + chunkSize);
+            binary += String.fromCharCode(...chunk);
+        }
+        return window.btoa(binary);
+    }
+
+    throw new Error('Não foi possível converter o arquivo para base64 no ambiente atual.');
+};
+
+const normalizeReferenceCode = (value) => {
+    if (typeof value !== 'string') {
+        return '';
+    }
+    return value.replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+};
 
 const StockContext = createContext();
 
@@ -146,9 +177,9 @@ export const StockProvider = ({ children }) => {
         });
     }, []);
 
-    const addStockMovement = useCallback(async ({ productId, variationId, quantity, type }) => {
+    const addStockMovement = useCallback(async ({ productId, variationId, quantity, type, metadata }) => {
         const batch = writeBatch(db);
-        
+
         const newMovementId = generateId('mov');
         const movementRef = doc(db, "stock/data/movements", newMovementId);
         batch.set(movementRef, {
@@ -158,7 +189,14 @@ export const StockProvider = ({ children }) => {
             type,
             user: user.uid,
             userEmail: user.email,
-            timestamp: Timestamp.now()
+            timestamp: Timestamp.now(),
+            metadata: metadata
+                ? {
+                    ...metadata,
+                    responsible: { uid: user.uid, email: user.email },
+                    uploadedAt: Timestamp.now(),
+                }
+                : null,
         });
 
         const productRef = doc(db, "stock/data/products", productId);
@@ -499,7 +537,15 @@ const StockMovementsPage = ({ setConfirmation }) => {
     
     const [selectedCategoryId, setSelectedCategoryId] = useState('');
     const [movement, setMovement] = useState({ productId: '', variationId: '', type: 'Saída', quantity: '' });
-    
+
+    const [importType, setImportType] = useState('pdf');
+    const [importedSnapshots, setImportedSnapshots] = useState([]);
+    const [importedVariations, setImportedVariations] = useState([]);
+    const [selectedImportIndex, setSelectedImportIndex] = useState(-1);
+    const [importError, setImportError] = useState('');
+    const [uploadMetadata, setUploadMetadata] = useState(null);
+    const fileInputRef = useRef(null);
+
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [calendarView, setCalendarView] = useState('day');
@@ -525,20 +571,221 @@ const StockMovementsPage = ({ setConfirmation }) => {
             .filter(m => m.timestamp.toDateString() === selectedDate.toDateString());
     }, [stockMovements, selectedDate]);
 
-    useEffect(() => {
-        setMovement(m => ({ ...m, productId: '', variationId: '' }));
-    }, [selectedCategoryId]);
+    const findMatchingVariation = useCallback((ref) => {
+        const normalizedRef = normalizeReferenceCode(ref);
+        if (!normalizedRef) {
+            return null;
+        }
+
+        for (const product of products) {
+            const variations = Array.isArray(product?.variations) ? product.variations : [];
+            for (const variation of variations) {
+                const normalizedVariation = normalizeReferenceCode(variation?.name);
+                if (normalizedVariation && normalizedVariation === normalizedRef) {
+                    return {
+                        productId: product.id,
+                        variationId: variation.id,
+                        product,
+                        variation,
+                    };
+                }
+            }
+        }
+
+        return null;
+    }, [products]);
+
+    const applyImportedVariation = useCallback((variation) => {
+        if (!variation) {
+            return;
+        }
+        const match = findMatchingVariation(variation.ref);
+        setMovement((prev) => ({
+            ...prev,
+            productId: match?.productId || '',
+            variationId: match?.variationId || '',
+            quantity: variation.total ? String(variation.total) : '',
+        }));
+        if (match?.product) {
+            setSelectedCategoryId(match.product.categoryId || '');
+        }
+    }, [findMatchingVariation]);
+
+    const handleApplyImported = useCallback((index) => {
+        if (index < 0 || index >= importedVariations.length) {
+            return;
+        }
+        setSelectedImportIndex(index);
+        applyImportedVariation(importedVariations[index]);
+    }, [importedVariations, applyImportedVariation]);
+
+    const handleNextImported = useCallback(() => {
+        if (!importedVariations.length) {
+            return;
+        }
+        const nextIndex = Math.min(importedVariations.length - 1, selectedImportIndex + 1);
+        handleApplyImported(nextIndex);
+    }, [importedVariations, selectedImportIndex, handleApplyImported]);
+
+    const handlePreviousImported = useCallback(() => {
+        if (!importedVariations.length) {
+            return;
+        }
+        const nextIndex = Math.max(0, selectedImportIndex - 1);
+        handleApplyImported(nextIndex);
+    }, [importedVariations, selectedImportIndex, handleApplyImported]);
+
+    const handleResetImport = useCallback(() => {
+        setImportedSnapshots([]);
+        setImportedVariations([]);
+        setSelectedImportIndex(-1);
+        setImportError('');
+        setUploadMetadata(null);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+    }, []);
+
+    const handleImportTypeChange = useCallback((event) => {
+        setImportType(event.target.value);
+        handleResetImport();
+    }, [handleResetImport]);
+
+    const acceptAttribute = useMemo(() => (
+        importType === 'pdf'
+            ? 'application/pdf,.pdf'
+            : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xlsx'
+    ), [importType]);
+
+    const handleFileChange = useCallback(async (event) => {
+        const [file] = event.target.files || [];
+        if (!file) {
+            handleResetImport();
+            return;
+        }
+        try {
+            setImportError('');
+            const buffer = await file.arrayBuffer();
+            const snapshots = await importStockFile({ file, arrayBuffer: buffer, type: importType });
+            const variations = flattenSnapshotsToVariations(snapshots);
+            setImportedSnapshots(snapshots);
+            setImportedVariations(variations);
+            if (variations.length > 0) {
+                setSelectedImportIndex(0);
+                applyImportedVariation(variations[0]);
+            } else {
+                setSelectedImportIndex(-1);
+            }
+            setUploadMetadata({
+                fileName: file.name,
+                fileType: file.type || importType,
+                fileSize: typeof file.size === 'number' ? file.size : buffer.byteLength || 0,
+                fileBase64: arrayBufferToBase64(buffer),
+                importType,
+                snapshotSummary: snapshots.map((snapshot) => ({
+                    productCode: snapshot.productCode,
+                    variationCount: snapshot.variations.length,
+                })),
+            });
+        } catch (error) {
+            console.error('Erro ao importar arquivo de estoque', error);
+            setImportError(error.message || 'Não foi possível importar o arquivo.');
+            setImportedSnapshots([]);
+            setImportedVariations([]);
+            setSelectedImportIndex(-1);
+            setUploadMetadata(null);
+        }
+    }, [importType, applyImportedVariation, handleResetImport]);
+
+    const currentImportedVariation = useMemo(() => {
+        if (selectedImportIndex < 0 || selectedImportIndex >= importedVariations.length) {
+            return null;
+        }
+        return importedVariations[selectedImportIndex];
+    }, [importedVariations, selectedImportIndex]);
+
+    const currentImportMatch = useMemo(() => {
+        if (!currentImportedVariation) {
+            return null;
+        }
+        return findMatchingVariation(currentImportedVariation.ref);
+    }, [currentImportedVariation, findMatchingVariation]);
+
+    const formattedImportedSizes = useMemo(() => {
+        if (!currentImportedVariation) {
+            return '';
+        }
+        const entries = Object.entries(currentImportedVariation.tamanhos || {});
+        if (!entries.length) {
+            return '';
+        }
+        return entries.map(([size, value]) => `${size}: ${value}`).join(' | ');
+    }, [currentImportedVariation]);
 
     useEffect(() => {
-        setMovement(m => ({ ...m, variationId: '' }));
-    }, [movement.productId]);
+        setMovement((prev) => {
+            if (!selectedCategoryId) {
+                return prev;
+            }
+            const product = products.find(p => p.id === prev.productId);
+            if (product && product.categoryId === selectedCategoryId) {
+                return prev;
+            }
+            return { ...prev, productId: '', variationId: '' };
+        });
+    }, [selectedCategoryId, products]);
+
+    useEffect(() => {
+        setMovement((prev) => {
+            if (!prev.productId) {
+                return prev;
+            }
+            const product = products.find(p => p.id === prev.productId);
+            if (!product) {
+                return { ...prev, productId: '', variationId: '' };
+            }
+            const hasVariation = Array.isArray(product.variations)
+                ? product.variations.some(v => v.id === prev.variationId)
+                : false;
+            if (hasVariation) {
+                return prev;
+            }
+            return { ...prev, variationId: '' };
+        });
+    }, [movement.productId, products]);
+
+    useEffect(() => {
+        if (!importedVariations.length) {
+            setSelectedImportIndex(-1);
+        }
+    }, [importedVariations]);
 
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         if(!isFormValid) return;
-        await addStockMovement({ ...movement, quantity: parseInt(movement.quantity) });
-        setMovement({ productId: '', variationId: '', type: 'Saída', quantity: '' });
+
+        const metadataPayload = uploadMetadata
+            ? {
+                ...uploadMetadata,
+                variationRef: currentImportedVariation?.ref || null,
+                variationSizes: currentImportedVariation?.tamanhos || null,
+            }
+            : null;
+
+        await addStockMovement({
+            ...movement,
+            quantity: parseInt(movement.quantity, 10),
+            metadata: metadataPayload,
+        });
+
+        if (importedVariations.length && selectedImportIndex + 1 < importedVariations.length) {
+            const nextIndex = selectedImportIndex + 1;
+            setSelectedImportIndex(nextIndex);
+            applyImportedVariation(importedVariations[nextIndex]);
+        } else {
+            setMovement((prev) => ({ productId: '', variationId: '', type: prev.type, quantity: '' }));
+        }
     };
 
     const handleDeleteClick = (mov) => {
@@ -566,7 +813,91 @@ const StockMovementsPage = ({ setConfirmation }) => {
                     />
                     <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-lg flex flex-col gap-4">
                         <h2 className="text-xl font-semibold">Novo Lançamento</h2>
-                        
+
+                        <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl flex flex-col gap-3">
+                            <div>
+                                <label className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">Tipo de arquivo</label>
+                                <select
+                                    value={importType}
+                                    onChange={handleImportTypeChange}
+                                    className="w-full p-2 rounded-md bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600"
+                                >
+                                    <option value="pdf">PDF</option>
+                                    <option value="xlsx">Planilha (XLSX)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">Arquivo de importação</label>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept={acceptAttribute}
+                                    onChange={handleFileChange}
+                                    className="w-full text-sm text-gray-700 dark:text-gray-200 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                                />
+                            </div>
+                            {importError && (
+                                <p className="text-sm text-red-500 bg-red-50 dark:bg-red-900/40 border border-red-200 dark:border-red-700 rounded-md p-2">
+                                    {importError}
+                                </p>
+                            )}
+                            {importedVariations.length > 0 && (
+                                <div className="border border-blue-200 dark:border-blue-700 rounded-lg p-3 bg-white dark:bg-gray-900/60 text-sm flex flex-col gap-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div>
+                                            <p className="font-semibold text-blue-600 dark:text-blue-300">{currentImportedVariation?.ref}</p>
+                                            <p className="text-xs text-gray-500 dark:text-gray-400">Quantidade total: {currentImportedVariation?.total ?? 0}</p>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={handlePreviousImported}
+                                                disabled={selectedImportIndex <= 0}
+                                                className="px-2 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-600 disabled:opacity-40"
+                                            >
+                                                Anterior
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleNextImported}
+                                                disabled={selectedImportIndex >= importedVariations.length - 1}
+                                                className="px-2 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-600 disabled:opacity-40"
+                                            >
+                                                Próximo
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {formattedImportedSizes && (
+                                        <p className="text-xs text-gray-600 dark:text-gray-300">{formattedImportedSizes}</p>
+                                    )}
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                        {currentImportMatch?.product
+                                            ? `Produto identificado: ${currentImportMatch.product.name}`
+                                            : 'Nenhuma variação cadastrada corresponde a esta referência.'}
+                                    </p>
+                                    <div className="flex flex-wrap gap-2 pt-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleApplyImported(selectedImportIndex)}
+                                            className="px-3 py-1 text-xs font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                                        >
+                                            Aplicar ao formulário
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleResetImport}
+                                            className="px-3 py-1 text-xs font-semibold rounded-md bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600"
+                                        >
+                                            Limpar importação
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-gray-400 dark:text-gray-500">
+                                        {importedSnapshots.length} produtos detectados • {importedVariations.length} variações disponíveis
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+
                         <div>
                             <label className="block mb-1">Categoria</label>
                             <select value={selectedCategoryId} onChange={e => setSelectedCategoryId(e.target.value)} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700">
