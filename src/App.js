@@ -49,6 +49,7 @@ import {
 import { applyBillOfMaterialsMovements, roundToFourDecimals, buildBillOfMaterialsMovementDetails } from './modules/billOfMaterials';
 import { httpsCallable } from 'firebase/functions';
 import SummaryCard from './components/SummaryCard';
+import LaundryDashboard from './components/LaundryDashboard';
 import HeaderContainer from './components/HeaderContainer';
 import GlobalNavigation from './components/GlobalNavigation';
 import {
@@ -2774,6 +2775,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
     const currentDashboard = dashboards[currentDashboardIndex] || null;
     const isTraveteDashboard = currentDashboard?.id === 'travete';
+    const isLaundryDashboard = currentDashboard?.id === 'lavanderia';
     
     const [products, setProducts] = useState([]);
     const [stockProducts, setStockProducts] = useState([]);
@@ -5969,6 +5971,76 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
         }
     };
 
+    const handleRegisterLaundryReturn = useCallback(async (lotId, { mode, quantities, notes }) => {
+        if (!currentDashboard?.id) {
+            throw new Error('Nenhum quadro selecionado.');
+        }
+
+        const targetLot = lots.find(lot => lot.id === lotId);
+        if (!targetLot) {
+            throw new Error('Lote não encontrado.');
+        }
+
+        const toFiniteNumber = (value) => {
+            if (typeof value === 'number') {
+                return Number.isFinite(value) ? value : 0;
+            }
+            if (typeof value === 'string') {
+                const parsed = parseInt(value.replace(/[^0-9-]/g, ''), 10);
+                return Number.isFinite(parsed) ? parsed : 0;
+            }
+            return 0;
+        };
+
+        const normalizedQuantities = Object.entries(quantities || {}).reduce((accumulator, [key, rawValue]) => {
+            const numericValue = toFiniteNumber(rawValue);
+            return { ...accumulator, [key]: numericValue > 0 ? numericValue : 0 };
+        }, {});
+
+        const totalReturnedNow = Object.values(normalizedQuantities).reduce((sum, value) => sum + value, 0);
+
+        const existingReturned = toFiniteNumber(targetLot.laundryReturnedQuantity);
+        const existingTotals = (targetLot.laundryReturnQuantities && typeof targetLot.laundryReturnQuantities === 'object')
+            ? targetLot.laundryReturnQuantities
+            : {};
+        const aggregatedTotals = Object.entries(existingTotals).reduce((accumulator, [key, rawValue]) => {
+            accumulator[key] = toFiniteNumber(rawValue);
+            return accumulator;
+        }, {});
+
+        Object.entries(normalizedQuantities).forEach(([key, value]) => {
+            aggregatedTotals[key] = (aggregatedTotals[key] || 0) + value;
+        });
+
+        const history = Array.isArray(targetLot.laundryReturnHistory) ? targetLot.laundryReturnHistory : [];
+
+        const entry = {
+            id: generateId(),
+            mode,
+            quantities: normalizedQuantities,
+            notes: notes || '',
+            recordedBy: { uid: user.uid, email: user.email },
+            recordedAt: serverTimestamp(),
+        };
+
+        const updates = {
+            laundryReturnHistory: [...history, entry],
+            laundryReturnStatus: mode === 'complete' ? 'complete' : 'partial',
+            laundryReturnNotes: notes || '',
+            laundryReturnQuantities: aggregatedTotals,
+            laundryReturnedQuantity: existingReturned + totalReturnedNow,
+            laundryReturnRecordedBy: { uid: user.uid, email: user.email },
+        };
+
+        if (mode === 'complete') {
+            updates.laundryReturnedAt = serverTimestamp();
+        } else {
+            updates.lastLaundryPartialReturnAt = serverTimestamp();
+        }
+
+        await updateDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, lotId), updates);
+    }, [currentDashboard?.id, lots, user]);
+
     const navigationButtons = useMemo(() => {
         return [
             onNavigateToOperationalSequence
@@ -6133,6 +6205,22 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
             
             <main className="p-4 md:p-8 grid grid-cols-1 gap-8 responsive-main">
+                {isLaundryDashboard ? (
+                    <LaundryDashboard
+                        lots={lots}
+                        lotFilter={lotFilter}
+                        onLotFilterChange={setLotFilter}
+                        onLotStatusChange={handleLotStatusChange}
+                        onStartEditLot={handleStartEditLot}
+                        onMoveLot={handleMoveLot}
+                        onDeleteLot={handleDeleteLot}
+                        onOpenObservation={(lot) => setModalState({ type: 'lotObservation', data: lot })}
+                        canManageLots={permissions.MANAGE_LOTS}
+                        LotVariationSummaryComponent={LotVariationSummary}
+                        onRegisterReturn={handleRegisterLaundryReturn}
+                    />
+                ) : (
+                 <>
                  <section className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                      <div className="lg:col-span-1">
                          <CalendarView selectedDate={selectedDate} setSelectedDate={setSelectedDate} currentMonth={currentMonth} setCurrentMonth={setCurrentMonth} calendarView={calendarView} setCalendarView={setCalendarView} allProductionData={allProductionData} />
@@ -7488,6 +7576,8 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                              : <p>Lixeira vazia.</p>}
                      </div>
                  </section>}
+                 </>
+                )}
             </main>
         </div>
     );
