@@ -633,6 +633,134 @@ const buildLotProductionDetailsForBillOfMaterials = (lotData = {}) => {
     ];
 };
 
+const clampNonNegative = (value) => {
+    const parsed = parseLotQuantityValue(value);
+    if (!Number.isFinite(parsed)) {
+        return 0;
+    }
+    return parsed >= 0 ? parsed : 0;
+};
+
+const extractLaundryReturnTotals = (lot = {}) => {
+    if (!lot || typeof lot !== 'object') {
+        return {};
+    }
+    const source = lot.laundryReturnQuantities;
+    if (!source || typeof source !== 'object') {
+        return {};
+    }
+    return Object.entries(source).reduce((accumulator, [key, rawValue]) => {
+        if (typeof key !== 'string' || key.trim().length === 0) {
+            return accumulator;
+        }
+        accumulator[key] = clampNonNegative(rawValue);
+        return accumulator;
+    }, {});
+};
+
+const buildLaundryReturnDetailsSnapshot = (lot) => {
+    if (!lot || typeof lot !== 'object') {
+        return [];
+    }
+
+    const variations = Array.isArray(lot.variations) ? lot.variations : [];
+    const totals = extractLaundryReturnTotals(lot);
+    const existingDetails = Array.isArray(lot.laundryReturnDetails) ? lot.laundryReturnDetails : [];
+
+    if (variations.length > 0) {
+        return variations.map((variation, index) => {
+            const variationKey = variation?.variationKey
+                || variation?.variationId
+                || variation?.id
+                || buildLotVariationKey(variation, index);
+            const label = typeof variation?.label === 'string' && variation.label.trim().length > 0
+                ? variation.label.trim()
+                : `Var. ${index + 1}`;
+            const target = clampNonNegative(variation?.target ?? variation?.produced);
+
+            const candidateKeys = [
+                variationKey,
+                variation?.variationId,
+                variation?.id,
+                label,
+                buildLotVariationKey(variation, index),
+            ].filter(Boolean);
+
+            let returned = 0;
+            for (const key of candidateKeys) {
+                if (Object.prototype.hasOwnProperty.call(totals, key)) {
+                    returned = clampNonNegative(totals[key]);
+                    if (returned > 0) {
+                        break;
+                    }
+                }
+            }
+
+            if (returned <= 0 && existingDetails.length > 0) {
+                const matchedDetail = existingDetails.find(detail => (
+                    detail
+                    && (detail.variationKey === variationKey
+                        || (variation?.variationId && detail.variationId === variation.variationId))
+                ));
+                if (matchedDetail) {
+                    returned = clampNonNegative(matchedDetail.returned ?? matchedDetail.quantity);
+                }
+            }
+
+            const divergence = returned - target;
+            const divergencePercentage = target > 0
+                ? Number(((divergence / target) * 100).toFixed(2))
+                : null;
+
+            return {
+                variationId: variation?.variationId || null,
+                variationKey,
+                label,
+                target,
+                returned,
+                divergence,
+                divergencePercentage,
+            };
+        });
+    }
+
+    const labelCandidates = [
+        lot.customName,
+        lot.displayName,
+        lot.productName,
+        lot.lotCode,
+        lot.productCode,
+        lot.id,
+    ];
+    const label = labelCandidates.find(value => typeof value === 'string' && value.trim().length > 0) || 'Lote';
+
+    const target = clampNonNegative(lot.target);
+    let returned = Object.values(totals).reduce((sum, value) => sum + clampNonNegative(value), 0);
+    if (returned <= 0) {
+        if (existingDetails.length > 0) {
+            returned = existingDetails.reduce((sum, detail) => sum + clampNonNegative(detail?.returned ?? detail?.quantity), 0);
+        }
+    }
+    if (returned <= 0) {
+        returned = clampNonNegative(lot.laundryReturnedQuantity ?? lot.produced);
+    }
+
+    const divergence = returned - target;
+    const divergencePercentage = target > 0
+        ? Number(((divergence / target) * 100).toFixed(2))
+        : null;
+
+    return [{
+        variationId: null,
+        variationKey: null,
+        label,
+        target,
+        returned,
+        divergence,
+        divergencePercentage,
+    }];
+};
+
 const applyBillOfMaterialsForLotCreation = async ({
     lotData,
     productSources = [],
@@ -5794,6 +5922,9 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             startDate: null,
             endDate: null,
             createdBy: { uid: user.uid, email: user.email },
+            laundrySentAt: null,
+            laundryReturnedAt: null,
+            laundryReturnDetails: [],
             ...(isTraveteDashboard ? lotBaseMetadata : machineTypePayload),
         };
         if (variationPayload.length > 0) {
@@ -5952,6 +6083,18 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             updatePayload.endDate = new Date().toISOString();
         } else if (!isCompleting && wasCompleted) {
             updatePayload.endDate = null;
+        }
+
+        if (isLaundryDashboard) {
+            if (isCompleting) {
+                updatePayload.laundryReturnDetails = buildLaundryReturnDetailsSnapshot(lot);
+                if (!lot.laundryReturnedAt || !wasCompleted) {
+                    updatePayload.laundryReturnedAt = serverTimestamp();
+                }
+            } else if (wasCompleted) {
+                updatePayload.laundryReturnedAt = null;
+                updatePayload.laundryReturnDetails = [];
+            }
         }
 
         await updateDoc(doc(db, `dashboards/${currentDashboard.id}/lots`, lotId), updatePayload);

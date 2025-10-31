@@ -197,6 +197,172 @@ const cloneDeep = (value) => {
   }
 };
 
+const clampToNumber = (value) => {
+  const parsed = parseLotQuantityValue(value);
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+  return parsed;
+};
+
+const clampToNonNegative = (value) => {
+  const numeric = clampToNumber(value);
+  return numeric >= 0 ? numeric : 0;
+};
+
+const extractLaundryReturnTotals = (lot = {}) => {
+  if (!lot || typeof lot !== 'object') {
+    return {};
+  }
+
+  const source = lot.laundryReturnQuantities;
+  if (!source || typeof source !== 'object') {
+    return {};
+  }
+
+  return Object.entries(source).reduce((accumulator, [key, rawValue]) => {
+    if (typeof key !== 'string' || key.trim().length === 0) {
+      return accumulator;
+    }
+    accumulator[key] = clampToNonNegative(rawValue);
+    return accumulator;
+  }, {});
+};
+
+const buildLaundryReturnDetails = (lot = {}) => {
+  if (!lot || typeof lot !== 'object') {
+    return [];
+  }
+
+  const variations = Array.isArray(lot?.variations) ? lot.variations : [];
+  const totals = extractLaundryReturnTotals(lot);
+  const existingDetails = Array.isArray(lot?.laundryReturnDetails) ? lot.laundryReturnDetails : [];
+
+  if (variations.length > 0) {
+    return variations.map((variation, index) => {
+      const variationKey = variation?.variationKey
+        || variation?.variationId
+        || variation?.id
+        || buildLotVariationKey(variation, index);
+      const label = typeof variation?.label === 'string' && variation.label.trim().length > 0
+        ? variation.label.trim()
+        : `Variação ${index + 1}`;
+      const target = clampToNonNegative(variation?.target ?? variation?.produced);
+
+      const candidateKeys = [
+        variationKey,
+        variation?.variationId,
+        variation?.id,
+        label,
+        buildLotVariationKey(variation, index),
+      ].filter(Boolean);
+
+      let returned = 0;
+      for (const key of candidateKeys) {
+        if (Object.prototype.hasOwnProperty.call(totals, key)) {
+          returned = clampToNonNegative(totals[key]);
+          if (returned > 0) {
+            break;
+          }
+        }
+      }
+
+      if (returned <= 0 && existingDetails.length > 0) {
+        const matchedDetail = existingDetails.find((detail) => detail
+          && (detail.variationKey === variationKey
+            || (variation?.variationId && detail.variationId === variation.variationId)));
+        if (matchedDetail) {
+          returned = clampToNonNegative(matchedDetail.returned ?? matchedDetail.quantity);
+        }
+      }
+
+      const divergence = returned - target;
+      const divergencePercentage = target > 0
+        ? Number(((divergence / target) * 100).toFixed(2))
+        : null;
+
+      return {
+        variationId: variation?.variationId || null,
+        variationKey,
+        label,
+        target,
+        returned,
+        divergence,
+        divergencePercentage,
+      };
+    });
+  }
+
+  const labelCandidates = [
+    lot?.customName,
+    lot?.displayName,
+    lot?.lotCode,
+    lot?.productCode,
+    lot?.productName,
+    lot?.id,
+  ];
+  const label = labelCandidates.find((value) => typeof value === 'string' && value.trim().length > 0) || 'Lote';
+
+  const target = clampToNonNegative(lot?.target);
+  let returned = Object.values(totals).reduce((sum, value) => sum + clampToNonNegative(value), 0);
+  if (returned <= 0 && existingDetails.length > 0) {
+    returned = existingDetails.reduce((sum, detail) => sum + clampToNonNegative(detail?.returned ?? detail?.quantity), 0);
+  }
+  if (returned <= 0) {
+    returned = clampToNonNegative(lot?.laundryReturnedQuantity ?? lot?.produced);
+  }
+
+  const divergence = returned - target;
+  const divergencePercentage = target > 0
+    ? Number(((divergence / target) * 100).toFixed(2))
+    : null;
+
+  return [{
+    variationId: null,
+    variationKey: null,
+    label,
+    target,
+    returned,
+    divergence,
+    divergencePercentage,
+  }];
+};
+
+const summarizeLaundryReturnDetails = (details = [], lot = {}) => {
+  const normalizedDetails = Array.isArray(details) ? details : [];
+
+  const totalTarget = normalizedDetails.reduce((sum, detail) => sum + clampToNonNegative(detail?.target), 0);
+  const totalReturned = normalizedDetails.reduce((sum, detail) => sum + clampToNonNegative(detail?.returned ?? detail?.quantity), 0);
+
+  const hasIncomplete = normalizedDetails.some((detail) => clampToNonNegative(detail?.returned ?? detail?.quantity)
+    < clampToNonNegative(detail?.target));
+  const hasDivergence = normalizedDetails.some((detail) => {
+    const returned = clampToNumber(detail?.returned ?? detail?.quantity);
+    const target = clampToNumber(detail?.target);
+    if (!Number.isFinite(returned) || !Number.isFinite(target)) {
+      return false;
+    }
+    return returned !== target;
+  });
+
+  const requiresAttention = hasIncomplete
+    || (normalizedDetails.length === 0 && clampToNonNegative(lot?.target) > 0);
+
+  return {
+    totalTarget,
+    totalReturned,
+    hasIncomplete,
+    hasDivergence,
+    requiresAttention,
+  };
+};
+
+const computeLaundryReturnAnalysis = (lot = {}) => {
+  const details = buildLaundryReturnDetails(lot);
+  const summary = summarizeLaundryReturnDetails(details, lot);
+  return { details, summary };
+};
+
 const isDashboardActive = (dashboard) => {
   if (!dashboard) {
     return false;
@@ -453,6 +619,21 @@ const createMigratedLotBaseData = ({
     }
   }
 
+  const existingLaundrySentAt = lotData?.laundrySentAt ?? null;
+  const normalizedLaundrySentAt = existingLaundrySentAt || (nextDashboardId === 'lavanderia' ? new Date().toISOString() : null);
+  base.laundrySentAt = normalizedLaundrySentAt;
+  base.laundryReturnedAt = lotData?.laundryReturnedAt ?? null;
+
+  if (variationData) {
+    base.laundryReturnDetails = [];
+  } else if (Array.isArray(lotData?.laundryReturnDetails) && lotData.laundryReturnDetails.length > 0) {
+    base.laundryReturnDetails = lotData.laundryReturnDetails
+      .map((detail) => (typeof detail === 'object' && detail !== null ? cloneDeep(detail) : null))
+      .filter(Boolean);
+  } else {
+    base.laundryReturnDetails = [];
+  }
+
   const history = Array.isArray(lotData?.migrationHistory)
     ? lotData.migrationHistory.map((entry) => (typeof entry === 'object' && entry !== null ? cloneDeep(entry) : entry))
     : [];
@@ -606,7 +787,8 @@ const buildVariationSplitBlueprints = ({ lotData, currentDashboardId, nextDashbo
       const childName = `${baseCode} - ${childSuffix}`.trim();
 
       const normalizedVariation = cloneDeep(variation) || {};
-      normalizedVariation.target = 0;
+      const variationTarget = parseLotQuantityValue(variation?.target ?? variation?.produced);
+      normalizedVariation.target = variationTarget;
       normalizedVariation.produced = 0;
       normalizedVariation.variationKey = variation?.variationKey || buildLotVariationKey(variation, index);
       if (variationId) {
@@ -615,7 +797,7 @@ const buildVariationSplitBlueprints = ({ lotData, currentDashboardId, nextDashbo
       normalizedVariation.splitCode = rawSplitCode;
       normalizedVariation.childSuffix = rawSplitCode;
 
-      const producedValue = parseLotQuantityValue(variation?.produced ?? variation?.target);
+      const producedValue = variationTarget;
       const bomVariation = cloneDeep(variation) || {};
       bomVariation.variationKey = normalizedVariation.variationKey;
       if (variationId) {
@@ -664,12 +846,25 @@ const migrateLotWithVariationSplit = async ({
   nextDashboardId,
   migrationUser,
   fallbackLotId,
+  laundryAnalysis = null,
 }) => {
   const sourceLotId = typeof lotData?.id === 'string' && lotData.id.trim().length > 0
     ? lotData.id.trim()
     : (typeof fallbackLotId === 'string' && fallbackLotId.trim().length > 0
       ? fallbackLotId.trim()
       : change.after.id);
+
+  const migratingFromLaundry = currentDashboardId === 'lavanderia';
+  const laundryContext = laundryAnalysis || (migratingFromLaundry ? computeLaundryReturnAnalysis(lotData) : null);
+  if (migratingFromLaundry && laundryContext && laundryContext.summary.requiresAttention) {
+    console.warn('Migração de lote: retorno de lavanderia incompleto durante divisão por variações.', {
+      lotId: sourceLotId,
+      fromDashboardId: currentDashboardId,
+      toDashboardId: nextDashboardId,
+      summary: laundryContext.summary,
+    });
+    return null;
+  }
 
   const blueprints = buildVariationSplitBlueprints({
     lotData,
@@ -764,6 +959,16 @@ const migrateLotWithVariationSplit = async ({
         migratedBy: migrationUser,
       };
 
+      if (nextDashboardId === 'lavanderia') {
+        const normalizedSentAt = baseLotData.laundrySentAt || new Date().toISOString();
+        baseLotData.laundrySentAt = normalizedSentAt;
+        lotDataForFirestore.laundrySentAt = normalizedSentAt;
+      }
+
+      lotDataForFirestore.laundryReturnDetails = Array.isArray(baseLotData.laundryReturnDetails)
+        ? baseLotData.laundryReturnDetails
+        : [];
+
       transaction.set(destinationLotRefs[index], lotDataForFirestore);
       createdChildren.push({
         lotId: blueprint.childLotId,
@@ -797,6 +1002,10 @@ const migrateLotWithVariationSplit = async ({
 
     if (historyEntriesToAdd.length > 0) {
       parentUpdate.migrationHistory = admin.firestore.FieldValue.arrayUnion(...historyEntriesToAdd);
+    }
+
+    if (laundryContext && laundryContext.details.length > 0) {
+      parentUpdate.laundryReturnDetails = laundryContext.details;
     }
 
     const existingMetadata = sourceData?.migrationMetadata || {};
@@ -1023,6 +1232,23 @@ exports.handleLotStatusCompletion = functions
         return null;
       }
 
+      const migratingFromLaundry = currentDashboardId === 'lavanderia';
+      const migratingIntoLaundry = nextDashboardId === 'lavanderia';
+
+      let laundryReturnContext = null;
+      if (migratingFromLaundry) {
+        laundryReturnContext = computeLaundryReturnAnalysis(afterData);
+        if (laundryReturnContext.summary.requiresAttention) {
+          console.warn('Migração de lote: retorno de lavanderia incompleto. Migração bloqueada.', {
+            lotId: lotDocumentId,
+            currentDashboardId,
+            nextDashboardId,
+            summary: laundryReturnContext.summary,
+          });
+          return null;
+        }
+      }
+
       const splitMode = typeof nextDashboard?.lotFlowStep?.splitMode === 'string'
         ? nextDashboard.lotFlowStep.splitMode
         : 'never';
@@ -1041,6 +1267,7 @@ exports.handleLotStatusCompletion = functions
           nextDashboardId,
           migrationUser,
           fallbackLotId: lotDocumentId,
+          laundryAnalysis: laundryReturnContext,
         });
       }
 
@@ -1074,6 +1301,10 @@ exports.handleLotStatusCompletion = functions
         historyEntry: migrationHistoryEntry,
       });
 
+      if (laundryReturnContext && laundryReturnContext.details.length > 0) {
+        baseLotData.laundryReturnDetails = laundryReturnContext.details.map((detail) => ({ ...detail }));
+      }
+
       const lotDataForBom = cloneDeep(baseLotData) || {};
       lotDataForBom.migratedBy = migrationUser;
 
@@ -1082,6 +1313,27 @@ exports.handleLotStatusCompletion = functions
         migratedAt: admin.firestore.FieldValue.serverTimestamp(),
         migratedBy: migrationUser,
       };
+
+      if (migratingIntoLaundry) {
+        const normalizedSentAt = baseLotData.laundrySentAt || new Date().toISOString();
+        baseLotData.laundrySentAt = normalizedSentAt;
+        lotDataForBom.laundrySentAt = normalizedSentAt;
+        lotDataForFirestore.laundrySentAt = normalizedSentAt;
+      }
+
+      if (laundryReturnContext && laundryReturnContext.details.length > 0) {
+        lotDataForFirestore.laundryReturnDetails = laundryReturnContext.details;
+        const validationTimestamp = admin.firestore.FieldValue.serverTimestamp();
+        const hasIncomplete = laundryReturnContext.summary.hasIncomplete;
+        lotDataForFirestore.laundryReturnValidation = {
+          status: hasIncomplete ? 'pending' : 'complete',
+          totalTarget: laundryReturnContext.summary.totalTarget,
+          totalReturned: laundryReturnContext.summary.totalReturned,
+          hasDivergence: laundryReturnContext.summary.hasDivergence,
+          hasIncomplete,
+          updatedAt: validationTimestamp,
+        };
+      }
 
       const destinationLotRef = db
         .collection('dashboards')
@@ -1196,4 +1448,63 @@ exports.handleLotFlowSettingsChange = functions
     invalidateDashboardCaches();
     console.log('Fluxo de lotes atualizado. Cache invalidado.');
     return null;
+  });
+
+exports.consolidateLaundryReturnDetails = functions
+  .region(FUNCTION_REGION)
+  .https.onCall(async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError('unauthenticated', 'Autenticação necessária.');
+    }
+
+    const dashboardId = typeof data?.dashboardId === 'string' ? data.dashboardId.trim() : '';
+    const lotId = typeof data?.lotId === 'string' ? data.lotId.trim() : '';
+
+    if (!dashboardId || !lotId) {
+      throw new functions.https.HttpsError('invalid-argument', 'dashboardId e lotId são obrigatórios.');
+    }
+
+    const lotRef = db
+      .collection('dashboards')
+      .doc(dashboardId)
+      .collection('lots')
+      .doc(lotId);
+
+    const snapshot = await lotRef.get();
+    if (!snapshot.exists) {
+      throw new functions.https.HttpsError('not-found', 'Lote não encontrado.');
+    }
+
+    const lotData = snapshot.data() || {};
+    const { details, summary } = computeLaundryReturnAnalysis(lotData);
+
+    const timestamp = admin.firestore.Timestamp.now();
+    const email = typeof context.auth.token?.email === 'string' ? context.auth.token.email : null;
+
+    const validationPayload = {
+      status: summary.hasIncomplete || summary.requiresAttention ? 'pending' : 'complete',
+      totalTarget: summary.totalTarget,
+      totalReturned: summary.totalReturned,
+      hasDivergence: summary.hasDivergence,
+      hasIncomplete: summary.hasIncomplete,
+      updatedAt: timestamp,
+      updatedBy: {
+        uid: context.auth.uid,
+        email,
+      },
+    };
+
+    await lotRef.update({
+      laundryReturnDetails: Array.isArray(details) ? details : [],
+      laundryReturnValidation: validationPayload,
+    });
+
+    return {
+      details,
+      summary: {
+        ...summary,
+        status: validationPayload.status,
+        updatedAt: timestamp.toDate().toISOString(),
+      },
+    };
   });
