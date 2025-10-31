@@ -753,7 +753,7 @@ export const GlobalStyles = () => (
 
 export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }) => {
     const modalRef = useRef();
-    useClickOutside(modalRef, onClose);
+    useClickOutside(modalRef, onClose, isOpen);
 
     if (!isOpen) return null;
 
@@ -772,10 +772,10 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }
 };
 
 // --- HOOKS CUSTOMIZADOS ---
-export const useClickOutside = (ref, handler) => {
+export const useClickOutside = (ref, handler, isOpen) => {
     useEffect(() => {
         const listener = (event) => {
-            if (!ref.current || ref.current.contains(event.target)) return;
+            if (!isOpen || !ref.current || ref.current.contains(event.target)) return;
             handler(event);
         };
         document.addEventListener('mousedown', listener);
@@ -784,7 +784,7 @@ export const useClickOutside = (ref, handler) => {
             document.removeEventListener('mousedown', listener);
             document.removeEventListener('touchstart', listener);
         };
-    }, [ref, handler]);
+    }, [ref, handler, isOpen]);
 };
 
 export const usePrevious = (value) => {

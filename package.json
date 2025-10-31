@@ -3,14 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@testing-library/react": "^16.3.0",
     "firebase": "^9.17.2",
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^3.8.1",
     "lucide-react": "^0.303.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "recharts": "^2.5.0",
     "react-scripts": "5.0.1",
+    "recharts": "^2.5.0",
     "xlsx": "^0.18.5"
   },
   "scripts": {
@@ -39,4 +40,3 @@
     ]
   }
 }
-

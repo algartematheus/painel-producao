@@ -23,7 +23,7 @@ const ReportActionsDropdown = ({
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef(null);
 
-    useClickOutside(dropdownRef, () => setIsOpen(false));
+    useClickOutside(dropdownRef, () => setIsOpen(false), isOpen);
 
     const handleToggle = useCallback(() => {
         if (disableWhileExporting && isExporting) {

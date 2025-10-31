@@ -10,7 +10,7 @@ const ExportSettingsModal = ({ isOpen, onClose, settings = DEFAULT_EXPORT_SETTIN
             onClose(event);
         }
     }, [isOpen, onClose]);
-    useClickOutside(modalRef, handleRequestClose);
+    useClickOutside(modalRef, handleRequestClose, isOpen);
 
     useEffect(() => {
         if (isOpen) {
@@ -35,7 +35,9 @@ const ExportSettingsModal = ({ isOpen, onClose, settings = DEFAULT_EXPORT_SETTIN
         if (typeof onSave === 'function') {
             onSave({ ...localSettings });
         }
-        handleRequestClose();
+        if (isOpen) {
+            handleRequestClose();
+        }
     };
 
     const checkboxOptions = [
