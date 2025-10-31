@@ -102,7 +102,7 @@ const invalidateDashboardCaches = () => {
 
 const cloneLotFlowSteps = (steps = []) => steps.map((step) => ({ ...step }));
 
-const VALID_SPLIT_MODES = new Set(['never', 'always', 'manual']);
+const VALID_SPLIT_MODES = new Set(['never', 'always', 'manual', 'variations']);
 
 const resolveSplitMode = (step) => {
   const raw = typeof step?.splitMode === 'string' ? step.splitMode.toLowerCase() : '';
@@ -379,6 +379,12 @@ const createMigratedLotBaseData = ({
   nextDashboardId,
   sourceDashboardId,
   historyEntry,
+  targetOverride,
+  producedOverride,
+  parentLotId,
+  variationData,
+  customName,
+  displayName,
 }) => {
   const base = cloneDeep(lotData) || {};
 
@@ -395,6 +401,7 @@ const createMigratedLotBaseData = ({
     'migratedToDashboardId',
     'nextDashboardLotId',
     'nextDashboardId',
+    'nextDashboardLotIds',
     'migrationMetadata',
   ].forEach((key) => {
     if (Object.prototype.hasOwnProperty.call(base, key)) {
@@ -402,30 +409,48 @@ const createMigratedLotBaseData = ({
     }
   });
 
-  const targetValue = parseLotQuantityValue(lotData?.target);
+  const resolvedTargetOverride = targetOverride === undefined
+    ? undefined
+    : parseLotQuantityValue(targetOverride);
+  const resolvedProducedOverride = producedOverride === undefined
+    ? undefined
+    : parseLotQuantityValue(producedOverride);
+  const targetValue = resolvedTargetOverride !== undefined
+    ? resolvedTargetOverride
+    : parseLotQuantityValue(lotData?.target);
 
   base.id = newLotId;
   base.dashboardId = nextDashboardId;
   base.sourceLotId = lotData?.id || newLotId;
   base.migratedFromDashboard = sourceDashboardId;
-  base.produced = 0;
+  base.produced = resolvedProducedOverride !== undefined ? resolvedProducedOverride : 0;
   base.status = 'future';
   base.startDate = null;
   base.endDate = null;
   base.order = Date.now();
   base.target = targetValue;
 
-  const rawVariations = Array.isArray(lotData?.variations) ? lotData.variations : [];
-  if (rawVariations.length > 0) {
-    base.variations = rawVariations.map((variation, index) => {
-      const cloned = cloneDeep(variation) || {};
-      cloned.target = parseLotQuantityValue(variation?.target ?? variation?.produced);
-      cloned.produced = 0;
-      cloned.variationKey = cloned.variationKey || buildLotVariationKey(cloned, index);
-      return cloned;
-    });
-  } else if (Object.prototype.hasOwnProperty.call(base, 'variations')) {
-    delete base.variations;
+  if (parentLotId) {
+    base.parentLotId = parentLotId;
+  } else if (Object.prototype.hasOwnProperty.call(base, 'parentLotId')) {
+    delete base.parentLotId;
+  }
+
+  if (variationData) {
+    base.variations = [cloneDeep(variationData)];
+  } else {
+    const rawVariations = Array.isArray(lotData?.variations) ? lotData.variations : [];
+    if (rawVariations.length > 0) {
+      base.variations = rawVariations.map((variation, index) => {
+        const cloned = cloneDeep(variation) || {};
+        cloned.target = parseLotQuantityValue(variation?.target ?? variation?.produced);
+        cloned.produced = 0;
+        cloned.variationKey = cloned.variationKey || buildLotVariationKey(cloned, index);
+        return cloned;
+      });
+    } else if (Object.prototype.hasOwnProperty.call(base, 'variations')) {
+      delete base.variations;
+    }
   }
 
   const history = Array.isArray(lotData?.migrationHistory)
@@ -437,7 +462,8 @@ const createMigratedLotBaseData = ({
       (entry) => entry
         && entry.fromDashboardId === historyEntry.fromDashboardId
         && entry.toDashboardId === historyEntry.toDashboardId
-        && entry.sourceLotId === historyEntry.sourceLotId,
+        && entry.sourceLotId === historyEntry.sourceLotId
+        && (entry.targetLotId || entry.lotId) === (historyEntry.targetLotId || historyEntry.lotId),
     );
     if (!alreadyRecorded) {
       history.push(historyEntry);
@@ -446,7 +472,382 @@ const createMigratedLotBaseData = ({
 
   base.migrationHistory = history;
 
+  if (typeof customName === 'string' && customName.trim().length > 0) {
+    base.customName = customName.trim();
+  }
+
+  if (typeof displayName === 'string' && displayName.trim().length > 0) {
+    base.displayName = displayName.trim();
+  }
+
   return base;
+};
+
+const sanitizeLotIdSegment = (value, fallback) => {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) {
+    return fallback;
+  }
+  return normalized.replace(/[^a-zA-Z0-9_-]/g, '-');
+};
+
+const haveSameElements = (first = [], second = []) => {
+  if (!Array.isArray(first) || !Array.isArray(second)) {
+    return false;
+  }
+  if (first.length !== second.length) {
+    return false;
+  }
+  const sortedFirst = [...first].sort();
+  const sortedSecond = [...second].sort();
+  return sortedFirst.every((value, index) => value === sortedSecond[index]);
+};
+
+const findMatchingHistoryEntry = (history, targetEntry) => {
+  if (!Array.isArray(history) || !targetEntry) {
+    return null;
+  }
+  return history.find(
+    (entry) => entry
+      && entry.fromDashboardId === targetEntry.fromDashboardId
+      && entry.toDashboardId === targetEntry.toDashboardId
+      && entry.sourceLotId === targetEntry.sourceLotId
+      && (entry.targetLotId || entry.lotId) === (targetEntry.targetLotId || targetEntry.lotId),
+  );
+};
+
+const resolveLotBaseCode = (lotData) => {
+  if (!lotData || typeof lotData !== 'object') {
+    return 'Lote';
+  }
+
+  const sequentialId = lotData.sequentialId;
+  if (Number.isFinite(sequentialId)) {
+    return `#${sequentialId}`;
+  }
+  if (typeof sequentialId === 'string' && sequentialId.trim().length > 0) {
+    return sequentialId.trim();
+  }
+
+  const candidates = [
+    'customName',
+    'displayName',
+    'lotCode',
+    'productCode',
+    'productName',
+    'id',
+  ];
+
+  for (const field of candidates) {
+    const value = lotData[field];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return 'Lote';
+};
+
+const buildVariationDisplayLabel = (variation, index) => {
+  if (!variation || typeof variation !== 'object') {
+    return `Variação ${index + 1}`;
+  }
+
+  const label = typeof variation.label === 'string' ? variation.label.trim() : '';
+  if (label) {
+    return label;
+  }
+
+  const variationId = typeof variation.variationId === 'string' ? variation.variationId.trim() : '';
+  if (variationId) {
+    return variationId;
+  }
+
+  return `Variação ${index + 1}`;
+};
+
+const buildVariationSplitBlueprints = ({ lotData, currentDashboardId, nextDashboardId, sourceLotId }) => {
+  const rawVariations = Array.isArray(lotData?.variations) ? lotData.variations : [];
+  if (rawVariations.length === 0) {
+    return [];
+  }
+
+  const baseCode = resolveLotBaseCode(lotData);
+
+  return rawVariations
+    .map((variation, index) => {
+      const variationId = typeof variation?.variationId === 'string' && variation.variationId.trim().length > 0
+        ? variation.variationId.trim()
+        : '';
+      const variationKey = variation?.variationKey || buildLotVariationKey(variation, index);
+      const identifier = sanitizeLotIdSegment(variationId || variationKey, `variation-${index + 1}`);
+      const childLotId = `${sourceLotId}::${identifier}`;
+
+      const displayLabel = buildVariationDisplayLabel(variation, index);
+      const childName = `${baseCode} - ${displayLabel}`.trim();
+
+      const normalizedVariation = cloneDeep(variation) || {};
+      normalizedVariation.target = 0;
+      normalizedVariation.produced = 0;
+      normalizedVariation.variationKey = variation?.variationKey || buildLotVariationKey(variation, index);
+      if (variationId) {
+        normalizedVariation.variationId = variationId;
+      }
+
+      const producedValue = parseLotQuantityValue(variation?.produced ?? variation?.target);
+      const bomVariation = cloneDeep(variation) || {};
+      bomVariation.variationKey = normalizedVariation.variationKey;
+      if (variationId) {
+        bomVariation.variationId = variationId;
+      }
+      bomVariation.produced = producedValue;
+      bomVariation.target = producedValue;
+
+      const bomLotData = {
+        id: childLotId,
+        productId: lotData?.productId,
+        productBaseId: lotData?.productBaseId,
+        dashboardId: nextDashboardId,
+        variations: [bomVariation],
+        target: producedValue,
+        produced: producedValue,
+      };
+
+      const baseHistoryEntry = {
+        fromDashboardId: currentDashboardId,
+        toDashboardId: nextDashboardId,
+        sourceLotId,
+        targetLotId: childLotId,
+        lotId: childLotId,
+      };
+
+      return {
+        variationId,
+        variationKey: normalizedVariation.variationKey,
+        childLotId,
+        childName,
+        normalizedVariation,
+        bomLotData,
+        baseHistoryEntry,
+      };
+    })
+    .filter(Boolean);
+};
+
+const migrateLotWithVariationSplit = async ({
+  change,
+  lotData,
+  currentDashboardId,
+  nextDashboardId,
+  migrationUser,
+  fallbackLotId,
+}) => {
+  const sourceLotId = typeof lotData?.id === 'string' && lotData.id.trim().length > 0
+    ? lotData.id.trim()
+    : (typeof fallbackLotId === 'string' && fallbackLotId.trim().length > 0
+      ? fallbackLotId.trim()
+      : change.after.id);
+
+  const blueprints = buildVariationSplitBlueprints({
+    lotData,
+    currentDashboardId,
+    nextDashboardId,
+    sourceLotId,
+  });
+
+  if (blueprints.length === 0) {
+    console.log('Migração de lote: divisão por variações habilitada, mas nenhuma variação encontrada.', {
+      lotId: sourceLotId,
+      fromDashboardId: currentDashboardId,
+      toDashboardId: nextDashboardId,
+    });
+    return null;
+  }
+
+  const destinationLotRefs = blueprints.map((blueprint) => db
+    .collection('dashboards')
+    .doc(nextDashboardId)
+    .collection('lots')
+    .doc(blueprint.childLotId));
+
+  const transactionResult = await db.runTransaction(async (transaction) => {
+    const sourceSnapshot = await transaction.get(change.after.ref);
+    const sourceData = sourceSnapshot.data() || {};
+    const existingHistory = Array.isArray(sourceData?.migrationHistory) ? sourceData.migrationHistory : [];
+    const existingNextLotIds = Array.isArray(sourceData?.nextDashboardLotIds) ? sourceData.nextDashboardLotIds : [];
+
+    const destinationSnapshots = await Promise.all(destinationLotRefs.map((ref) => transaction.get(ref)));
+
+    const createdChildren = [];
+    const historyEntriesToAdd = [];
+
+    for (let index = 0; index < blueprints.length; index += 1) {
+      const blueprint = blueprints[index];
+      const destinationSnapshot = destinationSnapshots[index];
+
+      const historyEntry = (() => {
+        const existingEntry = findMatchingHistoryEntry(existingHistory, blueprint.baseHistoryEntry);
+        if (existingEntry) {
+          return existingEntry;
+        }
+        return {
+          ...blueprint.baseHistoryEntry,
+          migratedAt: new Date().toISOString(),
+        };
+      })();
+
+      if (destinationSnapshot.exists) {
+        const destinationData = destinationSnapshot.data() || {};
+        if (
+          destinationData?.migratedFromDashboard === currentDashboardId
+          && destinationData?.sourceLotId === sourceLotId
+          && destinationData?.parentLotId === sourceLotId
+        ) {
+          if (!findMatchingHistoryEntry(existingHistory, blueprint.baseHistoryEntry)) {
+            historyEntriesToAdd.push(historyEntry);
+          }
+          continue;
+        }
+
+        console.error('Migração de lote: conflito detectado para variação no destino.', {
+          lotId: blueprint.childLotId,
+          sourceLotId,
+          fromDashboardId: currentDashboardId,
+          toDashboardId: nextDashboardId,
+        });
+        return { conflict: true };
+      }
+
+      const baseLotData = createMigratedLotBaseData({
+        lotData,
+        newLotId: blueprint.childLotId,
+        nextDashboardId,
+        sourceDashboardId: currentDashboardId,
+        historyEntry,
+        targetOverride: 0,
+        producedOverride: 0,
+        parentLotId: sourceLotId,
+        variationData: {
+          ...blueprint.normalizedVariation,
+          variationKey: blueprint.variationKey,
+        },
+        customName: blueprint.childName,
+        displayName: blueprint.childName,
+      });
+
+      const lotDataForFirestore = {
+        ...baseLotData,
+        migratedAt: admin.firestore.FieldValue.serverTimestamp(),
+        migratedBy: migrationUser,
+      };
+
+      transaction.set(destinationLotRefs[index], lotDataForFirestore);
+      createdChildren.push({
+        lotId: blueprint.childLotId,
+        lotDataForBom: {
+          ...blueprint.bomLotData,
+          migratedBy: migrationUser,
+        },
+      });
+
+      if (!findMatchingHistoryEntry(existingHistory, blueprint.baseHistoryEntry)) {
+        historyEntriesToAdd.push(historyEntry);
+      }
+    }
+
+    const childIds = blueprints.map((blueprint) => blueprint.childLotId);
+    const primaryChildId = childIds[0] || null;
+
+    const parentUpdate = {};
+
+    if (sourceData?.migratedToDashboardId !== nextDashboardId) {
+      parentUpdate.migratedToDashboardId = nextDashboardId;
+    }
+
+    if (!haveSameElements(existingNextLotIds, childIds)) {
+      parentUpdate.nextDashboardLotIds = childIds;
+    }
+
+    if ((sourceData?.nextDashboardLotId || null) !== primaryChildId) {
+      parentUpdate.nextDashboardLotId = primaryChildId;
+    }
+
+    if (historyEntriesToAdd.length > 0) {
+      parentUpdate.migrationHistory = admin.firestore.FieldValue.arrayUnion(...historyEntriesToAdd);
+    }
+
+    const existingMetadata = sourceData?.migrationMetadata || {};
+    const existingLotIds = Array.isArray(existingMetadata?.lotIds) ? existingMetadata.lotIds : [];
+    const shouldUpdateMetadata = (
+      createdChildren.length > 0
+      || !existingMetadata
+      || existingMetadata.fromDashboardId !== currentDashboardId
+      || existingMetadata.toDashboardId !== nextDashboardId
+      || !haveSameElements(existingLotIds, childIds)
+      || (existingMetadata.lotId || null) !== primaryChildId
+    );
+
+    if (shouldUpdateMetadata) {
+      parentUpdate.migrationMetadata = {
+        fromDashboardId: currentDashboardId,
+        toDashboardId: nextDashboardId,
+        lotId: primaryChildId,
+        lotIds: childIds,
+        migratedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+    }
+
+    if (Object.keys(parentUpdate).length > 0) {
+      transaction.update(change.after.ref, parentUpdate);
+    }
+
+    return {
+      conflict: false,
+      createdChildren,
+      childIds,
+    };
+  });
+
+  if (!transactionResult || transactionResult.conflict) {
+    if (transactionResult?.conflict) {
+      console.error('Migração de lote: conflito detectado durante divisão por variações.', {
+        sourceLotId,
+        fromDashboardId: currentDashboardId,
+        toDashboardId: nextDashboardId,
+      });
+    }
+    return null;
+  }
+
+  const createdChildren = Array.isArray(transactionResult.createdChildren)
+    ? transactionResult.createdChildren.filter(Boolean)
+    : [];
+
+  if (createdChildren.length === 0) {
+    console.log('Migração de lote: lotes de variação já existentes. Nenhuma criação necessária.', {
+      sourceLotId,
+      toDashboardId: nextDashboardId,
+    });
+    return null;
+  }
+
+  for (const child of createdChildren) {
+    await applyBillOfMaterialsForMigration({
+      lotData: child.lotDataForBom,
+      sourceLotData: lotData,
+      sourceDashboardId: currentDashboardId,
+      destinationDashboardId: nextDashboardId,
+    });
+  }
+
+  console.log('Migração de lote concluída com divisão por variações.', {
+    sourceLotId,
+    createdLotIds: createdChildren.map((child) => child.lotId),
+    fromDashboardId: currentDashboardId,
+    toDashboardId: nextDashboardId,
+  });
+
+  return null;
 };
 
 const applyBillOfMaterialsForMigration = async ({
@@ -599,18 +1000,48 @@ exports.handleLotStatusCompletion = functions
         return null;
       }
 
+      const splitMode = typeof nextDashboard?.lotFlowStep?.splitMode === 'string'
+        ? nextDashboard.lotFlowStep.splitMode
+        : 'never';
+
+      const migrationUser = resolveMigrationUser(afterData);
+
+      if (
+        splitMode === 'variations'
+        && Array.isArray(afterData?.variations)
+        && afterData.variations.length > 0
+      ) {
+        return migrateLotWithVariationSplit({
+          change,
+          lotData: afterData,
+          currentDashboardId,
+          nextDashboardId,
+          migrationUser,
+          fallbackLotId: lotDocumentId,
+        });
+      }
+
       const newLotId = typeof afterData?.id === 'string' && afterData.id
         ? afterData.id
         : lotDocumentId;
+
+      const existingNextLotIds = Array.isArray(afterData?.nextDashboardLotIds)
+        ? afterData.nextDashboardLotIds
+        : [];
+      const shouldUpdateNextLotIds = existingNextLotIds.length !== 1 || existingNextLotIds[0] !== newLotId;
+      const existingMetadataLotIds = Array.isArray(afterData?.migrationMetadata?.lotIds)
+        ? afterData.migrationMetadata.lotIds
+        : [];
+      const shouldUpdateMetadataLotIds = !haveSameElements(existingMetadataLotIds, [newLotId]);
 
       const migrationHistoryEntry = {
         fromDashboardId: currentDashboardId,
         toDashboardId: nextDashboardId,
         sourceLotId: typeof afterData?.id === 'string' && afterData.id ? afterData.id : lotDocumentId,
+        lotId: newLotId,
+        targetLotId: newLotId,
         migratedAt: new Date().toISOString(),
       };
-
-      const migrationUser = resolveMigrationUser(afterData);
 
       const baseLotData = createMigratedLotBaseData({
         lotData: afterData,
@@ -655,14 +1086,18 @@ exports.handleLotStatusCompletion = functions
             if (
               afterData?.migratedToDashboardId !== nextDashboardId
               || afterData?.nextDashboardLotId !== newLotId
+              || shouldUpdateNextLotIds
+              || shouldUpdateMetadataLotIds
             ) {
               transaction.update(change.after.ref, {
                 migratedToDashboardId: nextDashboardId,
                 nextDashboardLotId: newLotId,
+                nextDashboardLotIds: [newLotId],
                 migrationMetadata: {
                   fromDashboardId: currentDashboardId,
                   toDashboardId: nextDashboardId,
                   lotId: newLotId,
+                  lotIds: [newLotId],
                   migratedAt: admin.firestore.FieldValue.serverTimestamp(),
                 },
                 migrationHistory: admin.firestore.FieldValue.arrayUnion(migrationHistoryUpdate),
@@ -685,10 +1120,12 @@ exports.handleLotStatusCompletion = functions
         transaction.update(change.after.ref, {
           migratedToDashboardId: nextDashboardId,
           nextDashboardLotId: newLotId,
+          nextDashboardLotIds: [newLotId],
           migrationMetadata: {
             fromDashboardId: currentDashboardId,
             toDashboardId: nextDashboardId,
             lotId: newLotId,
+            lotIds: [newLotId],
             migratedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           migrationHistory: admin.firestore.FieldValue.arrayUnion(migrationHistoryUpdate),

@@ -13,7 +13,7 @@ export const defaultLotFlow = [
   { dashboardId: 'producao', mode: 'auto', splitMode: 'never' },
   { dashboardId: 'travete', mode: 'auto', splitMode: 'never' },
   { dashboardId: 'lavanderia', mode: 'auto', splitMode: 'never' },
-  { dashboardId: 'acabamento', mode: 'auto', splitMode: 'never' },
+  { dashboardId: 'acabamento', mode: 'auto', splitMode: 'variations' },
 ];
 
 export const FIXED_PERIODS = ['08:00', '09:00', '10:00', '11:00', '11:45', '14:00', '15:00', '16:00', '17:00'];

@@ -1840,6 +1840,7 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles, dashboards, defaultLot
             { value: 'never', label: 'Não dividir automaticamente' },
             { value: 'always', label: 'Dividir automaticamente' },
             { value: 'manual', label: 'Perguntar ao migrar' },
+            { value: 'variations', label: 'Dividir por variações' },
         ]),
         [],
     );
