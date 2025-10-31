@@ -102,6 +102,21 @@ const invalidateDashboardCaches = () => {
 
 const cloneLotFlowSteps = (steps = []) => steps.map((step) => ({ ...step }));
 
+const VALID_SPLIT_MODES = new Set(['never', 'always', 'manual']);
+
+const resolveSplitMode = (step) => {
+  const raw = typeof step?.splitMode === 'string' ? step.splitMode.toLowerCase() : '';
+  if (VALID_SPLIT_MODES.has(raw)) {
+    return raw;
+  }
+
+  if (typeof step?.split === 'boolean') {
+    return step.split ? 'always' : 'never';
+  }
+
+  return 'never';
+};
+
 const normalizeLotFlowSteps = (rawSteps) => {
   if (!Array.isArray(rawSteps) || rawSteps.length === 0) {
     return [];
@@ -120,7 +135,7 @@ const normalizeLotFlowSteps = (rawSteps) => {
     normalized.push({
       dashboardId,
       mode: typeof step?.mode === 'string' ? step.mode.toLowerCase() : 'auto',
-      split: Boolean(step?.split),
+      splitMode: resolveSplitMode(step),
     });
   });
 
@@ -714,11 +729,11 @@ exports.handleLotStatusCompletion = functions
     }
   });
 
-exports.invalidateDashboardOrderCacheOnLotFlowChange = functions
+exports.handleLotFlowSettingsChange = functions
   .region(FUNCTION_REGION)
   .firestore.document(`${LOT_FLOW_SETTINGS_COLLECTION}/${LOT_FLOW_SETTINGS_DOCUMENT}`)
   .onWrite(() => {
     invalidateDashboardCaches();
-    console.log('Cache de dashboards e fluxo invalidado após alteração em settings/lotFlow.');
+    console.log('Fluxo de lotes atualizado. Cache invalidado.');
     return null;
   });
