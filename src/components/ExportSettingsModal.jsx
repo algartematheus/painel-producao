@@ -35,9 +35,7 @@ const ExportSettingsModal = ({ isOpen, onClose, settings = DEFAULT_EXPORT_SETTIN
         if (typeof onSave === 'function') {
             onSave({ ...localSettings });
         }
-        if (isOpen) {
-            handleRequestClose();
-        }
+        handleRequestClose();
     };
 
     const checkboxOptions = [
