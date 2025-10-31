@@ -1963,6 +1963,8 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles, dashboards, defaultLot
         };
     }, [isOpen, activeTab, lotFlowInitialized, loadLotFlowConfiguration]);
 
+    const selectedDashboardIds = useMemo(() => new Set(lotFlowSteps.map((step) => step.dashboardId)), [lotFlowSteps]);
+
     if (!isOpen) return null;
 
     const handlePermissionChange = (permissionKey, isChecked) => {
@@ -1995,8 +1997,6 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles, dashboards, defaultLot
             alert('Falha ao salvar permissões.');
         }
     };
-
-    const selectedDashboardIds = useMemo(() => new Set(lotFlowSteps.map((step) => step.dashboardId)), [lotFlowSteps]);
 
     const handleAddLotFlowStep = (dashboardId) => {
         const defaults = defaultLotFlowSteps.find((step) => step.dashboardId === dashboardId);
