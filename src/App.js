@@ -6,6 +6,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   increment,
   onSnapshot,
@@ -13,6 +14,7 @@ import {
   query,
   where,
   setDoc,
+  serverTimestamp,
   Timestamp,
   updateDoc,
   writeBatch,
@@ -21,7 +23,15 @@ import { StockManagementApp } from './modules/gerenciamentodeestoque';
 import { OperationalSequenceApp } from './modules/sequenciaOperacional';
 import ReportsModule from './modules/relatorios';
 import FichaTecnicaModule from './modules/fichatecnica';
-import { raceBullLogoUrl, initialDashboards, FIXED_PERIODS, TRAVETE_MACHINES, ALL_PERMISSIONS, defaultRoles } from './modules/constants';
+import {
+  raceBullLogoUrl,
+  initialDashboards,
+  FIXED_PERIODS,
+  TRAVETE_MACHINES,
+  ALL_PERMISSIONS,
+  defaultRoles,
+  defaultLotFlow,
+} from './modules/constants';
 import {
   generateId,
   GlobalStyles,
@@ -1799,31 +1809,166 @@ const ReasonModal = ({ isOpen, onClose, onConfirm }) => {
     );
 };
  
-const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
+const AdminPanelModal = ({ isOpen, onClose, users, roles, dashboards, defaultLotFlow }) => {
     const modalRef = useRef();
     useClickOutside(modalRef, onClose);
+
+    const [activeTab, setActiveTab] = useState('permissions');
     const [selectedUser, setSelectedUser] = useState(null);
     const [editablePermissions, setEditablePermissions] = useState([]);
-    
+
+    const [lotFlowSteps, setLotFlowSteps] = useState([]);
+    const [lotFlowLoading, setLotFlowLoading] = useState(false);
+    const [lotFlowSaving, setLotFlowSaving] = useState(false);
+    const [lotFlowError, setLotFlowError] = useState('');
+    const [lotFlowSuccess, setLotFlowSuccess] = useState('');
+    const [lotFlowDirty, setLotFlowDirty] = useState(false);
+    const [lotFlowInitialized, setLotFlowInitialized] = useState(false);
+
+    const availableDashboards = useMemo(
+        () => (Array.isArray(dashboards) ? [...dashboards].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)) : []),
+        [dashboards],
+    );
+
+    const dashboardById = useMemo(
+        () => new Map(availableDashboards.map((dashboard) => [dashboard.id, dashboard])),
+        [availableDashboards],
+    );
+
+    const cloneSteps = useCallback((steps) => steps.map((step) => ({ ...step })), []);
+
+    const buildNormalizedSteps = useCallback(
+        (steps) => {
+            if (!Array.isArray(steps) || steps.length === 0) {
+                return [];
+            }
+
+            const seen = new Set();
+            const result = [];
+
+            steps.forEach((step) => {
+                const dashboardId = typeof step?.dashboardId === 'string' ? step.dashboardId : '';
+                if (!dashboardId || seen.has(dashboardId) || !dashboardById.has(dashboardId)) {
+                    return;
+                }
+
+                seen.add(dashboardId);
+                result.push({
+                    dashboardId,
+                    mode: typeof step?.mode === 'string' ? step.mode.toLowerCase() : 'auto',
+                    split: Boolean(step?.split),
+                });
+            });
+
+            return result;
+        },
+        [dashboardById],
+    );
+
+    const defaultLotFlowSteps = useMemo(() => {
+        const normalized = buildNormalizedSteps(defaultLotFlow || []);
+        if (normalized.length > 0) {
+            return normalized;
+        }
+
+        return availableDashboards.map((dashboard) => ({
+            dashboardId: dashboard.id,
+            mode: 'auto',
+            split: false,
+        }));
+    }, [availableDashboards, buildNormalizedSteps, defaultLotFlow]);
+
+    const clearLotFlowFeedback = useCallback(() => {
+        setLotFlowError('');
+        setLotFlowSuccess('');
+    }, []);
+
+    const markLotFlowDirty = useCallback(() => {
+        setLotFlowDirty(true);
+        clearLotFlowFeedback();
+    }, [clearLotFlowFeedback]);
+
     useEffect(() => {
         if (isOpen && users.length > 0 && !selectedUser) {
             setSelectedUser(users[0]);
         }
         if (!isOpen) {
             setSelectedUser(null);
+            setActiveTab('permissions');
+            setLotFlowSteps([]);
+            setLotFlowDirty(false);
+            setLotFlowLoading(false);
+            setLotFlowSaving(false);
+            setLotFlowInitialized(false);
+            clearLotFlowFeedback();
         }
-    }, [isOpen, users, selectedUser]);
-    
+    }, [isOpen, users, selectedUser, clearLotFlowFeedback]);
+
     useEffect(() => {
         if (selectedUser) {
             setEditablePermissions(selectedUser.permissions || []);
         }
     }, [selectedUser]);
 
+    const loadLotFlowConfiguration = useCallback(async () => {
+        if (availableDashboards.length === 0) {
+            setLotFlowSteps([]);
+            setLotFlowDirty(false);
+            return;
+        }
+
+        setLotFlowLoading(true);
+        clearLotFlowFeedback();
+
+        try {
+            const lotFlowRef = doc(db, 'settings', 'lotFlow');
+            const snapshot = await getDoc(lotFlowRef);
+            if (snapshot.exists()) {
+                const data = snapshot.data();
+                const normalized = buildNormalizedSteps(data?.steps);
+                if (normalized.length > 0) {
+                    setLotFlowSteps(cloneSteps(normalized));
+                } else {
+                    setLotFlowSteps(cloneSteps(defaultLotFlowSteps));
+                }
+            } else {
+                setLotFlowSteps(cloneSteps(defaultLotFlowSteps));
+            }
+            setLotFlowDirty(false);
+        } catch (error) {
+            console.error('Erro ao carregar fluxo de lotes.', error);
+            setLotFlowError('Não foi possível carregar o fluxo de lotes. Utilizando sequência padrão.');
+            setLotFlowSteps(cloneSteps(defaultLotFlowSteps));
+            setLotFlowDirty(false);
+        } finally {
+            setLotFlowLoading(false);
+        }
+    }, [availableDashboards.length, buildNormalizedSteps, clearLotFlowFeedback, cloneSteps, defaultLotFlowSteps]);
+
+    useEffect(() => {
+        if (!isOpen || activeTab !== 'lotFlow' || lotFlowInitialized) {
+            return;
+        }
+
+        let isActive = true;
+        (async () => {
+            await loadLotFlowConfiguration();
+            if (isActive) {
+                setLotFlowInitialized(true);
+            }
+        })();
+
+        return () => {
+            isActive = false;
+        };
+    }, [isOpen, activeTab, lotFlowInitialized, loadLotFlowConfiguration]);
+
+    const selectedDashboardIds = useMemo(() => new Set(lotFlowSteps.map((step) => step.dashboardId)), [lotFlowSteps]);
+
     if (!isOpen) return null;
 
     const handlePermissionChange = (permissionKey, isChecked) => {
-        setEditablePermissions(prev => {
+        setEditablePermissions((prev) => {
             const newSet = new Set(prev);
             if (isChecked) {
                 newSet.add(permissionKey);
@@ -1833,13 +1978,13 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
             return Array.from(newSet);
         });
     };
-    
+
     const applyRoleTemplate = (roleId) => {
         if (roles[roleId]) {
             setEditablePermissions(roles[roleId].permissions);
         }
     };
-    
+
     const handleSavePermissions = async () => {
         if (!selectedUser) return;
         try {
@@ -1848,8 +1993,132 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
             alert(`Permissões do usuário ${selectedUser.email} salvas com sucesso!`);
             onClose();
         } catch (error) {
-            console.error("Erro ao salvar permissões:", error);
+            console.error('Erro ao salvar permissões:', error);
             alert('Falha ao salvar permissões.');
+        }
+    };
+
+    const handleAddLotFlowStep = (dashboardId) => {
+        const defaults = defaultLotFlowSteps.find((step) => step.dashboardId === dashboardId);
+        const newStep = {
+            dashboardId,
+            mode: defaults?.mode || 'auto',
+            split: Boolean(defaults?.split),
+        };
+
+        let updated = false;
+        setLotFlowSteps((prev) => {
+            if (prev.some((step) => step.dashboardId === dashboardId)) {
+                return prev;
+            }
+            updated = true;
+            return [...prev, newStep];
+        });
+        if (updated) {
+            markLotFlowDirty();
+        }
+    };
+
+    const handleRemoveLotFlowStep = (dashboardId) => {
+        let updated = false;
+        setLotFlowSteps((prev) => {
+            if (!prev.some((step) => step.dashboardId === dashboardId)) {
+                return prev;
+            }
+            updated = true;
+            return prev.filter((step) => step.dashboardId !== dashboardId);
+        });
+        if (updated) {
+            markLotFlowDirty();
+        }
+    };
+
+    const handleReorderLotFlowStep = (index, direction) => {
+        let updated = false;
+        setLotFlowSteps((prev) => {
+            const nextIndex = index + direction;
+            if (nextIndex < 0 || nextIndex >= prev.length) {
+                return prev;
+            }
+            const reordered = [...prev];
+            const [removed] = reordered.splice(index, 1);
+            reordered.splice(nextIndex, 0, removed);
+            updated = true;
+            return reordered;
+        });
+        if (updated) {
+            markLotFlowDirty();
+        }
+    };
+
+    const handleLotFlowModeChange = (dashboardId, mode) => {
+        const normalized = mode === 'manual' ? 'manual' : 'auto';
+        let updated = false;
+        setLotFlowSteps((prev) => {
+            const next = prev.map((step) => {
+                if (step.dashboardId !== dashboardId) {
+                    return step;
+                }
+                if (step.mode === normalized) {
+                    return step;
+                }
+                updated = true;
+                return { ...step, mode: normalized };
+            });
+            return updated ? next : prev;
+        });
+        if (updated) {
+            markLotFlowDirty();
+        }
+    };
+
+    const handleLotFlowSplitChange = (dashboardId, value) => {
+        const normalized = Boolean(value);
+        let updated = false;
+        setLotFlowSteps((prev) => {
+            const next = prev.map((step) => {
+                if (step.dashboardId !== dashboardId) {
+                    return step;
+                }
+                if (Boolean(step.split) === normalized) {
+                    return step;
+                }
+                updated = true;
+                return { ...step, split: normalized };
+            });
+            return updated ? next : prev;
+        });
+        if (updated) {
+            markLotFlowDirty();
+        }
+    };
+
+    const handleResetLotFlow = () => {
+        setLotFlowSteps(cloneSteps(defaultLotFlowSteps));
+        setLotFlowDirty(true);
+        clearLotFlowFeedback();
+    };
+
+    const handleSaveLotFlow = async () => {
+        setLotFlowSaving(true);
+        clearLotFlowFeedback();
+
+        try {
+            const payload = lotFlowSteps.map((step) => ({
+                dashboardId: step.dashboardId,
+                mode: typeof step.mode === 'string' ? step.mode : 'auto',
+                split: Boolean(step.split),
+            }));
+
+            const lotFlowRef = doc(db, 'settings', 'lotFlow');
+            await setDoc(lotFlowRef, { steps: payload, updatedAt: serverTimestamp() }, { merge: true });
+            setLotFlowDirty(false);
+            setLotFlowSuccess('Fluxo salvo com sucesso!');
+        } catch (error) {
+            console.error('Erro ao salvar fluxo de lotes.', error);
+            setLotFlowError('Falha ao salvar o fluxo de lotes. Tente novamente.');
+        } finally {
+            setLotFlowSaving(false);
         }
     };
 
@@ -1860,76 +2129,229 @@ const AdminPanelModal = ({ isOpen, onClose, users, roles }) => {
                     <h2 className="text-2xl font-bold flex items-center gap-2"><UserCog/> Painel de Administração</h2>
                     <button onClick={onClose} title="Fechar"><XCircle /></button>
                 </div>
-                <div className="flex-grow flex gap-6 overflow-hidden">
-                    <div className="w-1/3 border-r pr-6 dark:border-gray-700 overflow-y-auto">
-                        <h3 className="text-lg font-semibold mb-3 sticky top-0 bg-white dark:bg-gray-900 pb-2">Usuários</h3>
-                        <div className="space-y-2">
-                           {users.map(user => (
-                               <button 
-                                   key={user.uid} 
-                                   onClick={() => setSelectedUser(user)}
-                                   className={`w-full text-left p-3 rounded-lg transition-colors ${selectedUser?.uid === user.uid ? 'bg-blue-100 dark:bg-blue-900/50' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
-                               >
-                                   <p className="font-semibold truncate">{user.email}</p>
-                                   <p className="text-xs text-gray-500">{user.permissions.length} permissões</p>
-                               </button>
-                           ))}
+                <div className="flex gap-3 mb-4">
+                    <button
+                        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'permissions' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-700'}`}
+                        onClick={() => setActiveTab('permissions')}
+                    >
+                        Permissões
+                    </button>
+                    <button
+                        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'lotFlow' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-700'}`}
+                        onClick={() => setActiveTab('lotFlow')}
+                    >
+                        Fluxo de Lotes
+                    </button>
+                </div>
+
+                {activeTab === 'permissions' ? (
+                    <div className="flex-grow flex gap-6 overflow-hidden">
+                        <div className="w-1/3 border-r pr-6 dark:border-gray-700 overflow-y-auto">
+                            <h3 className="text-lg font-semibold mb-3 sticky top-0 bg-white dark:bg-gray-900 pb-2">Usuários</h3>
+                            <div className="space-y-2">
+                               {users.map((user) => (
+                                   <button
+                                       key={user.uid}
+                                       onClick={() => setSelectedUser(user)}
+                                       className={`w-full text-left p-3 rounded-lg transition-colors ${selectedUser?.uid === user.uid ? 'bg-blue-100 dark:bg-blue-900/50' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+                                   >
+                                       <p className="font-semibold truncate">{user.email}</p>
+                                       <p className="text-xs text-gray-500">{user.permissions.length} permissões</p>
+                                   </button>
+                               ))}
+                            </div>
+                        </div>
+                        <div className="w-2/3 flex-grow overflow-y-auto pr-2">
+                           {selectedUser ? (
+                               <div>
+                                   <div className="mb-6">
+                                       <h3 className="text-xl font-bold truncate">{selectedUser.email}</h3>
+                                       <p className="text-gray-500">Edite as permissões para este usuário.</p>
+                                   </div>
+                                   <div className="mb-6">
+                                       <label htmlFor="role-template" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Aplicar Modelo</label>
+                                       <select
+                                           id="role-template"
+                                           onChange={(e) => applyRoleTemplate(e.target.value)}
+                                           className="mt-1 block w-full md:w-1/2 p-2 rounded-md bg-gray-100 dark:bg-gray-700"
+                                       >
+                                           <option value="">Selecione um modelo para começar...</option>
+                                           {Object.values(roles).map((role) => (
+                                               <option key={role.id} value={role.id}>{role.name}</option>
+                                           ))}
+                                       </select>
+                                   </div>
+                                   <div className="space-y-4">
+                                         <h4 className="font-semibold">Permissões Individuais</h4>
+                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                             {Object.entries(ALL_PERMISSIONS).map(([key, description]) => (
+                                                 <label key={key} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer">
+                                                     <input
+                                                         type="checkbox"
+                                                         checked={editablePermissions.includes(key)}
+                                                         onChange={(e) => handlePermissionChange(key, e.target.checked)}
+                                                         className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500"
+                                                     />
+                                                     <span className="text-sm">{description}</span>
+                                                 </label>
+                                             ))}
+                                         </div>
+                                   </div>
+                                   <div className="mt-8 pt-4 border-t dark:border-gray-700 flex justify-end">
+                                       <button onClick={handleSavePermissions} className="px-6 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700">
+                                           Salvar Permissões
+                                       </button>
+                                   </div>
+                               </div>
+                           ) : (
+                               <p className="text-gray-500">Selecione um usuário para visualizar e editar as permissões.</p>
+                           )}
                         </div>
                     </div>
-                    <div className="w-2/3 flex-grow overflow-y-auto pr-2">
-                       {selectedUser ? (
-                           <div>
-                               <div className="mb-6">
-                                   <h3 className="text-xl font-bold truncate">{selectedUser.email}</h3>
-                                   <p className="text-gray-500">Edite as permissões para este usuário.</p>
-                               </div>
-                               <div className="mb-6">
-                                   <label htmlFor="role-template" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Aplicar Modelo</label>
-                                   <select 
-                                       id="role-template"
-                                       onChange={(e) => applyRoleTemplate(e.target.value)}
-                                       className="mt-1 block w-full md:w-1/2 p-2 rounded-md bg-gray-100 dark:bg-gray-700"
-                                   >
-                                       <option value="">Selecione um modelo para começar...</option>
-                                       {Object.values(roles).map(role => (
-                                           <option key={role.id} value={role.id}>{role.name}</option>
-                                       ))}
-                                   </select>
-                               </div>
-                               <div className="space-y-4">
-                                     <h4 className="font-semibold">Permissões Individuais</h4>
-                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                         {Object.entries(ALL_PERMISSIONS).map(([key, description]) => (
-                                             <label key={key} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer">
-                                                 <input
-                                                     type="checkbox"
-                                                     checked={editablePermissions.includes(key)}
-                                                     onChange={(e) => handlePermissionChange(key, e.target.checked)}
-                                                     className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500"
-                                                 />
-                                                 <span className="text-sm">{description}</span>
-                                             </label>
-                                         ))}
-                                     </div>
-                               </div>
-                               <div className="mt-8 pt-4 border-t dark:border-gray-700 flex justify-end">
-                                   <button onClick={handleSavePermissions} className="px-6 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700">
-                                       Salvar Permissões
-                                   </button>
-                               </div>
-                           </div>
-                       ) : (
-                           <div className="flex items-center justify-center h-full text-gray-500">
-                               <p>Selecione um usuário na lista para ver e editar suas permissões.</p>
-                           </div>
-                       )}
+                ) : (
+                    <div className="flex-grow flex flex-col overflow-hidden">
+                        {lotFlowError && (
+                            <div className="mb-4 p-3 rounded-lg bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-200">
+                                {lotFlowError}
+                            </div>
+                        )}
+                        {lotFlowSuccess && (
+                            <div className="mb-4 p-3 rounded-lg bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-200">
+                                {lotFlowSuccess}
+                            </div>
+                        )}
+                        <div className="flex-1 overflow-y-auto">
+                            {lotFlowLoading ? (
+                                <div className="h-full flex items-center justify-center">
+                                    <p className="text-gray-500">Carregando fluxo de lotes...</p>
+                                </div>
+                            ) : availableDashboards.length === 0 ? (
+                                <p className="text-gray-500">Nenhum quadro disponível para configurar o fluxo de lotes.</p>
+                            ) : (
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pr-1">
+                                    <div>
+                                        <h3 className="text-lg font-semibold mb-3">Sequência do fluxo</h3>
+                                        {lotFlowSteps.length === 0 ? (
+                                            <p className="text-gray-500 text-sm">Selecione os quadros na lista ao lado para montar o fluxo de lotes.</p>
+                                        ) : (
+                                            <div className="space-y-4">
+                                                {lotFlowSteps.map((step, index) => {
+                                                    const dashboard = dashboardById.get(step.dashboardId);
+                                                    return (
+                                                        <div key={step.dashboardId} className="p-4 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700">
+                                                            <div className="flex items-start justify-between gap-4">
+                                                                <div>
+                                                                    <p className="font-semibold text-base">{dashboard?.name || step.dashboardId}</p>
+                                                                    <p className="text-xs text-gray-500">ID: {step.dashboardId}</p>
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <button
+                                                                        onClick={() => handleReorderLotFlowStep(index, -1)}
+                                                                        disabled={index === 0}
+                                                                        className={`p-2 rounded-full ${index === 0 ? 'text-gray-400 cursor-not-allowed' : 'text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/40'}`}
+                                                                        title="Mover para cima"
+                                                                    >
+                                                                        <ChevronUp size={18} />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleReorderLotFlowStep(index, 1)}
+                                                                        disabled={index === lotFlowSteps.length - 1}
+                                                                        className={`p-2 rounded-full ${index === lotFlowSteps.length - 1 ? 'text-gray-400 cursor-not-allowed' : 'text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/40'}`}
+                                                                        title="Mover para baixo"
+                                                                    >
+                                                                        <ChevronDown size={18} />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleRemoveLotFlowStep(step.dashboardId)}
+                                                                        className="p-2 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/40"
+                                                                        title="Remover do fluxo"
+                                                                    >
+                                                                        <Trash2 size={18} />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                                <div>
+                                                                    <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Modo</label>
+                                                                    <select
+                                                                        value={step.mode}
+                                                                        onChange={(e) => handleLotFlowModeChange(step.dashboardId, e.target.value)}
+                                                                        className="w-full p-2 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700"
+                                                                    >
+                                                                        <option value="auto">Automático</option>
+                                                                        <option value="manual">Manual</option>
+                                                                    </select>
+                                                                </div>
+                                                                <label className="flex items-center gap-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md px-3 py-2">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={Boolean(step.split)}
+                                                                        onChange={(e) => handleLotFlowSplitChange(step.dashboardId, e.target.checked)}
+                                                                        className="h-5 w-5 text-blue-600 focus:ring-blue-500"
+                                                                    />
+                                                                    <span className="text-sm">Dividir lote ao migrar</span>
+                                                                </label>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-semibold mb-3">Quadros disponíveis</h3>
+                                        <p className="text-sm text-gray-500 mb-3">Marque os quadros que devem participar do fluxo. Quadros desmarcados serão ignorados.</p>
+                                        <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                                            {availableDashboards.map((dashboard) => {
+                                                const isSelected = selectedDashboardIds.has(dashboard.id);
+                                                return (
+                                                    <label
+                                                        key={dashboard.id}
+                                                        className={`flex items-center gap-3 p-3 rounded-lg border ${isSelected ? 'border-blue-300 bg-blue-50 dark:bg-blue-900/30' : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'} hover:border-blue-400 transition-colors`}
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={isSelected}
+                                                            onChange={(e) => (e.target.checked ? handleAddLotFlowStep(dashboard.id) : handleRemoveLotFlowStep(dashboard.id))}
+                                                            className="h-5 w-5 text-blue-600 focus:ring-blue-500"
+                                                        />
+                                                        <div>
+                                                            <p className="font-semibold">{dashboard.name}</p>
+                                                            <p className="text-xs text-gray-500">ID: {dashboard.id}</p>
+                                                        </div>
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        <div className="pt-4 mt-6 border-t dark:border-gray-700 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                            <button
+                                onClick={handleResetLotFlow}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-700"
+                                disabled={lotFlowSaving || lotFlowLoading}
+                            >
+                                Restaurar padrão
+                            </button>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={handleSaveLotFlow}
+                                    disabled={lotFlowSaving || !lotFlowDirty}
+                                    className={`inline-flex items-center gap-2 px-5 py-2 rounded-lg font-semibold ${lotFlowSaving || !lotFlowDirty ? 'bg-blue-300 text-white cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+                                >
+                                    <Save size={18} /> {lotFlowSaving ? 'Salvando...' : 'Salvar fluxo'}
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         </div>
     );
 };
- 
+
 const TvSelectorModal = ({ isOpen, onClose, onSelect, onStartCarousel, dashboards }) => {
     const [carouselSeconds, setCarouselSeconds] = useState(10);
     const [selectedDashboards, setSelectedDashboards] = useState(() => dashboards.map(d => d.id));
@@ -5566,7 +5988,14 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             <LotObservationModal isOpen={modalState.type === 'lotObservation'} onClose={closeModal} lot={modalState.data} onSave={handleSaveLotObservation} />
             <PasswordModal isOpen={modalState.type === 'password'} onClose={closeModal} onSuccess={modalState.data?.onSuccess} />
             <ReasonModal isOpen={modalState.type === 'reason'} onClose={closeModal} onConfirm={modalState.data?.onConfirm} />
-            <AdminPanelModal isOpen={modalState.type === 'adminSettings'} onClose={closeModal} users={users} roles={roles} />
+            <AdminPanelModal
+                isOpen={modalState.type === 'adminSettings'}
+                onClose={closeModal}
+                users={users}
+                roles={roles}
+                dashboards={dashboards}
+                defaultLotFlow={defaultLotFlow}
+            />
             <TvSelectorModal isOpen={modalState.type === 'tvSelector'} onClose={closeModal} onSelect={startTvMode} onStartCarousel={startTvMode} dashboards={dashboards} />
             <HeaderContainer>
                 <GlobalNavigation

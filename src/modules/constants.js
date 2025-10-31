@@ -2,10 +2,19 @@ export const raceBullLogoUrl = "https://firebasestorage.googleapis.com/v0/b/quad
 
 export const initialDashboards = [
   { id: 'producao', name: 'Quadro da Produção', order: 1 },
-  { id: 'acabamento', name: 'Quadro do Acabamento', order: 2 },
-  { id: 'estoque', name: 'Quadro do Estoque', order: 3 },
-  { id: 'corte', name: 'Quadro do Corte', order: 4 },
-  { id: 'travete', name: 'Quadro do Travete', order: 5 },
+  { id: 'corte', name: 'Quadro do Corte', order: 2 },
+  { id: 'travete', name: 'Quadro do Travete', order: 3 },
+  { id: 'lavanderia', name: 'Quadro da Lavanderia', order: 4 },
+  { id: 'acabamento', name: 'Quadro do Acabamento', order: 5 },
+  { id: 'estoque', name: 'Quadro do Estoque', order: 6 },
+];
+
+export const defaultLotFlow = [
+  { dashboardId: 'corte', mode: 'auto', split: false },
+  { dashboardId: 'travete', mode: 'auto', split: false },
+  { dashboardId: 'lavanderia', mode: 'auto', split: false },
+  { dashboardId: 'acabamento', mode: 'auto', split: false },
+  { dashboardId: 'estoque', mode: 'auto', split: false },
 ];
 
 export const FIXED_PERIODS = ['08:00', '09:00', '10:00', '11:00', '11:45', '14:00', '15:00', '16:00', '17:00'];

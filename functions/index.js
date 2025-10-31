@@ -83,8 +83,77 @@ exports.verifyAdminPassword = functions
   });
 
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000;
+const LOT_FLOW_CACHE_TTL_MS = 5 * 60 * 1000;
+
 let cachedDashboardOrder = [];
 let cachedDashboardFetchedAt = 0;
+let cachedLotFlow = null;
+let cachedLotFlowFetchedAt = 0;
+
+const LOT_FLOW_SETTINGS_COLLECTION = 'settings';
+const LOT_FLOW_SETTINGS_DOCUMENT = 'lotFlow';
+
+const invalidateDashboardCaches = () => {
+  cachedDashboardOrder = [];
+  cachedDashboardFetchedAt = 0;
+  cachedLotFlow = null;
+  cachedLotFlowFetchedAt = 0;
+};
+
+const cloneLotFlowSteps = (steps = []) => steps.map((step) => ({ ...step }));
+
+const normalizeLotFlowSteps = (rawSteps) => {
+  if (!Array.isArray(rawSteps) || rawSteps.length === 0) {
+    return [];
+  }
+
+  const seenDashboards = new Set();
+  const normalized = [];
+
+  rawSteps.forEach((step) => {
+    const dashboardId = typeof step?.dashboardId === 'string' ? step.dashboardId.trim() : '';
+    if (!dashboardId || seenDashboards.has(dashboardId)) {
+      return;
+    }
+
+    seenDashboards.add(dashboardId);
+    normalized.push({
+      dashboardId,
+      mode: typeof step?.mode === 'string' ? step.mode.toLowerCase() : 'auto',
+      split: Boolean(step?.split),
+    });
+  });
+
+  return normalized;
+};
+
+const loadConfiguredLotFlow = async () => {
+  const now = Date.now();
+  if (cachedLotFlow && now - cachedLotFlowFetchedAt < LOT_FLOW_CACHE_TTL_MS) {
+    return cloneLotFlowSteps(cachedLotFlow);
+  }
+
+  try {
+    const docRef = db.collection(LOT_FLOW_SETTINGS_COLLECTION).doc(LOT_FLOW_SETTINGS_DOCUMENT);
+    const snapshot = await docRef.get();
+    if (!snapshot.exists) {
+      cachedLotFlow = [];
+      cachedLotFlowFetchedAt = now;
+      return [];
+    }
+
+    const data = snapshot.data();
+    const normalized = normalizeLotFlowSteps(data?.steps);
+    cachedLotFlow = cloneLotFlowSteps(normalized);
+    cachedLotFlowFetchedAt = now;
+    return normalized;
+  } catch (error) {
+    console.error('Falha ao carregar fluxo de lotes configurado.', { error });
+    cachedLotFlow = [];
+    cachedLotFlowFetchedAt = now;
+    return [];
+  }
+};
 
 const cloneDeep = (value) => {
   if (value === undefined || value === null) {
@@ -154,6 +223,42 @@ const determineNextDashboard = async (currentDashboardId) => {
     return null;
   }
 
+  const dashboardsById = new Map(dashboards.map((dashboard) => [dashboard.id, dashboard]));
+  const configuredFlow = await loadConfiguredLotFlow();
+
+  if (configuredFlow.length > 0) {
+    const configuredDashboards = configuredFlow
+      .map((step) => {
+        const dashboard = dashboardsById.get(step.dashboardId);
+        if (!dashboard) {
+          return null;
+        }
+        return { dashboard, step };
+      })
+      .filter((entry) => entry && isDashboardActive(entry.dashboard));
+
+    const configuredIndex = configuredDashboards.findIndex((entry) => entry.dashboard.id === currentDashboardId);
+    if (configuredIndex >= 0) {
+      for (let index = configuredIndex + 1; index < configuredDashboards.length; index += 1) {
+        const candidate = configuredDashboards[index];
+        if (candidate && isDashboardActive(candidate.dashboard)) {
+          return {
+            ...candidate.dashboard,
+            lotFlowStep: { ...candidate.step },
+            lotFlowConfigured: true,
+          };
+        }
+      }
+      return null;
+    }
+
+    if (configuredDashboards.length > 0) {
+      console.warn('Dashboard atual não encontrado no fluxo configurado. Recuando para ordenação padrão.', {
+        currentDashboardId,
+      });
+    }
+  }
+
   const currentIndex = dashboards.findIndex((dashboard) => dashboard.id === currentDashboardId);
   if (currentIndex < 0) {
     console.warn('Dashboard atual não encontrado na ordem configurada.', { currentDashboardId });
@@ -163,7 +268,10 @@ const determineNextDashboard = async (currentDashboardId) => {
   for (let index = currentIndex + 1; index < dashboards.length; index += 1) {
     const candidate = dashboards[index];
     if (isDashboardActive(candidate)) {
-      return candidate;
+      return {
+        ...candidate,
+        lotFlowConfigured: false,
+      };
     }
   }
 
@@ -459,6 +567,15 @@ exports.handleLotStatusCompletion = functions
 
       const nextDashboardId = nextDashboard.id;
 
+      if (nextDashboard?.lotFlowStep?.mode && nextDashboard.lotFlowStep.mode !== 'auto') {
+        console.log('Migração de lote: próximo dashboard configurado para modo manual. Migração automática ignorada.', {
+          lotId: lotDocumentId,
+          nextDashboardId,
+          mode: nextDashboard.lotFlowStep.mode,
+        });
+        return null;
+      }
+
       if (afterData?.migratedToDashboardId === nextDashboardId) {
         console.log('Migração de lote: lote já migrado anteriormente.', {
           lotId: afterData?.id || lotDocumentId,
@@ -595,4 +712,13 @@ exports.handleLotStatusCompletion = functions
       });
       return null;
     }
+  });
+
+exports.invalidateDashboardOrderCacheOnLotFlowChange = functions
+  .region(FUNCTION_REGION)
+  .firestore.document(`${LOT_FLOW_SETTINGS_COLLECTION}/${LOT_FLOW_SETTINGS_DOCUMENT}`)
+  .onWrite(() => {
+    invalidateDashboardCaches();
+    console.log('Cache de dashboards e fluxo invalidado após alteração em settings/lotFlow.');
+    return null;
   });
