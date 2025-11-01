@@ -938,7 +938,7 @@ export const OperationalSequenceApp = ({ onNavigateToCrono, onNavigateToStock, o
         if (onNavigateToPcp) {
             items.push({
                 key: 'pcp',
-                label: 'PCP',
+                label: 'Gestão Produção x Estoque',
                 icon: Package,
                 onClick: onNavigateToPcp,
                 baseClassName: 'px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 flex items-center gap-2 w-full sm:w-auto justify-center',

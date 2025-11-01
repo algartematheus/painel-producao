@@ -23,7 +23,7 @@ import { StockManagementApp } from './modules/gerenciamentodeestoque';
 import { OperationalSequenceApp } from './modules/sequenciaOperacional';
 import ReportsModule from './modules/relatorios';
 import FichaTecnicaModule from './modules/fichatecnica';
-import PcpModule from './modules/pcp';
+import GestaoProducaoEstoqueModule from './modules/gestaoProducaoEstoque';
 import {
   raceBullLogoUrl,
   initialDashboards,
@@ -6190,7 +6190,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
             onNavigateToPcp
                 ? {
                     key: 'pcp',
-                    label: 'PCP',
+                    label: 'Gestão Produção x Estoque',
                     icon: Package,
                     onClick: onNavigateToPcp,
                 }
@@ -8753,7 +8753,7 @@ const AppContent = () => {
 
     if (currentApp === 'pcp') {
         return (
-            <PcpModule
+            <GestaoProducaoEstoqueModule
                 onNavigateToCrono={() => setCurrentApp('cronoanalise')}
                 onNavigateToStock={() => setCurrentApp('stock')}
                 onNavigateToFichaTecnica={() => setCurrentApp('ficha-tecnica')}

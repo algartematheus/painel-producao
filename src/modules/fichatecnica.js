@@ -532,7 +532,7 @@ const FichaTecnicaModule = ({
             onNavigateToPcp
                 ? {
                     key: 'pcp',
-                    label: 'PCP',
+                    label: 'Gestão Produção x Estoque',
                     icon: Package,
                     onClick: onNavigateToPcp,
                 }

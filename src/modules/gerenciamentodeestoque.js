@@ -297,13 +297,13 @@ const StockHeader = ({
                 onClick: onNavigateToCrono,
             }
             : null,
-        onNavigateToPcp
-            ? {
-                key: 'pcp',
-                label: 'PCP',
-                icon: Package,
-                onClick: onNavigateToPcp,
-            }
+            onNavigateToPcp
+                ? {
+                    key: 'pcp',
+                    label: 'Gestão Produção x Estoque',
+                    icon: Package,
+                    onClick: onNavigateToPcp,
+                }
             : null,
         onNavigateToFichaTecnica
             ? {
