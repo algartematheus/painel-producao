@@ -696,7 +696,7 @@ export const exemploFluxoCompleto = () => {
     };
 };
 
-export default {
+const relatorioEstoque = {
     carregarPortfolio,
     salvarPortfolio,
     adicionarProdutoAoPortfolio,
@@ -714,3 +714,5 @@ export default {
     importarArquivoDeProducao,
     exemploFluxoCompleto,
 };
+
+export default relatorioEstoque;
