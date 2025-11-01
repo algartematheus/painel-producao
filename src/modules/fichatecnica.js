@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, setDoc, where, writeBatch } from 'firebase/firestore';
-import { ClipboardList, Layers, Warehouse, FileText, Box, PlusCircle, Trash } from 'lucide-react';
+import { ClipboardList, Layers, Warehouse, FileText, Box, PlusCircle, Trash, Package } from 'lucide-react';
 import HeaderContainer from '../components/HeaderContainer';
 import GlobalNavigation from '../components/GlobalNavigation';
 import ReportExportControls, { DEFAULT_REPORT_FORMATS } from '../components/ReportExportControls';
@@ -366,6 +366,7 @@ const FichaTecnicaModule = ({
     onNavigateToStock,
     onNavigateToOperationalSequence,
     onNavigateToReports,
+    onNavigateToPcp,
 }) => {
     const { user, logout } = useAuth();
     const { theme, toggleTheme } = usePersistedTheme();
@@ -528,6 +529,14 @@ const FichaTecnicaModule = ({
                     onClick: onNavigateToCrono,
                 }
                 : null,
+            onNavigateToPcp
+                ? {
+                    key: 'pcp',
+                    label: 'Gestão Produção x Estoque',
+                    icon: Package,
+                    onClick: onNavigateToPcp,
+                }
+                : null,
             onNavigateToStock
                 ? {
                     key: 'stock',
@@ -553,7 +562,7 @@ const FichaTecnicaModule = ({
                 }
                 : null,
         ].filter(Boolean);
-    }, [onNavigateToCrono, onNavigateToOperationalSequence, onNavigateToReports, onNavigateToStock]);
+    }, [onNavigateToCrono, onNavigateToOperationalSequence, onNavigateToReports, onNavigateToStock, onNavigateToPcp]);
 
     const exportTranslations = useMemo(() => ({
         triggerLabel: 'Relatórios',

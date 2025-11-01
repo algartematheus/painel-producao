@@ -231,21 +231,23 @@ export const montarDailyRecord = ({ dataLancamentoISO, responsavel, snapshotsPro
     produtos: Array.isArray(snapshotsProdutos) ? snapshotsProdutos : [],
 });
 
-export const salvarNoHistorico = (dailyRecord) => {
+export const carregarHistorico = () => {
     const storage = getStorage();
-    const historicoAtual = (() => {
-        try {
-            const raw = storage.getItem(STORAGE_KEYS.historico);
-            if (!raw) {
-                return [];
-            }
-            const parsed = JSON.parse(raw);
-            return Array.isArray(parsed) ? parsed : [];
-        } catch (error) {
+    try {
+        const raw = storage.getItem(STORAGE_KEYS.historico);
+        if (!raw) {
             return [];
         }
-    })();
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+        return [];
+    }
+};
 
+export const salvarNoHistorico = (dailyRecord) => {
+    const storage = getStorage();
+    const historicoAtual = carregarHistorico();
     const updated = [...historicoAtual, dailyRecord];
     storage.setItem(STORAGE_KEYS.historico, JSON.stringify(updated));
     return updated;
@@ -694,7 +696,7 @@ export const exemploFluxoCompleto = () => {
     };
 };
 
-export default {
+const relatorioEstoque = {
     carregarPortfolio,
     salvarPortfolio,
     adicionarProdutoAoPortfolio,
@@ -704,6 +706,7 @@ export default {
     resumoPositivoNegativo,
     criarSnapshotProduto,
     montarDailyRecord,
+    carregarHistorico,
     salvarNoHistorico,
     renderizarBlocoProdutoHTML,
     paginarRelatorioEmPaginasA4,
@@ -711,3 +714,5 @@ export default {
     importarArquivoDeProducao,
     exemploFluxoCompleto,
 };
+
+export default relatorioEstoque;
