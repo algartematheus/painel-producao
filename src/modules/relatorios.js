@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { FileText, Layers, Warehouse, ClipboardList } from 'lucide-react';
+import { FileText, Layers, Warehouse, ClipboardList, Package } from 'lucide-react';
 import HeaderContainer from '../components/HeaderContainer';
 import GlobalNavigation from '../components/GlobalNavigation';
 import ReportExportControls, { DEFAULT_REPORT_FORMATS } from '../components/ReportExportControls';
@@ -157,6 +157,7 @@ const ReportsModule = ({
     onNavigateToStock,
     onNavigateToOperationalSequence,
     onNavigateToFichaTecnica,
+    onNavigateToPcp,
 }) => {
     const [selectedDashboardId, setSelectedDashboardId] = useState(() => dashboards[0]?.id || '');
     const [productionFormat, setProductionFormat] = useState(DEFAULT_REPORT_FORMATS[0]?.value || 'pdf');
@@ -348,6 +349,14 @@ const ReportsModule = ({
                     onClick: onNavigateToCrono,
                 }
                 : null,
+            onNavigateToPcp
+                ? {
+                    key: 'pcp',
+                    label: 'PCP',
+                    icon: Package,
+                    onClick: onNavigateToPcp,
+                }
+                : null,
             onNavigateToStock
                 ? {
                     key: 'stock',
@@ -373,7 +382,7 @@ const ReportsModule = ({
                 }
                 : null,
         ].filter(Boolean);
-    }, [onNavigateToCrono, onNavigateToStock, onNavigateToOperationalSequence, onNavigateToFichaTecnica]);
+    }, [onNavigateToCrono, onNavigateToStock, onNavigateToOperationalSequence, onNavigateToFichaTecnica, onNavigateToPcp]);
 
     const handleOpenSettings = useCallback(() => {
         setIsSettingsModalOpen(true);

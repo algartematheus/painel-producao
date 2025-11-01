@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useContext, createContext, useRef } from 'react';
 import { collection, doc, setDoc, updateDoc, onSnapshot, writeBatch, query, orderBy, Timestamp } from 'firebase/firestore';
-import { PlusCircle, MinusCircle, Edit, Trash2, Home, ArrowUpDown, Box, Trash, ChevronLeft, ChevronRight, BarChart, ClipboardList } from 'lucide-react';
+import { PlusCircle, MinusCircle, Edit, Trash2, Home, ArrowUpDown, Box, Trash, ChevronLeft, ChevronRight, BarChart, ClipboardList, Package } from 'lucide-react';
 import { db } from '../firebase';
 import HeaderContainer from '../components/HeaderContainer';
 import GlobalNavigation from '../components/GlobalNavigation';
@@ -277,6 +277,7 @@ const StockHeader = ({
     onNavigateToCrono,
     onNavigateToReports,
     onNavigateToFichaTecnica,
+    onNavigateToPcp,
     theme,
     toggleTheme,
     exportFormat,
@@ -296,6 +297,14 @@ const StockHeader = ({
                 onClick: onNavigateToCrono,
             }
             : null,
+        onNavigateToPcp
+            ? {
+                key: 'pcp',
+                label: 'PCP',
+                icon: Package,
+                onClick: onNavigateToPcp,
+            }
+            : null,
         onNavigateToFichaTecnica
             ? {
                 key: 'ficha-tecnica',
@@ -312,7 +321,7 @@ const StockHeader = ({
                 onClick: onNavigateToReports,
             }
             : null,
-    ].filter(Boolean)), [onNavigateToCrono, onNavigateToReports, onNavigateToFichaTecnica]);
+    ].filter(Boolean)), [onNavigateToCrono, onNavigateToReports, onNavigateToFichaTecnica, onNavigateToPcp]);
 
     return (
         <HeaderContainer zIndexClass="z-40">
@@ -1342,7 +1351,7 @@ const StockTrashPage = () => {
 };
 
 
-export const StockManagementApp = ({ onNavigateToCrono, onNavigateToReports, onNavigateToFichaTecnica }) => {
+export const StockManagementApp = ({ onNavigateToCrono, onNavigateToReports, onNavigateToFichaTecnica, onNavigateToPcp }) => {
     const [activePage, setActivePage] = useState('dashboard');
     const [confirmation, setConfirmation] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
     const { theme, toggleTheme } = usePersistedTheme();
@@ -1403,6 +1412,7 @@ export const StockManagementApp = ({ onNavigateToCrono, onNavigateToReports, onN
                     onNavigateToCrono={onNavigateToCrono}
                     onNavigateToFichaTecnica={onNavigateToFichaTecnica}
                     onNavigateToReports={onNavigateToReports}
+                    onNavigateToPcp={onNavigateToPcp}
                     theme={theme}
                     toggleTheme={toggleTheme}
                     exportFormat={stockExportFormat}

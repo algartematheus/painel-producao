@@ -23,6 +23,7 @@ import { StockManagementApp } from './modules/gerenciamentodeestoque';
 import { OperationalSequenceApp } from './modules/sequenciaOperacional';
 import ReportsModule from './modules/relatorios';
 import FichaTecnicaModule from './modules/fichatecnica';
+import PcpModule from './modules/pcp';
 import {
   raceBullLogoUrl,
   initialDashboards,
@@ -2895,7 +2896,7 @@ const LotReport = ({ lots, products }) => {
 // #                                                                   #
 // #####################################################################
 
-const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSequence, onNavigateToReports, onNavigateToFichaTecnica, user, permissions, startTvMode, dashboards, users, roles, currentDashboardIndex, setCurrentDashboardIndex }) => {
+const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSequence, onNavigateToReports, onNavigateToFichaTecnica, onNavigateToPcp, user, permissions, startTvMode, dashboards, users, roles, currentDashboardIndex, setCurrentDashboardIndex }) => {
     const { logout } = useAuth();
     const { theme, toggleTheme } = usePersistedTheme();
     
@@ -6186,6 +6187,14 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
 
     const navigationButtons = useMemo(() => {
         return [
+            onNavigateToPcp
+                ? {
+                    key: 'pcp',
+                    label: 'PCP',
+                    icon: Package,
+                    onClick: onNavigateToPcp,
+                }
+                : null,
             onNavigateToOperationalSequence
                 ? {
                     key: 'operational-sequence',
@@ -6219,7 +6228,7 @@ const CronoanaliseDashboard = ({ onNavigateToStock, onNavigateToOperationalSeque
                 }
                 : null,
         ].filter(Boolean);
-    }, [onNavigateToOperationalSequence, onNavigateToStock, onNavigateToReports, onNavigateToFichaTecnica]);
+    }, [onNavigateToOperationalSequence, onNavigateToStock, onNavigateToReports, onNavigateToFichaTecnica, onNavigateToPcp]);
 
     const userActionButtons = useMemo(() => {
         const actions = [];
@@ -8742,10 +8751,23 @@ const AppContent = () => {
         return <TvModeDisplay tvOptions={tvMode} stopTvMode={stopTvMode} dashboards={dashboards} />;
     }
 
+    if (currentApp === 'pcp') {
+        return (
+            <PcpModule
+                onNavigateToCrono={() => setCurrentApp('cronoanalise')}
+                onNavigateToStock={() => setCurrentApp('stock')}
+                onNavigateToFichaTecnica={() => setCurrentApp('ficha-tecnica')}
+                onNavigateToOperationalSequence={() => setCurrentApp('sequencia-operacional')}
+                onNavigateToReports={() => setCurrentApp('reports')}
+            />
+        );
+    }
+
     if (currentApp === 'stock') {
         return (
             <StockManagementApp
                 onNavigateToCrono={() => setCurrentApp('cronoanalise')}
+                onNavigateToPcp={() => setCurrentApp('pcp')}
                 onNavigateToFichaTecnica={() => setCurrentApp('ficha-tecnica')}
                 onNavigateToReports={() => setCurrentApp('reports')}
             />
@@ -8760,6 +8782,7 @@ const AppContent = () => {
                 onNavigateToStock={() => setCurrentApp('stock')}
                 onNavigateToOperationalSequence={() => setCurrentApp('sequencia-operacional')}
                 onNavigateToReports={() => setCurrentApp('reports')}
+                onNavigateToPcp={() => setCurrentApp('pcp')}
             />
         );
     }
@@ -8771,6 +8794,7 @@ const AppContent = () => {
                 onNavigateToStock={() => setCurrentApp('stock')}
                 onNavigateToFichaTecnica={() => setCurrentApp('ficha-tecnica')}
                 onNavigateToReports={() => setCurrentApp('reports')}
+                onNavigateToPcp={() => setCurrentApp('pcp')}
                 dashboards={dashboards}
                 user={user}
             />
@@ -8785,6 +8809,7 @@ const AppContent = () => {
                 onNavigateToStock={() => setCurrentApp('stock')}
                 onNavigateToFichaTecnica={() => setCurrentApp('ficha-tecnica')}
                 onNavigateToOperationalSequence={() => setCurrentApp('sequencia-operacional')}
+                onNavigateToPcp={() => setCurrentApp('pcp')}
             />
         );
     }
@@ -8794,6 +8819,7 @@ const AppContent = () => {
         onNavigateToOperationalSequence={() => setCurrentApp('sequencia-operacional')}
         onNavigateToReports={() => setCurrentApp('reports')}
         onNavigateToFichaTecnica={() => setCurrentApp('ficha-tecnica')}
+        onNavigateToPcp={() => setCurrentApp('pcp')}
         user={user}
         permissions={userPermissions}
         startTvMode={startTvMode}
