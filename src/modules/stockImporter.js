@@ -215,49 +215,88 @@ const aggregateBlocksIntoSnapshots = (blocks = []) => {
     return Array.from(grouped.values());
 };
 
+const PDFJS_CDN_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.js';
+const PDFJS_WORKER_CDN_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.js';
+
+let cachedPdfjsLib = null;
+let injectedPdfjsLib = null;
+
+export const clearPdfjsLibCache = () => {
+    cachedPdfjsLib = null;
+};
+
+export const setPdfjsLibForTests = (lib) => {
+    injectedPdfjsLib = lib || null;
+    cachedPdfjsLib = null;
+};
+
+export const loadPdfJsLibrary = async () => {
+    if (injectedPdfjsLib) {
+        return injectedPdfjsLib;
+    }
+
+    if (cachedPdfjsLib) {
+        return cachedPdfjsLib;
+    }
+
+    if (typeof window !== 'undefined') {
+        if (window.pdfjsLib) {
+            cachedPdfjsLib = window.pdfjsLib;
+            return cachedPdfjsLib;
+        }
+
+        try {
+            const module = await import(/* webpackIgnore: true */ PDFJS_CDN_URL);
+            const lib = module?.default || module;
+
+            if (lib?.GlobalWorkerOptions) {
+                const workerSrc = lib.GlobalWorkerOptions.workerSrc;
+                if (!workerSrc) {
+                    lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_CDN_URL;
+                }
+            }
+
+            cachedPdfjsLib = lib || null;
+            return cachedPdfjsLib;
+        } catch (error) {
+            console.warn('Não foi possível carregar pdf.js dinamicamente.', error);
+        }
+    }
+
+    return null;
+};
+
 const extractPdfLines = async (arrayBuffer) => {
     if (!(arrayBuffer instanceof ArrayBuffer)) {
         return [];
     }
 
-    let pdfjsLib = null;
-    try {
-        const dynamicRequire = typeof require === 'function' ? require : null;
-        if (dynamicRequire) {
-            try {
-                pdfjsLib = dynamicRequire('pdfjs-dist/legacy/build/pdf.js');
-            } catch (error) {
-                pdfjsLib = null;
-            }
-        }
-    } catch (error) {
-        pdfjsLib = null;
-    }
-
-    if (!pdfjsLib && typeof window !== 'undefined') {
-        pdfjsLib = window.pdfjsLib || null;
-    }
+    const pdfjsLib = await loadPdfJsLibrary();
 
     if (pdfjsLib && typeof pdfjsLib.getDocument === 'function') {
-        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-        const pdf = typeof loadingTask.promise === 'object' && typeof loadingTask.promise.then === 'function'
-            ? await loadingTask.promise
-            : await loadingTask;
+        try {
+            const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+            const pdf = typeof loadingTask.promise === 'object' && typeof loadingTask.promise.then === 'function'
+                ? await loadingTask.promise
+                : await loadingTask;
 
-        const pageCount = pdf.numPages || 0;
-        const lines = [];
-        for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
-            const page = await pdf.getPage(pageNumber);
-            const textContent = await page.getTextContent();
-            const pageText = textContent.items
-                .map((item) => item.str)
-                .join(' ')
-                .split(/\r?\n|(?<=\s{2,})/)
-                .map((segment) => segment.trim())
-                .filter(Boolean);
-            lines.push(...pageText);
+            const pageCount = pdf.numPages || 0;
+            const lines = [];
+            for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
+                const page = await pdf.getPage(pageNumber);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items
+                    .map((item) => item.str)
+                    .join(' ')
+                    .split(/\r?\n|(?<=\s{2,})/)
+                    .map((segment) => segment.trim())
+                    .filter(Boolean);
+                lines.push(...pageText);
+            }
+            return lines;
+        } catch (error) {
+            console.warn('Falha ao extrair texto do PDF via pdf.js. Tentando fallback.', error);
         }
-        return lines;
     }
 
     const decoder = new TextDecoder('utf-8');

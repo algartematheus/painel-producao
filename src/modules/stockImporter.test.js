@@ -1,15 +1,24 @@
 import { utils, write } from 'xlsx';
-import importStockFile, { flattenSnapshotsToVariations } from './stockImporter';
+import importStockFile, {
+    clearPdfjsLibCache,
+    flattenSnapshotsToVariations,
+    setPdfjsLibForTests,
+} from './stockImporter';
 
 const mockGetDocument = jest.fn();
-
-jest.mock('pdfjs-dist/legacy/build/pdf.js', () => ({
-    getDocument: mockGetDocument,
-}), { virtual: true });
 
 describe('stockImporter', () => {
     beforeEach(() => {
         mockGetDocument.mockReset();
+        setPdfjsLibForTests({
+            getDocument: mockGetDocument,
+        });
+        clearPdfjsLibCache();
+    });
+
+    afterEach(() => {
+        setPdfjsLibForTests(null);
+        clearPdfjsLibCache();
     });
 
     it('parses PDF content into grouped product snapshots', async () => {
