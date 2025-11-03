@@ -26,10 +26,10 @@ describe('stockImporter', () => {
         const mockPage = {
             getTextContent: jest.fn().mockResolvedValue({
                 items: [
-                    { str: '016.01 CAMISA' },
+                    { str: '1234.AZ CAMISA' },
                     { str: 'GRADE PP P M G GG TOTAL' },
                     { str: 'A PRODUZIR 10 20 30 40 50 150' },
-                    { str: '016.02 CALÇA' },
+                    { str: '1234.BY CALÇA' },
                     { str: 'GRADE 34 36 38 40 TOTAL' },
                     { str: 'A PRODUZIR 5 10 15 20 50' },
                 ],
@@ -49,17 +49,17 @@ describe('stockImporter', () => {
         expect(mockGetDocument).toHaveBeenCalledTimes(1);
         expect(snapshots).toEqual([
             {
-                productCode: '016',
+                productCode: '1234',
                 grade: ['PP', 'P', 'M', 'G', 'GG'],
                 warnings: [],
                 variations: [
                     {
-                        ref: '016.01',
+                        ref: '1234.AZ',
                         grade: ['PP', 'P', 'M', 'G', 'GG'],
                         tamanhos: { PP: 10, P: 20, M: 30, G: 40, GG: 50 },
                     },
                     {
-                        ref: '016.02',
+                        ref: '1234.BY',
                         grade: ['34', '36', '38', '40'],
                         tamanhos: { '34': 5, '36': 10, '38': 15, '40': 20 },
                     },
@@ -70,14 +70,14 @@ describe('stockImporter', () => {
         const flattened = flattenSnapshotsToVariations(snapshots);
         expect(flattened).toEqual([
             {
-                productCode: '016',
-                ref: '016.01',
+                productCode: '1234',
+                ref: '1234.AZ',
                 tamanhos: { PP: 10, P: 20, M: 30, G: 40, GG: 50 },
                 total: 150,
             },
             {
-                productCode: '016',
-                ref: '016.02',
+                productCode: '1234',
+                ref: '1234.BY',
                 tamanhos: { '34': 5, '36': 10, '38': 15, '40': 20 },
                 total: 50,
             },
@@ -147,11 +147,11 @@ describe('stockImporter', () => {
     it('parses XLSX content ignoring total columns and supporting references with alphabetic suffixes', async () => {
         const workbook = utils.book_new();
         const worksheet = utils.aoa_to_sheet([
-            ['016.AZ'],
+            ['1234.AZ'],
             ['Grade', 'PP', 'P', 'M', 'Total'],
             ['A Produzir', '12', '8', '4', '24'],
             [],
-            ['016.BY'],
+            ['1234.BY'],
             ['GRADE', 'PP', 'P', 'M', 'TOTAL'],
             ['A PRODUZIR', 6, 4, 2, 12],
             [],
@@ -166,17 +166,17 @@ describe('stockImporter', () => {
 
         expect(snapshots).toEqual([
             {
-                productCode: '016',
+                productCode: '1234',
                 grade: ['PP', 'P', 'M'],
                 warnings: [],
                 variations: [
                     {
-                        ref: '016.AZ',
+                        ref: '1234.AZ',
                         grade: ['PP', 'P', 'M'],
                         tamanhos: { PP: 12, P: 8, M: 4 },
                     },
                     {
-                        ref: '016.BY',
+                        ref: '1234.BY',
                         grade: ['PP', 'P', 'M'],
                         tamanhos: { PP: 6, P: 4, M: 2 },
                     },

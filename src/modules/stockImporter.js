@@ -1,6 +1,6 @@
 import { read, utils } from 'xlsx';
 
-const REF_REGEX = /(\d{3}\.[\w-]+)/;
+const REF_REGEX = /^([A-Z0-9]{2,}\.[\w-]+)/i;
 const GRADE_LABEL_REGEX = /grade/i;
 const PRODUCE_LABEL_REGEX = /a\s*produzir/i;
 const TOTAL_LABELS = new Set(['TOTAL', 'TOTAIS', 'TOTALGERAL', 'TOTALGERAL:', 'TOTALGERAL.', 'TOTALG', 'TOT', 'TOTALPRODUZIR', 'TOTALPRODUÇÃO']);
@@ -204,7 +204,7 @@ export const parseLinesIntoBlocks = (lines = []) => {
             continue;
         }
 
-        const refMatch = line.match(REF_REGEX);
+        const refMatch = line.trim().match(REF_REGEX);
         if (!refMatch) {
             continue;
         }
@@ -224,7 +224,8 @@ export const parseLinesIntoBlocks = (lines = []) => {
             if (isTotalTokensLine(candidateTokens)) {
                 continue;
             }
-            if (REF_REGEX.test(candidate)) {
+            const trimmedCandidate = candidate.trim();
+            if (REF_REGEX.test(trimmedCandidate)) {
                 break;
             }
             if (GRADE_LABEL_REGEX.test(candidate)) {
@@ -251,7 +252,8 @@ export const parseLinesIntoBlocks = (lines = []) => {
             if (isTotalTokensLine(candidateTokens)) {
                 continue;
             }
-            if (REF_REGEX.test(candidate)) {
+            const trimmedCandidate = candidate.trim();
+            if (REF_REGEX.test(trimmedCandidate)) {
                 break;
             }
             if (PRODUCE_LABEL_REGEX.test(candidate)) {
@@ -295,13 +297,17 @@ const areGradesEqual = (gradeA = [], gradeB = []) => {
 const aggregateBlocksIntoSnapshots = (blocks = []) => {
     const grouped = new Map();
     blocks.forEach((block) => {
-        const ref = typeof block?.ref === 'string' ? block.ref : '';
-        if (!ref) {
+        const originalRef = typeof block?.ref === 'string' ? block.ref : '';
+        if (!originalRef) {
             return;
         }
-        const prefixMatch = ref.match(/^(\d{3})\./);
-        const [prefix] = ref.split('.');
-        const safePrefix = prefixMatch?.[1] || prefix || ref;
+        const refMatch = originalRef.match(REF_REGEX);
+        if (!refMatch) {
+            return;
+        }
+        const normalizedRef = refMatch[1];
+        const [prefix] = normalizedRef.split('.');
+        const safePrefix = prefix || normalizedRef;
         const grade = Array.isArray(block?.grade) ? block.grade : [];
         if (!grouped.has(safePrefix)) {
             grouped.set(safePrefix, {
@@ -315,10 +321,10 @@ const aggregateBlocksIntoSnapshots = (blocks = []) => {
         if (!group.grade.length && grade.length) {
             group.grade = grade.slice();
         } else if (grade.length && !areGradesEqual(group.grade, grade)) {
-            group.warnings.push(`Grade divergente detectada para ${ref}: [${grade.join(', ')}] (mantida grade original [${group.grade.join(', ')}])`);
+            group.warnings.push(`Grade divergente detectada para ${normalizedRef}: [${grade.join(', ')}] (mantida grade original [${group.grade.join(', ')}])`);
         }
         group.variations.push({
-            ref,
+            ref: normalizedRef,
             grade: grade.slice(),
             tamanhos: block.tamanhos,
         });
