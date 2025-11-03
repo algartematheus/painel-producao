@@ -1,5 +1,5 @@
 import { read, utils } from 'xlsx';
-import { GlobalWorkerOptions, getDocument as getDocumentFromPdfjs } from 'pdfjs-dist';
+import { GlobalWorkerOptions, getDocument as getDocumentFromPdfjs } from 'pdfjs-dist/legacy/build/pdf';
 import pdfWorkerSrc from 'pdfjs-dist/legacy/build/pdf.worker.js';
 
 const REF_REGEX = /^([A-Z0-9]{2,}\.[\w-]+)/i;
