@@ -40,7 +40,7 @@ import {
     importarArquivoDeProducao,
     exemploFluxoCompleto,
 } from './relatorioEstoque';
-import importStockFile from './stockImporter';
+import importStockFile, { PDF_LIBRARY_UNAVAILABLE_ERROR } from './stockImporter';
 
 const MODULE_TITLE = 'Gestão de Produção x Estoque';
 const MODULE_SUBTITLE = 'Integre produção e estoque em um relatório consolidado pronto para impressão.';
@@ -240,7 +240,14 @@ const GestaoProducaoEstoqueModule = ({
                 setStatus({ type: 'warning', message: 'Nenhum produto foi encontrado neste arquivo.' });
             }
         } catch (error) {
-            setStatus({ type: 'error', message: error?.message || 'Falha ao processar o arquivo. Tente novamente.' });
+            if (error?.code === PDF_LIBRARY_UNAVAILABLE_ERROR) {
+                setStatus({
+                    type: 'error',
+                    message: 'Não foi possível ler o PDF porque a biblioteca pdf.js não está disponível. Recarregue a página ou reinstale as dependências e tente novamente.',
+                });
+            } else {
+                setStatus({ type: 'error', message: error?.message || 'Falha ao processar o arquivo. Tente novamente.' });
+            }
         } finally {
             setProcessing(false);
         }
