@@ -31,87 +31,6 @@ const getStorage = () => {
 
 const cloneGrade = (grade) => (Array.isArray(grade) ? grade.map((item) => String(item)) : []);
 
-const sanitizePortfolioItem = (item) => {
-    if (!item || typeof item !== 'object') {
-        return null;
-    }
-    const codigo = typeof item.codigo === 'string' ? item.codigo.trim() : '';
-    if (!codigo) {
-        return null;
-    }
-    return {
-        codigo,
-        grade: cloneGrade(item.grade),
-    };
-};
-
-export const carregarPortfolio = () => {
-    const storage = getStorage();
-    try {
-        const raw = storage.getItem(STORAGE_KEYS.portfolio);
-        if (!raw) {
-            return [];
-        }
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) {
-            return [];
-        }
-        return parsed.map(sanitizePortfolioItem).filter(Boolean);
-    } catch (error) {
-        return [];
-    }
-};
-
-export const salvarPortfolio = (portfolioArray = []) => {
-    const storage = getStorage();
-    const sanitized = Array.isArray(portfolioArray)
-        ? portfolioArray.map(sanitizePortfolioItem).filter(Boolean)
-        : [];
-    storage.setItem(STORAGE_KEYS.portfolio, JSON.stringify(sanitized));
-    return sanitized;
-};
-
-export const adicionarProdutoAoPortfolio = ({ codigo, grade }) => {
-    const portfolio = carregarPortfolio();
-    const sanitized = sanitizePortfolioItem({ codigo, grade });
-    if (!sanitized) {
-        throw new Error('Dados inválidos ao adicionar produto ao portfólio.');
-    }
-    const exists = portfolio.some((item) => item.codigo === sanitized.codigo);
-    if (exists) {
-        return portfolio;
-    }
-    const updated = [...portfolio, sanitized];
-    salvarPortfolio(updated);
-    return updated;
-};
-
-export const removerProdutoDoPortfolio = (codigo) => {
-    const portfolio = carregarPortfolio();
-    const updated = portfolio.filter((item) => item.codigo !== codigo);
-    salvarPortfolio(updated);
-    return updated;
-};
-
-export const reordenarPortfolio = (novaOrdemArray = []) => {
-    const portfolio = carregarPortfolio();
-    if (!Array.isArray(novaOrdemArray) || novaOrdemArray.length === 0) {
-        return portfolio;
-    }
-    const orderCodes = novaOrdemArray.map((item) => (typeof item === 'string' ? item : item?.codigo)).filter(Boolean);
-    if (!orderCodes.length) {
-        return portfolio;
-    }
-    const orderMap = new Map(orderCodes.map((code, index) => [code, index]));
-    const sorted = [...portfolio].sort((a, b) => {
-        const indexA = orderMap.has(a.codigo) ? orderMap.get(a.codigo) : Number.MAX_SAFE_INTEGER;
-        const indexB = orderMap.has(b.codigo) ? orderMap.get(b.codigo) : Number.MAX_SAFE_INTEGER;
-        return indexA - indexB;
-    });
-    salvarPortfolio(sorted);
-    return sorted;
-};
-
 const normalizeNumber = (value) => {
     const parsed = typeof value === 'number' ? value : Number(value);
     if (Number.isFinite(parsed)) {
@@ -145,6 +64,91 @@ const sanitizeVariations = (variations = []) => {
             };
         })
         .filter(Boolean);
+};
+
+const sanitizePortfolioItem = (item) => {
+    if (!item || typeof item !== 'object') {
+        return null;
+    }
+    const codigo = typeof item.codigo === 'string' ? item.codigo.trim() : '';
+    if (!codigo) {
+        return null;
+    }
+    return {
+        codigo,
+        grade: cloneGrade(item.grade),
+        variations: sanitizeVariations(item.variations),
+        agruparVariacoes: item.agruparVariacoes !== false,
+    };
+};
+
+export const carregarPortfolio = () => {
+    const storage = getStorage();
+    try {
+        const raw = storage.getItem(STORAGE_KEYS.portfolio);
+        if (!raw) {
+            return [];
+        }
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        return parsed.map(sanitizePortfolioItem).filter(Boolean);
+    } catch (error) {
+        return [];
+    }
+};
+
+export const salvarPortfolio = (portfolioArray = []) => {
+    const storage = getStorage();
+    const sanitized = Array.isArray(portfolioArray)
+        ? portfolioArray.map(sanitizePortfolioItem).filter(Boolean)
+        : [];
+    storage.setItem(STORAGE_KEYS.portfolio, JSON.stringify(sanitized));
+    return sanitized;
+};
+
+export const adicionarProdutoAoPortfolio = ({ codigo, grade, variations, agruparVariacoes }) => {
+    const portfolio = carregarPortfolio();
+    const sanitized = sanitizePortfolioItem({ codigo, grade, variations, agruparVariacoes });
+    if (!sanitized) {
+        throw new Error('Dados inválidos ao adicionar produto ao portfólio.');
+    }
+    const existingIndex = portfolio.findIndex((item) => item.codigo === sanitized.codigo);
+    const updated = [...portfolio];
+    if (existingIndex >= 0) {
+        updated[existingIndex] = sanitized;
+    } else {
+        updated.push(sanitized);
+    }
+    salvarPortfolio(updated);
+    return updated;
+};
+
+export const removerProdutoDoPortfolio = (codigo) => {
+    const portfolio = carregarPortfolio();
+    const updated = portfolio.filter((item) => item.codigo !== codigo);
+    salvarPortfolio(updated);
+    return updated;
+};
+
+export const reordenarPortfolio = (novaOrdemArray = []) => {
+    const portfolio = carregarPortfolio();
+    if (!Array.isArray(novaOrdemArray) || novaOrdemArray.length === 0) {
+        return portfolio;
+    }
+    const orderCodes = novaOrdemArray.map((item) => (typeof item === 'string' ? item : item?.codigo)).filter(Boolean);
+    if (!orderCodes.length) {
+        return portfolio;
+    }
+    const orderMap = new Map(orderCodes.map((code, index) => [code, index]));
+    const sorted = [...portfolio].sort((a, b) => {
+        const indexA = orderMap.has(a.codigo) ? orderMap.get(a.codigo) : Number.MAX_SAFE_INTEGER;
+        const indexB = orderMap.has(b.codigo) ? orderMap.get(b.codigo) : Number.MAX_SAFE_INTEGER;
+        return indexA - indexB;
+    });
+    salvarPortfolio(sorted);
+    return sorted;
 };
 
 const inferGradeFromVariations = (variations = [], fallbackGrade = []) => {
@@ -559,7 +563,8 @@ const abrirJanelaRelatorio = (html) => {
     return novaJanela;
 };
 
-const normalizarProdutosImportados = (produtos = []) => {
+export const normalizarProdutosImportados = (produtos = []) => {
+    const configuracoesPortfolio = new Map(carregarPortfolio().map((item) => [item.codigo, item]));
     const agrupado = {};
     produtos.forEach((produto) => {
         if (!produto || typeof produto !== 'object') {
@@ -569,20 +574,82 @@ const normalizarProdutosImportados = (produtos = []) => {
         if (!base) {
             return;
         }
+        const configItem = configuracoesPortfolio.get(base);
         const gradePrincipal = cloneGrade(produto.grade);
-        if (!agrupado[base]) {
-            agrupado[base] = {
-                grade: gradePrincipal,
-                variations: [],
-            };
-        }
-        const destino = agrupado[base];
-        const variations = Array.isArray(produto.variations) ? produto.variations : [];
-        variations.forEach((variation) => {
+        const gradeFallback = gradePrincipal.length ? gradePrincipal : cloneGrade(configItem?.grade);
+        const variationsImportadas = Array.isArray(produto.variations) ? produto.variations : [];
+        const variationsConfiguradas = Array.isArray(configItem?.variations) ? configItem.variations : [];
+        const variationsMap = new Map();
+
+        variationsImportadas.forEach((variation) => {
             if (!variation || typeof variation !== 'object') {
                 return;
             }
-            const ref = typeof variation.ref === 'string' ? variation.ref : '';
+            const ref = typeof variation.ref === 'string' ? variation.ref.trim() : '';
+            if (!ref) {
+                return;
+            }
+            variationsMap.set(ref, variation);
+        });
+
+        variationsConfiguradas.forEach((variation) => {
+            if (!variation || typeof variation !== 'object') {
+                return;
+            }
+            const ref = typeof variation.ref === 'string' ? variation.ref.trim() : '';
+            if (!ref || variationsMap.has(ref)) {
+                return;
+            }
+            variationsMap.set(ref, variation);
+        });
+
+        const variationsParaProcessar = Array.from(variationsMap.values());
+        const deveAgrupar = configItem ? configItem.agruparVariacoes !== false : true;
+
+        if (!deveAgrupar && variationsParaProcessar.length) {
+            variationsParaProcessar.forEach((variation) => {
+                if (!variation || typeof variation !== 'object') {
+                    return;
+                }
+                const ref = typeof variation.ref === 'string' ? variation.ref.trim() : '';
+                if (!ref) {
+                    return;
+                }
+                const chave = `${base}:${ref}`;
+                if (!agrupado[chave]) {
+                    const gradeVar = cloneGrade(variation.grade);
+                    agrupado[chave] = {
+                        produtoBase: ref,
+                        grade: gradeVar.length ? gradeVar : gradeFallback,
+                        variations: [],
+                    };
+                }
+                agrupado[chave].variations.push({
+                    ref,
+                    tamanhos: variation.tamanhos || {},
+                });
+            });
+            return;
+        }
+
+        const chaveBase = base;
+        if (!agrupado[chaveBase]) {
+            agrupado[chaveBase] = {
+                produtoBase: base,
+                grade: gradeFallback,
+                variations: [],
+            };
+        }
+        const destino = agrupado[chaveBase];
+        if (!destino.grade.length) {
+            destino.grade = gradeFallback;
+        }
+
+        variationsParaProcessar.forEach((variation) => {
+            if (!variation || typeof variation !== 'object') {
+                return;
+            }
+            const ref = typeof variation.ref === 'string' ? variation.ref.trim() : '';
             if (!ref) {
                 return;
             }
@@ -613,8 +680,8 @@ export const importarArquivoDeProducao = async (file, tipoArquivo, responsavelLo
     const parsed = await importStockFile({ file, type: tipoArquivo });
     const produtosNormalizados = normalizarProdutosImportados(parsed);
     const dataLancamentoISO = new Date().toISOString();
-    const snapshotsProdutos = Object.entries(produtosNormalizados).map(([produtoBase, info]) => criarSnapshotProduto({
-        produtoBase,
+    const snapshotsProdutos = Object.entries(produtosNormalizados).map(([chave, info]) => criarSnapshotProduto({
+        produtoBase: info?.produtoBase || chave,
         grade: info.grade,
         variations: info.variations,
         dataLancamentoISO,

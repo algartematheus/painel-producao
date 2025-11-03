@@ -7,6 +7,10 @@ import {
     paginarRelatorioEmPaginasA4,
     gerarHTMLImpressaoPaginado,
     importarArquivoDeProducao,
+    carregarPortfolio,
+    salvarPortfolio,
+    adicionarProdutoAoPortfolio,
+    normalizarProdutosImportados,
 } from './relatorioEstoque';
 
 jest.mock('./stockImporter');
@@ -17,6 +21,118 @@ describe('relatorioEstoque module', () => {
         if (typeof window !== 'undefined' && window.localStorage) {
             window.localStorage.clear();
         }
+    });
+
+    it('salva e carrega portfólio preservando variações e agrupamento', () => {
+        const salvo = salvarPortfolio([
+            {
+                codigo: '020',
+                grade: ['P', 'M'],
+                agruparVariacoes: false,
+                variations: [
+                    { ref: '020.AZ', tamanhos: { P: '5', M: '-2' } },
+                ],
+            },
+        ]);
+
+        expect(salvo).toEqual([
+            {
+                codigo: '020',
+                grade: ['P', 'M'],
+                agruparVariacoes: false,
+                variations: [
+                    { ref: '020.AZ', tamanhos: { P: 5, M: -2 } },
+                ],
+            },
+        ]);
+
+        const carregado = carregarPortfolio();
+        expect(carregado).toEqual(salvo);
+    });
+
+    it('permite cadastrar manualmente produtos com variações agrupadas e separadas', () => {
+        const portfolioInicial = adicionarProdutoAoPortfolio({
+            codigo: '016',
+            grade: ['06', '08'],
+            agruparVariacoes: true,
+            variations: [
+                { ref: '016.AZ', tamanhos: { '06': 10, '08': -5 } },
+            ],
+        });
+
+        expect(portfolioInicial).toHaveLength(1);
+        expect(portfolioInicial[0]).toMatchObject({
+            codigo: '016',
+            agruparVariacoes: true,
+            variations: [
+                { ref: '016.AZ', tamanhos: { '06': 10, '08': -5 } },
+            ],
+        });
+
+        const portfolioAtualizado = adicionarProdutoAoPortfolio({
+            codigo: '017',
+            grade: ['P', 'M'],
+            agruparVariacoes: false,
+            variations: [
+                { ref: '017.ST', tamanhos: { P: 3, M: -1 } },
+            ],
+        });
+
+        expect(portfolioAtualizado).toHaveLength(2);
+        const carregado = carregarPortfolio();
+        const itemAgrupado = carregado.find((item) => item.codigo === '016');
+        const itemSeparado = carregado.find((item) => item.codigo === '017');
+
+        expect(itemAgrupado?.agruparVariacoes).toBe(true);
+        expect(itemAgrupado?.variations).toEqual([
+            { ref: '016.AZ', tamanhos: { '06': 10, '08': -5 } },
+        ]);
+        expect(itemSeparado?.agruparVariacoes).toBe(false);
+        expect(itemSeparado?.variations).toEqual([
+            { ref: '017.ST', tamanhos: { P: 3, M: -1 } },
+        ]);
+    });
+
+    it('normaliza produtos importados respeitando configuração de agrupamento do portfólio', () => {
+        salvarPortfolio([
+            {
+                codigo: '016',
+                grade: ['06', '08'],
+                agruparVariacoes: true,
+            },
+        ]);
+
+        const dadosImportados = [
+            {
+                productCode: '016',
+                grade: ['06', '08'],
+                variations: [
+                    { ref: '016.AZ', grade: ['06', '08'], tamanhos: { '06': 5, '08': -2 } },
+                    { ref: '016.DV', grade: ['06', '08'], tamanhos: { '06': -3, '08': 4 } },
+                ],
+            },
+        ];
+
+        let normalizado = normalizarProdutosImportados(dadosImportados);
+        expect(Object.keys(normalizado)).toEqual(['016']);
+        expect(normalizado['016'].produtoBase).toBe('016');
+        expect(normalizado['016'].variations).toHaveLength(2);
+        expect(normalizado['016'].grade).toEqual(['06', '08']);
+
+        salvarPortfolio([
+            {
+                codigo: '016',
+                grade: ['06', '08'],
+                agruparVariacoes: false,
+            },
+        ]);
+
+        normalizado = normalizarProdutosImportados(dadosImportados);
+        expect(Object.keys(normalizado).sort()).toEqual(['016:016.AZ', '016:016.DV']);
+        expect(normalizado['016:016.AZ'].produtoBase).toBe('016.AZ');
+        expect(normalizado['016:016.AZ'].variations).toHaveLength(1);
+        expect(normalizado['016:016.DV'].produtoBase).toBe('016.DV');
+        expect(normalizado['016:016.DV'].variations[0].tamanhos).toEqual({ '06': -3, '08': 4 });
     });
 
     it('calcula totais e resumo positivos/negativos corretamente', () => {
