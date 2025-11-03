@@ -4,7 +4,10 @@ import { GlobalWorkerOptions, getDocument as getDocumentFromPdfjs } from 'pdfjs-
 let pdfWorkerSrc = null;
 
 try {
-    pdfWorkerSrc = new URL('pdfjs-dist/legacy/build/pdf.worker.js', import.meta.url).toString();
+    pdfWorkerSrc = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString();
+    if (GlobalWorkerOptions) {
+        GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+    }
 } catch {
     pdfWorkerSrc = null;
 }

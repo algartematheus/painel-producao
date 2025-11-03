@@ -7,7 +7,7 @@ import importStockFile, {
     setPdfjsLibForTests,
 } from './stockImporter';
 
-jest.mock('pdfjs-dist/legacy/build/pdf.worker.js', () => 'pdf.worker.js');
+jest.mock('pdfjs-dist/legacy/build/pdf.worker.mjs', () => 'pdf.worker.js');
 jest.mock('pdfjs-dist/legacy/build/pdf', () => ({
     GlobalWorkerOptions: { workerSrc: null },
     getDocument: jest.fn(),
