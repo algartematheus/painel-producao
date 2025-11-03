@@ -1,11 +1,14 @@
 import { read, utils } from 'xlsx';
 import { GlobalWorkerOptions, getDocument as getDocumentFromPdfjs } from 'pdfjs-dist';
-import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs';
+import pdfWorkerSrc from 'pdfjs-dist/legacy/build/pdf.worker.min.js';
 
 const REF_REGEX = /^([A-Z0-9]{2,}\.[\w-]+)/i;
 const GRADE_LABEL_REGEX = /grade/i;
 const PRODUCE_LABEL_REGEX = /a\s*produzir/i;
 const TOTAL_LABELS = new Set(['TOTAL', 'TOTAIS', 'TOTALGERAL', 'TOTALGERAL:', 'TOTALGERAL.', 'TOTALG', 'TOT', 'TOTALPRODUZIR', 'TOTALPRODUÇÃO']);
+
+export const PDF_LIBRARY_UNAVAILABLE_ERROR = 'PDF_LIBRARY_UNAVAILABLE';
+export const PDF_EXTRACTION_FAILED_ERROR = 'PDF_EXTRACTION_FAILED';
 
 const normalizeLabel = (label) => {
     if (typeof label !== 'string') {
@@ -340,12 +343,23 @@ const defaultPdfjsLib = {
     GlobalWorkerOptions: GlobalWorkerOptions || null,
 };
 
-if (defaultPdfjsLib.GlobalWorkerOptions && pdfWorkerSrc) {
-    defaultPdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
-}
+const ensurePdfWorkerConfigured = () => {
+    if (!defaultPdfjsLib.GlobalWorkerOptions) {
+        return;
+    }
 
-export const PDF_LIBRARY_UNAVAILABLE_ERROR = 'PDF_LIBRARY_UNAVAILABLE';
-export const PDF_EXTRACTION_FAILED_ERROR = 'PDF_EXTRACTION_FAILED';
+    if (defaultPdfjsLib.GlobalWorkerOptions.workerSrc) {
+        return;
+    }
+
+    if (typeof pdfWorkerSrc !== 'string') {
+        const configurationError = new Error('Não foi possível localizar o worker da biblioteca pdf.js. Verifique a instalação das dependências.');
+        configurationError.code = PDF_LIBRARY_UNAVAILABLE_ERROR;
+        throw configurationError;
+    }
+
+    defaultPdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+};
 
 let cachedPdfjsLib = null;
 let injectedPdfjsLib = null;
@@ -373,6 +387,8 @@ export const loadPdfJsLibrary = async () => {
         error.code = PDF_LIBRARY_UNAVAILABLE_ERROR;
         throw error;
     }
+
+    ensurePdfWorkerConfigured();
 
     cachedPdfjsLib = defaultPdfjsLib;
     return cachedPdfjsLib;
