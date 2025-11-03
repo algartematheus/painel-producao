@@ -1,6 +1,6 @@
 import { read, utils } from 'xlsx';
 
-const REF_REGEX = /(\d{3}\.\d{2})/;
+const REF_REGEX = /(\d{3}\.[\w-]+)/;
 const GRADE_LABEL_REGEX = /grade/i;
 const PRODUCE_LABEL_REGEX = /a\s*produzir/i;
 const TOTAL_LABELS = new Set(['TOTAL', 'TOTAIS', 'TOTALGERAL', 'TOTALGERAL:', 'TOTALGERAL.', 'TOTALG', 'TOT', 'TOTALPRODUZIR', 'TOTALPRODUÇÃO']);
@@ -188,8 +188,9 @@ const aggregateBlocksIntoSnapshots = (blocks = []) => {
         if (!ref) {
             return;
         }
+        const prefixMatch = ref.match(/^(\d{3})\./);
         const [prefix] = ref.split('.');
-        const safePrefix = prefix || ref;
+        const safePrefix = prefixMatch?.[1] || prefix || ref;
         const grade = Array.isArray(block?.grade) ? block.grade : [];
         if (!grouped.has(safePrefix)) {
             grouped.set(safePrefix, {

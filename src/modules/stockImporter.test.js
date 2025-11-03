@@ -2,6 +2,7 @@ import { utils, write } from 'xlsx';
 import importStockFile, {
     clearPdfjsLibCache,
     flattenSnapshotsToVariations,
+    parseLinesIntoBlocks,
     setPdfjsLibForTests,
 } from './stockImporter';
 
@@ -83,12 +84,16 @@ describe('stockImporter', () => {
         ]);
     });
 
-    it('parses XLSX content ignoring total columns and supporting multiple grades', async () => {
+    it('parses XLSX content ignoring total columns and supporting references with alphabetic suffixes', async () => {
         const workbook = utils.book_new();
         const worksheet = utils.aoa_to_sheet([
-            ['016.01'],
+            ['016.AZ'],
             ['Grade', 'PP', 'P', 'M', 'Total'],
             ['A Produzir', '12', '8', '4', '24'],
+            [],
+            ['016.BY'],
+            ['GRADE', 'PP', 'P', 'M', 'TOTAL'],
+            ['A PRODUZIR', 6, 4, 2, 12],
             [],
             ['017.01'],
             ['GRADE', '34', '36', '38', '40', 'TOTAL'],
@@ -106,9 +111,14 @@ describe('stockImporter', () => {
                 warnings: [],
                 variations: [
                     {
-                        ref: '016.01',
+                        ref: '016.AZ',
                         grade: ['PP', 'P', 'M'],
                         tamanhos: { PP: 12, P: 8, M: 4 },
+                    },
+                    {
+                        ref: '016.BY',
+                        grade: ['PP', 'P', 'M'],
+                        tamanhos: { PP: 6, P: 4, M: 2 },
                     },
                 ],
             },
@@ -123,6 +133,32 @@ describe('stockImporter', () => {
                         tamanhos: { '34': 1, '36': 2, '38': 3, '40': 4 },
                     },
                 ],
+            },
+        ]);
+    });
+
+    it('parseLinesIntoBlocks extracts blocks for references with alphabetic suffixes', () => {
+        const lines = [
+            '016.AZ CAMISA MANGA LONGA',
+            'GRADE PP P M',
+            'A PRODUZIR 10 20 30',
+            '016.B1 CALÇA JEANS',
+            'GRADE 34 36',
+            'A PRODUZIR 5 10',
+        ];
+
+        const blocks = parseLinesIntoBlocks(lines);
+
+        expect(blocks).toEqual([
+            {
+                ref: '016.AZ',
+                grade: ['PP', 'P', 'M'],
+                tamanhos: { PP: 10, P: 20, M: 30 },
+            },
+            {
+                ref: '016.B1',
+                grade: ['34', '36'],
+                tamanhos: { '34': 5, '36': 10 },
             },
         ]);
     });
