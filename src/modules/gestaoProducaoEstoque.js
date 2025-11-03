@@ -56,7 +56,7 @@ const parseTamanhosString = (value = '') => {
         return resultados;
     }
 
-    const regex = /([^\s=:\,;]+)\s*(?:[:=]\s*|\s+)(-?\d+(?:[.,]\d+)?)/g;
+    const regex = /([^\s=:,;]+)\s*(?:[:=]\s*|\s+)(-?\d+(?:[.,]\d+)?)/g;
     let match;
     while ((match = regex.exec(value)) !== null) {
         const tamanho = String(match[1]).trim();
