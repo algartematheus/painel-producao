@@ -1,6 +1,13 @@
 import { read, utils } from 'xlsx';
 import { GlobalWorkerOptions, getDocument as getDocumentFromPdfjs } from 'pdfjs-dist/legacy/build/pdf';
-import pdfWorkerSrc from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
+
+let pdfWorkerSrc = null;
+
+try {
+    pdfWorkerSrc = new URL('pdfjs-dist/legacy/build/pdf.worker.js', import.meta.url).toString();
+} catch {
+    pdfWorkerSrc = null;
+}
 
 const REF_REGEX = /^([A-Z0-9]{2,}\.[\w-]+)/i;
 const GRADE_LABEL_REGEX = /grade/i;
@@ -352,7 +359,7 @@ const ensurePdfWorkerConfigured = () => {
         return;
     }
 
-    if (typeof pdfWorkerSrc !== 'string') {
+    if (typeof pdfWorkerSrc !== 'string' || !pdfWorkerSrc) {
         const configurationError = new Error('Não foi possível localizar o worker da biblioteca pdf.js. Verifique a instalação das dependências.');
         configurationError.code = PDF_LIBRARY_UNAVAILABLE_ERROR;
         throw configurationError;
