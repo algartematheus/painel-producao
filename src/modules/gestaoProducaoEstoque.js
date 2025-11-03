@@ -50,6 +50,28 @@ const parseGradeString = (value = '') => value
     .map((item) => item.trim())
     .filter(Boolean);
 
+const parseTamanhosString = (value = '') => {
+    const resultados = {};
+    if (typeof value !== 'string' || !value.trim()) {
+        return resultados;
+    }
+
+    const regex = /([^\s=:\,;]+)\s*(?:[:=]\s*|\s+)(-?\d+(?:[.,]\d+)?)/g;
+    let match;
+    while ((match = regex.exec(value)) !== null) {
+        const tamanho = String(match[1]).trim();
+        const quantidadeBruta = String(match[2]).replace(',', '.');
+        const quantidade = Number(quantidadeBruta);
+        if (!tamanho) {
+            continue;
+        }
+        resultados[tamanho] = Number.isFinite(quantidade) ? quantidade : 0;
+    }
+    return resultados;
+};
+
+const criarVariacaoVazia = () => ({ ref: '', tamanhos: '' });
+
 const formatDateTime = (isoString) => {
     if (!isoString) {
         return '-';
@@ -100,12 +122,22 @@ const GestaoProducaoEstoqueModule = ({
     const [mostrarHistorico, setMostrarHistorico] = useState(false);
     const [novoProdutoCodigo, setNovoProdutoCodigo] = useState('');
     const [novoProdutoGrade, setNovoProdutoGrade] = useState('');
+    const [novoProdutoVariacoes, setNovoProdutoVariacoes] = useState([criarVariacaoVazia()]);
+    const [novoProdutoAgrupamento, setNovoProdutoAgrupamento] = useState('juntas');
     const [tipoArquivo, setTipoArquivo] = useState('xlsx');
     const [arquivoSelecionado, setArquivoSelecionado] = useState(null);
     const [arquivoNome, setArquivoNome] = useState('');
     const [previewSnapshots, setPreviewSnapshots] = useState([]);
     const [processing, setProcessing] = useState(false);
     const [status, setStatus] = useState({ type: 'idle', message: '' });
+
+    const formatarTamanhos = useCallback((tamanhos = {}) => {
+        const entries = Object.entries(tamanhos || {});
+        if (!entries.length) {
+            return 'Sem tamanhos cadastrados';
+        }
+        return entries.map(([size, quantidade]) => `${size}: ${quantidade}`).join(', ');
+    }, []);
 
     const responsavelAtual = useMemo(() => {
         return user?.displayName || user?.email || 'Responsável não identificado';
@@ -239,6 +271,36 @@ const GestaoProducaoEstoqueModule = ({
         setStatus({ type: 'success', message: 'Exemplo executado. Um relatório demonstrativo foi gerado em uma nova aba.' });
     }, []);
 
+    const handleAdicionarLinhaVariacao = useCallback(() => {
+        setNovoProdutoVariacoes((prev) => [...prev, criarVariacaoVazia()]);
+    }, []);
+
+    const handleAtualizarVariacao = useCallback((index, campo, valor) => {
+        setNovoProdutoVariacoes((prev) => {
+            return prev.map((variacao, idx) => {
+                if (idx !== index) {
+                    return variacao;
+                }
+                if (campo === 'ref') {
+                    return { ...variacao, ref: valor.toUpperCase() };
+                }
+                if (campo === 'tamanhos') {
+                    return { ...variacao, tamanhos: valor };
+                }
+                return variacao;
+            });
+        });
+    }, []);
+
+    const handleRemoverVariacao = useCallback((index) => {
+        setNovoProdutoVariacoes((prev) => {
+            if (prev.length <= 1) {
+                return [criarVariacaoVazia()];
+            }
+            return prev.filter((_, idx) => idx !== index);
+        });
+    }, []);
+
     const handleAdicionarProduto = useCallback(() => {
         try {
             const gradeLista = parseGradeString(novoProdutoGrade);
@@ -246,19 +308,59 @@ const GestaoProducaoEstoqueModule = ({
                 setStatus({ type: 'error', message: 'Informe o código do produto base.' });
                 return;
             }
+            const variacoesProcessadas = novoProdutoVariacoes
+                .map((variacao) => {
+                    const ref = (variacao.ref || '').trim();
+                    const tamanhos = parseTamanhosString(variacao.tamanhos);
+                    if (!ref || !Object.keys(tamanhos).length) {
+                        return null;
+                    }
+                    return {
+                        ref,
+                        tamanhos,
+                    };
+                })
+                .filter(Boolean);
+
+            if (!gradeLista.length) {
+                const tamanhosEncontrados = Array.from(new Set(variacoesProcessadas.flatMap((variacao) => Object.keys(variacao.tamanhos))));
+                if (tamanhosEncontrados.length) {
+                    gradeLista.push(...tamanhosEncontrados);
+                }
+            }
+
             if (!gradeLista.length) {
                 setStatus({ type: 'error', message: 'Informe ao menos um tamanho na grade.' });
                 return;
             }
-            const atualizado = adicionarProdutoAoPortfolio({ codigo: novoProdutoCodigo.trim(), grade: gradeLista });
+
+            if (!variacoesProcessadas.length) {
+                setStatus({ type: 'error', message: 'Cadastre pelo menos uma variação com tamanhos válidos.' });
+                return;
+            }
+
+            const todosOsTamanhosDasVariacoes = variacoesProcessadas.flatMap((variacao) => Object.keys(variacao.tamanhos));
+            const gradeFinal = Array.from(new Set([...gradeLista, ...todosOsTamanhosDasVariacoes]));
+
+            const atualizado = adicionarProdutoAoPortfolio({
+                codigo: novoProdutoCodigo.trim(),
+                grade: gradeFinal,
+                variations: variacoesProcessadas,
+                agruparVariacoes: novoProdutoAgrupamento === 'juntas',
+            });
             setPortfolio(atualizado);
             setNovoProdutoCodigo('');
             setNovoProdutoGrade('');
-            setStatus({ type: 'success', message: `Produto ${novoProdutoCodigo.trim()} adicionado ao portfólio.` });
+            setNovoProdutoVariacoes([criarVariacaoVazia()]);
+            setNovoProdutoAgrupamento('juntas');
+            setStatus({
+                type: 'success',
+                message: `Produto ${novoProdutoCodigo.trim()} adicionado ao portfólio (${novoProdutoAgrupamento === 'juntas' ? 'variações juntas' : 'variações separadas'}).`,
+            });
         } catch (error) {
             setStatus({ type: 'error', message: error?.message || 'Não foi possível adicionar o produto.' });
         }
-    }, [novoProdutoCodigo, novoProdutoGrade]);
+    }, [novoProdutoCodigo, novoProdutoGrade, novoProdutoVariacoes, novoProdutoAgrupamento]);
 
     const handleSalvarPortfolio = useCallback(() => {
         const atualizado = salvarPortfolio(portfolio);
@@ -537,6 +639,98 @@ const GestaoProducaoEstoqueModule = ({
                                         />
                                     </div>
                                 </div>
+                                <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Variações (referência e saldos por tamanho)</label>
+                                            <button
+                                                type="button"
+                                                onClick={handleAdicionarLinhaVariacao}
+                                                className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                            >
+                                                <PlusCircle size={14} />
+                                                Adicionar variação
+                                            </button>
+                                        </div>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                                            Utilize formatos como <span className="font-medium">06=10</span> ou <span className="font-medium">06 10</span>. Separe múltiplos tamanhos por espaço, vírgula ou quebra de linha.
+                                        </p>
+                                        <div className="space-y-3">
+                                            {novoProdutoVariacoes.map((variacao, index) => (
+                                                <div key={`variacao-${index}`} className="rounded-md border border-dashed border-gray-300 dark:border-gray-600 p-3 space-y-3">
+                                                    <div className="grid gap-3 md:grid-cols-2">
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Referência da variação</label>
+                                                            <input
+                                                                type="text"
+                                                                value={variacao.ref}
+                                                                onChange={(event) => handleAtualizarVariacao(index, 'ref', event.target.value)}
+                                                                className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
+                                                                placeholder="Ex: 016.AZ"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tamanhos e saldos</label>
+                                                            <textarea
+                                                                value={variacao.tamanhos}
+                                                                onChange={(event) => handleAtualizarVariacao(index, 'tamanhos', event.target.value)}
+                                                                className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
+                                                                rows={2}
+                                                                placeholder="06=10, 08=-5, 10 3"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    {novoProdutoVariacoes.length > 1 && (
+                                                        <div className="flex justify-end">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRemoverVariacao(index)}
+                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/40 dark:text-red-300"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                                Remover variação
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <span className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Agrupamento das variações</span>
+                                        <div className="grid gap-2 md:grid-cols-2">
+                                            <label className="flex items-start gap-2 rounded-md border border-gray-300 dark:border-gray-700 px-3 py-2 cursor-pointer bg-white dark:bg-gray-800">
+                                                <input
+                                                    type="radio"
+                                                    name="agrupamentoVariacoes"
+                                                    value="juntas"
+                                                    checked={novoProdutoAgrupamento === 'juntas'}
+                                                    onChange={(event) => setNovoProdutoAgrupamento(event.target.value)}
+                                                    className="mt-1"
+                                                />
+                                                <div>
+                                                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Juntas</p>
+                                                    <p className="text-xs text-gray-500 dark:text-gray-400">Consolida todas as variações do código em um único snapshot.</p>
+                                                </div>
+                                            </label>
+                                            <label className="flex items-start gap-2 rounded-md border border-gray-300 dark:border-gray-700 px-3 py-2 cursor-pointer bg-white dark:bg-gray-800">
+                                                <input
+                                                    type="radio"
+                                                    name="agrupamentoVariacoes"
+                                                    value="separadas"
+                                                    checked={novoProdutoAgrupamento === 'separadas'}
+                                                    onChange={(event) => setNovoProdutoAgrupamento(event.target.value)}
+                                                    className="mt-1"
+                                                />
+                                                <div>
+                                                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Separadas</p>
+                                                    <p className="text-xs text-gray-500 dark:text-gray-400">Gera snapshots individuais por referência, ideal para monitorar cores ou lavagens separadamente.</p>
+                                                </div>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div className="flex flex-wrap gap-3">
                                     <button
                                         type="button"
@@ -561,10 +755,28 @@ const GestaoProducaoEstoqueModule = ({
                                         <p className="text-sm text-gray-500 dark:text-gray-400">Nenhum produto cadastrado. Utilize o formulário acima para adicionar os códigos principais.</p>
                                     )}
                                     {portfolio.map((item, index) => (
-                                        <div key={item.codigo} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border border-gray-200 dark:border-gray-700 rounded-md px-4 py-3">
-                                            <div>
-                                                <h4 className="font-semibold">Produto {item.codigo}</h4>
-                                                <p className="text-sm text-gray-600 dark:text-gray-300">Grade: {item.grade.join(' / ')}</p>
+                                        <div key={item.codigo} className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 border border-gray-200 dark:border-gray-700 rounded-md px-4 py-3">
+                                            <div className="space-y-2">
+                                                <div>
+                                                    <h4 className="font-semibold">Produto {item.codigo}</h4>
+                                                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                                                        Grade: {item.grade && item.grade.length ? item.grade.join(' / ') : 'Sem grade definida'}
+                                                    </p>
+                                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                        Agrupamento: {item.agruparVariacoes ? 'variações juntas (snapshot único)' : 'variações separadas (snapshots individuais)'}
+                                                    </p>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    {item.variations && item.variations.length > 0 ? (
+                                                        item.variations.map((variacao) => (
+                                                            <p key={variacao.ref} className="text-sm text-gray-700 dark:text-gray-200">
+                                                                <span className="font-semibold">{variacao.ref}</span> · {formatarTamanhos(variacao.tamanhos)}
+                                                            </p>
+                                                        ))
+                                                    ) : (
+                                                        <p className="text-sm text-gray-500 dark:text-gray-400 italic">Sem variações cadastradas manualmente.</p>
+                                                    )}
+                                                </div>
                                             </div>
                                             <div className="flex flex-wrap gap-2">
                                                 <button
