@@ -96,25 +96,132 @@ const extractQuantitiesFromLine = (line) => {
         .filter((value) => value !== null);
 };
 
+const extractTabularGradesFromTokens = (tokens = []) => tokens
+    .filter((token, index) => {
+        const normalized = normalizeLabel(token);
+        if (!normalized) {
+            return false;
+        }
+        if (isTotalLabel(token)) {
+            return false;
+        }
+        if (normalized.startsWith('REF')) {
+            return false;
+        }
+        if (normalized === 'TAM' || normalized.startsWith('TAMAN')) {
+            return false;
+        }
+        return true;
+    });
+
+const isTotalTokensLine = (tokens = []) => tokens.some((token) => isTotalLabel(token));
+
 export const parseLinesIntoBlocks = (lines = []) => {
     const blocks = [];
     const totalLines = Array.isArray(lines) ? lines : [];
+
+    const tryParseTabularSection = (startIndex) => {
+        const headerLine = totalLines[startIndex];
+        if (typeof headerLine !== 'string') {
+            return null;
+        }
+
+        const headerTokens = tokenizeLine(headerLine);
+        if (headerTokens.length < 2) {
+            return null;
+        }
+
+        const grades = extractTabularGradesFromTokens(headerTokens);
+        if (grades.length < 2) {
+            return null;
+        }
+
+        const variations = [];
+        let lastIndex = startIndex;
+
+        for (let rowIndex = startIndex + 1; rowIndex < totalLines.length; rowIndex++) {
+            const rowLine = totalLines[rowIndex];
+            if (typeof rowLine !== 'string') {
+                continue;
+            }
+            if (!rowLine.trim()) {
+                lastIndex = rowIndex;
+                break;
+            }
+            const rowTokens = tokenizeLine(rowLine);
+            if (!rowTokens.length) {
+                lastIndex = rowIndex;
+                break;
+            }
+            if (isTotalTokensLine(rowTokens)) {
+                lastIndex = rowIndex;
+                break;
+            }
+            const [refToken, ...valueTokens] = rowTokens;
+            const refMatch = refToken.match(REF_REGEX);
+            if (!refMatch) {
+                lastIndex = rowIndex - 1;
+                break;
+            }
+            const ref = refMatch[1];
+            const [, suffix = ''] = ref.split('.');
+            if (isTotalLabel(suffix)) {
+                lastIndex = rowIndex;
+                continue;
+            }
+            const quantities = valueTokens
+                .map(sanitizeNumberToken)
+                .filter((value) => value !== null);
+            if (!quantities.length) {
+                continue;
+            }
+
+            variations.push({
+                ref,
+                grade: grades.slice(),
+                tamanhos: mapGradeToQuantities(grades, quantities),
+            });
+            lastIndex = rowIndex;
+        }
+
+        if (!variations.length) {
+            return null;
+        }
+
+        return { lastIndex, variations };
+    };
 
     for (let i = 0; i < totalLines.length; i++) {
         const line = totalLines[i];
         if (typeof line !== 'string') {
             continue;
         }
+
+        const tabularResult = tryParseTabularSection(i);
+        if (tabularResult) {
+            blocks.push(...tabularResult.variations);
+            i = tabularResult.lastIndex;
+            continue;
+        }
+
         const refMatch = line.match(REF_REGEX);
         if (!refMatch) {
             continue;
         }
         const ref = refMatch[1];
+        const [, suffix = ''] = ref.split('.');
+        if (isTotalLabel(suffix)) {
+            continue;
+        }
 
         let gradeLineIndex = -1;
         for (let j = i + 1; j < totalLines.length; j++) {
             const candidate = totalLines[j];
             if (typeof candidate !== 'string') {
+                continue;
+            }
+            const candidateTokens = tokenizeLine(candidate);
+            if (isTotalTokensLine(candidateTokens)) {
                 continue;
             }
             if (REF_REGEX.test(candidate)) {
@@ -138,6 +245,10 @@ export const parseLinesIntoBlocks = (lines = []) => {
         for (let j = gradeLineIndex + 1; j < totalLines.length; j++) {
             const candidate = totalLines[j];
             if (typeof candidate !== 'string') {
+                continue;
+            }
+            const candidateTokens = tokenizeLine(candidate);
+            if (isTotalTokensLine(candidateTokens)) {
                 continue;
             }
             if (REF_REGEX.test(candidate)) {
