@@ -1,4 +1,6 @@
 import { read, utils } from 'xlsx';
+import { GlobalWorkerOptions, getDocument as getDocumentFromPdfjs } from 'pdfjs-dist';
+import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs';
 
 const REF_REGEX = /^([A-Z0-9]{2,}\.[\w-]+)/i;
 const GRADE_LABEL_REGEX = /grade/i;
@@ -333,8 +335,17 @@ const aggregateBlocksIntoSnapshots = (blocks = []) => {
     return Array.from(grouped.values());
 };
 
-const PDFJS_CDN_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.js';
-const PDFJS_WORKER_CDN_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.js';
+const defaultPdfjsLib = {
+    getDocument: typeof getDocumentFromPdfjs === 'function' ? getDocumentFromPdfjs : null,
+    GlobalWorkerOptions: GlobalWorkerOptions || null,
+};
+
+if (defaultPdfjsLib.GlobalWorkerOptions && pdfWorkerSrc) {
+    defaultPdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+}
+
+export const PDF_LIBRARY_UNAVAILABLE_ERROR = 'PDF_LIBRARY_UNAVAILABLE';
+export const PDF_EXTRACTION_FAILED_ERROR = 'PDF_EXTRACTION_FAILED';
 
 let cachedPdfjsLib = null;
 let injectedPdfjsLib = null;
@@ -357,31 +368,14 @@ export const loadPdfJsLibrary = async () => {
         return cachedPdfjsLib;
     }
 
-    if (typeof window !== 'undefined') {
-        if (window.pdfjsLib) {
-            cachedPdfjsLib = window.pdfjsLib;
-            return cachedPdfjsLib;
-        }
-
-        try {
-            const module = await import(/* webpackIgnore: true */ PDFJS_CDN_URL);
-            const lib = module?.default || module;
-
-            if (lib?.GlobalWorkerOptions) {
-                const workerSrc = lib.GlobalWorkerOptions.workerSrc;
-                if (!workerSrc) {
-                    lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_CDN_URL;
-                }
-            }
-
-            cachedPdfjsLib = lib || null;
-            return cachedPdfjsLib;
-        } catch (error) {
-            console.warn('Não foi possível carregar pdf.js dinamicamente.', error);
-        }
+    if (!defaultPdfjsLib.getDocument) {
+        const error = new Error('Não foi possível carregar a biblioteca pdf.js para leitura de arquivos PDF. Verifique a instalação das dependências.');
+        error.code = PDF_LIBRARY_UNAVAILABLE_ERROR;
+        throw error;
     }
 
-    return null;
+    cachedPdfjsLib = defaultPdfjsLib;
+    return cachedPdfjsLib;
 };
 
 const extractPdfLines = async (arrayBuffer) => {
@@ -391,38 +385,38 @@ const extractPdfLines = async (arrayBuffer) => {
 
     const pdfjsLib = await loadPdfJsLibrary();
 
-    if (pdfjsLib && typeof pdfjsLib.getDocument === 'function') {
-        try {
-            const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-            const pdf = typeof loadingTask.promise === 'object' && typeof loadingTask.promise.then === 'function'
-                ? await loadingTask.promise
-                : await loadingTask;
-
-            const pageCount = pdf.numPages || 0;
-            const lines = [];
-            for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
-                const page = await pdf.getPage(pageNumber);
-                const textContent = await page.getTextContent();
-                const pageText = textContent.items
-                    .map((item) => item.str)
-                    .join(' ')
-                    .split(/\r?\n|(?<=\s{2,})/)
-                    .map((segment) => segment.trim())
-                    .filter(Boolean);
-                lines.push(...pageText);
-            }
-            return lines;
-        } catch (error) {
-            console.warn('Falha ao extrair texto do PDF via pdf.js. Tentando fallback.', error);
-        }
+    if (!pdfjsLib || typeof pdfjsLib.getDocument !== 'function') {
+        const error = new Error('A biblioteca pdf.js não está disponível para leitura de arquivos PDF.');
+        error.code = PDF_LIBRARY_UNAVAILABLE_ERROR;
+        throw error;
     }
 
-    const decoder = new TextDecoder('utf-8');
-    const fallbackText = decoder.decode(arrayBuffer);
-    return fallbackText
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
+    try {
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdf = typeof loadingTask.promise === 'object' && typeof loadingTask.promise.then === 'function'
+            ? await loadingTask.promise
+            : await loadingTask;
+
+        const pageCount = pdf.numPages || 0;
+        const lines = [];
+        for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
+            const page = await pdf.getPage(pageNumber);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items
+                .map((item) => item.str)
+                .join(' ')
+                .split(/\r?\n|(?<=\s{2,})/)
+                .map((segment) => segment.trim())
+                .filter(Boolean);
+            lines.push(...pageText);
+        }
+        return lines;
+    } catch (error) {
+        const extractionError = new Error('Falha ao extrair texto do PDF. Verifique se o arquivo está íntegro e tente novamente.');
+        extractionError.code = PDF_EXTRACTION_FAILED_ERROR;
+        extractionError.cause = error;
+        throw extractionError;
+    }
 };
 
 const extractXlsxLines = (arrayBuffer) => {
