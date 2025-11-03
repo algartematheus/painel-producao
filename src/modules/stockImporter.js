@@ -1,6 +1,6 @@
 import { read, utils } from 'xlsx';
 import { GlobalWorkerOptions, getDocument as getDocumentFromPdfjs } from 'pdfjs-dist';
-import pdfWorkerSrc from 'pdfjs-dist/legacy/build/pdf.worker.min.js';
+import pdfWorkerSrc from 'pdfjs-dist/legacy/build/pdf.worker.js';
 
 const REF_REGEX = /^([A-Z0-9]{2,}\.[\w-]+)/i;
 const GRADE_LABEL_REGEX = /grade/i;
