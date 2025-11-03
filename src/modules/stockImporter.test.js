@@ -1,10 +1,17 @@
 import { utils, write } from 'xlsx';
 import importStockFile, {
+    PDF_LIBRARY_UNAVAILABLE_ERROR,
     clearPdfjsLibCache,
     flattenSnapshotsToVariations,
     parseLinesIntoBlocks,
     setPdfjsLibForTests,
 } from './stockImporter';
+
+jest.mock('pdfjs-dist/legacy/build/pdf.worker.min.js', () => 'pdf.worker.min.js');
+jest.mock('pdfjs-dist', () => ({
+    GlobalWorkerOptions: { workerSrc: null },
+    getDocument: jest.fn(),
+}));
 
 const mockGetDocument = jest.fn();
 
@@ -20,6 +27,17 @@ describe('stockImporter', () => {
     afterEach(() => {
         setPdfjsLibForTests(null);
         clearPdfjsLibCache();
+    });
+
+    it('throws an informative error when the pdf.js library is unavailable', async () => {
+        const buffer = new ArrayBuffer(8);
+        setPdfjsLibForTests({ getDocument: null });
+        clearPdfjsLibCache();
+
+        await expect(importStockFile({ arrayBuffer: buffer, type: 'pdf' })).rejects.toMatchObject({
+            code: PDF_LIBRARY_UNAVAILABLE_ERROR,
+            message: 'A biblioteca pdf.js não está disponível para leitura de arquivos PDF.',
+        });
     });
 
     it('parses PDF content into grouped product snapshots', async () => {
