@@ -192,6 +192,21 @@ const calcularTotaisPorTamanhoComDetalhes = (variations = [], grade = []) => {
     return { grade: gradeToUse, totalPorTamanho: totals, detalhesPorTamanho: detalhes };
 };
 
+export const calcularTotalPorTamanho = (variations = [], grade = []) => {
+    const sanitizedVariations = sanitizeVariations(variations);
+    const sanitizedGrade = cloneGrade(grade);
+    const { grade: gradeUtilizada, totalPorTamanho } = calcularTotaisPorTamanhoComDetalhes(
+        sanitizedVariations,
+        sanitizedGrade,
+    );
+    const gradeFinal = sanitizedGrade.length ? sanitizedGrade : gradeUtilizada;
+
+    return gradeFinal.reduce((acc, size) => {
+        acc[size] = normalizeNumber(totalPorTamanho[size]);
+        return acc;
+    }, {});
+};
+
 export const calcularTotalDetalhadoPorTamanho = (variations = [], grade = []) => {
     const sanitizedVariations = sanitizeVariations(variations);
     const gradeBase = cloneGrade(grade);
