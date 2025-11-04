@@ -164,23 +164,32 @@ const inferGradeFromVariations = (variations = [], fallbackGrade = []) => {
     return [];
 };
 
-export const calcularTotalPorTamanho = (variations = [], grade = []) => {
+const calcularTotaisPorTamanhoComDetalhes = (variations = [], grade = []) => {
     const sanitizedVariations = sanitizeVariations(variations);
     const gradeBase = cloneGrade(grade);
     const gradeToUse = gradeBase.length ? gradeBase : inferGradeFromVariations(sanitizedVariations);
     const totals = {};
+    const detalhes = {};
     gradeToUse.forEach((size) => {
         totals[size] = 0;
+        detalhes[size] = { positivo: 0, negativo: 0, liquido: 0 };
     });
 
     sanitizedVariations.forEach((variation) => {
         gradeToUse.forEach((size) => {
             const value = normalizeNumber(variation.tamanhos[size]);
             totals[size] = (totals[size] || 0) + value;
+            const detalhe = detalhes[size];
+            detalhe.liquido += value;
+            if (value > 0) {
+                detalhe.positivo += value;
+            } else if (value < 0) {
+                detalhe.negativo += value;
+            }
         });
     });
 
-    return totals;
+    return { grade: gradeToUse, totalPorTamanho: totals, detalhesPorTamanho: detalhes };
 };
 
 export const calcularTotalDetalhadoPorTamanho = (variations = [], grade = []) => {
@@ -239,13 +248,18 @@ export const criarSnapshotProduto = ({
     }
     const sanitizedGrade = cloneGrade(grade);
     const sanitizedVariations = sanitizeVariations(variations);
-    const totalPorTamanho = calcularTotalPorTamanho(sanitizedVariations, sanitizedGrade);
+    const { grade: gradeCalculada, totalPorTamanho, detalhesPorTamanho } = calcularTotaisPorTamanhoComDetalhes(
+        sanitizedVariations,
+        sanitizedGrade,
+    );
     const resumo = resumoPositivoNegativo(totalPorTamanho);
+    const gradeFinal = sanitizedGrade.length ? sanitizedGrade : gradeCalculada;
     return {
         produtoBase,
-        grade: sanitizedGrade.length ? sanitizedGrade : inferGradeFromVariations(sanitizedVariations),
+        grade: gradeFinal,
         variations: sanitizedVariations,
         totalPorTamanho,
+        totalPorTamanhoDetalhado: detalhesPorTamanho,
         resumoPositivoNegativo: resumo,
         metadata: {
             dataLancamentoISO: dataLancamentoISO || null,

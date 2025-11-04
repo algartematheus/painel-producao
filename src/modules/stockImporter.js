@@ -8,8 +8,6 @@ try {
     if (GlobalWorkerOptions) {
         GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
     }
-} catch {
-    pdfWorkerSrc = null;
 }
 
 const REF_REGEX = /^(\d{3}\.[\w-]+)/i;
@@ -19,6 +17,7 @@ const TOTAL_LABELS = new Set(['TOTAL', 'TOTAIS', 'TOTALGERAL', 'TOTALGERAL:', 'T
 
 export const PDF_LIBRARY_UNAVAILABLE_ERROR = 'PDF_LIBRARY_UNAVAILABLE';
 export const PDF_EXTRACTION_FAILED_ERROR = 'PDF_EXTRACTION_FAILED';
+export const NO_VARIATIONS_FOUND_ERROR = 'NO_VARIATIONS_FOUND';
 
 const normalizeLabel = (label) => {
     if (typeof label !== 'string') {
@@ -65,6 +64,22 @@ const sanitizeNumberToken = (token) => {
     return Math.round(parsed);
 };
 
+const sanitizeCellValue = (cell) => {
+    if (typeof cell === 'string') {
+        return cell.trim();
+    }
+    if (typeof cell === 'number') {
+        return Number.isFinite(cell) ? String(Math.round(cell)) : '';
+    }
+    if (cell instanceof Date) {
+        return cell.toISOString();
+    }
+    if (cell === null || typeof cell === 'undefined') {
+        return '';
+    }
+    return String(cell).trim();
+};
+
 const mapGradeToQuantities = (grades, quantities) => {
     const result = {};
     grades.forEach((grade, index) => {
@@ -88,11 +103,19 @@ const tokenizeLine = (line) => {
         .filter(Boolean);
 };
 
-const extractGradesFromLine = (line) => {
-    const tokens = tokenizeLine(line);
-    const gradeIndex = tokens.findIndex((token) => GRADE_LABEL_REGEX.test(token));
-    if (gradeIndex === -1) {
-        return [];
+const isPotentialSizeToken = (token) => {
+    const normalized = normalizeLabel(token);
+    if (!normalized) {
+        return false;
+    }
+    if (normalized === 'GRADE' || normalized.startsWith('GRADE')) {
+        return false;
+    }
+    if (normalized.startsWith('REF')) {
+        return false;
+    }
+    if (PRODUCE_LABEL_REGEX.test(token)) {
+        return false;
     }
     const candidates = tokens
         .slice(gradeIndex + 1)
@@ -123,173 +146,224 @@ const extractQuantitiesFromLine = (line, grades = []) => {
     return quantities;
 };
 
-const extractTabularGradesFromTokens = (tokens = []) => tokens
-    .filter((token, index) => {
-        const normalized = normalizeLabel(token);
-        if (!normalized) {
-            return false;
+const extractNumbersFromCell = (cell) => {
+    if (!cell) {
+        return [];
+    }
+    const matches = String(cell).match(/-?[\d,.]+/g);
+    if (!matches) {
+        return [];
+    }
+    return matches
+        .map(sanitizeNumberToken)
+        .filter((value) => value !== null);
+};
+
+const sanitizeRow = (row) => {
+    if (Array.isArray(row)) {
+        return row.map(sanitizeCellValue);
+    }
+    return [sanitizeCellValue(row)];
+};
+
+const rowHasContent = (row = []) => row.some((cell) => typeof cell === 'string' ? cell.trim() : cell);
+
+const rowContainsProduceLabel = (row = []) => row.some((cell) => typeof cell === 'string' && PRODUCE_LABEL_REGEX.test(cell));
+
+const findRefInRow = (row = []) => {
+    for (let cellIndex = 0; cellIndex < row.length; cellIndex++) {
+        const cell = row[cellIndex];
+        if (!cell) {
+            continue;
         }
-        if (isTotalLabel(token)) {
-            return false;
+        const tokens = tokenizeLine(cell);
+        for (const token of tokens) {
+            const match = token.match(REF_REGEX);
+            if (!match) {
+                continue;
+            }
+            const normalizedRef = match[1].toUpperCase();
+            const [, suffix = ''] = normalizedRef.split('.');
+            if (isTotalLabel(suffix)) {
+                continue;
+            }
+            return {
+                ref: normalizedRef,
+                cellIndex,
+                token: normalizedRef,
+            };
         }
-        if (normalized.startsWith('REF')) {
-            return false;
+    }
+    return null;
+};
+
+const extractGradeTokensFromRow = (row = [], { startCellIndex = 0, skipRefToken } = {}) => {
+    const tokens = [];
+    let refSkipped = !skipRefToken;
+    for (let cellIndex = startCellIndex; cellIndex < row.length; cellIndex++) {
+        const cell = row[cellIndex];
+        if (!cell) {
+            continue;
         }
-        if (normalized === 'TAM' || normalized.startsWith('TAMAN')) {
-            return false;
+        const cellTokens = tokenizeLine(cell);
+        for (const token of cellTokens) {
+            if (!refSkipped && token.toUpperCase() === skipRefToken.toUpperCase()) {
+                refSkipped = true;
+                continue;
+            }
+            if (!isPotentialSizeToken(token)) {
+                continue;
+            }
+            const normalizedToken = token.toUpperCase();
+            if (!tokens.includes(normalizedToken)) {
+                tokens.push(normalizedToken);
+            }
         }
-        return true;
+    }
+    return tokens;
+};
+
+const findGradeForVariation = (rows = [], rowIndex = 0, refCellIndex = 0, refToken = '') => {
+    const currentRow = rows[rowIndex] || [];
+    const sameRowTokens = extractGradeTokensFromRow(currentRow, {
+        startCellIndex: refCellIndex,
+        skipRefToken: refToken,
     });
 
-const isTotalTokensLine = (tokens = []) => tokens.some((token) => isTotalLabel(token));
+    if (sameRowTokens.length && sameRowTokens.some((token) => /[A-Z]/.test(token))) {
+        return sameRowTokens;
+    }
 
-export const parseLinesIntoBlocks = (lines = []) => {
-    const blocks = [];
-    const totalLines = Array.isArray(lines) ? lines : [];
-
-    const tryParseTabularSection = (startIndex) => {
-        const headerLine = totalLines[startIndex];
-        if (typeof headerLine !== 'string') {
-            return null;
+    const lookaheadLimit = 6;
+    for (let offset = 1; offset <= lookaheadLimit && rowIndex + offset < rows.length; offset++) {
+        const candidateRow = rows[rowIndex + offset];
+        if (!rowHasContent(candidateRow)) {
+            continue;
         }
-
-        const headerTokens = tokenizeLine(headerLine);
-        if (headerTokens.length < 2) {
-            return null;
+        if (candidateRow.some((cell) => typeof cell === 'string' && REF_REGEX.test(cell))) {
+            break;
         }
-
-        const grades = extractTabularGradesFromTokens(headerTokens);
-        if (grades.length < 2) {
-            return null;
+        if (rowContainsProduceLabel(candidateRow)) {
+            break;
         }
+        const tokens = extractGradeTokensFromRow(candidateRow);
+        if (tokens.length) {
+            return tokens;
+        }
+    }
 
-        const variations = [];
-        let lastIndex = startIndex;
+    const lookbehindLimit = 3;
+    for (let offset = 1; offset <= lookbehindLimit && rowIndex - offset >= 0; offset++) {
+        const candidateRow = rows[rowIndex - offset];
+        if (!rowHasContent(candidateRow)) {
+            continue;
+        }
+        if (candidateRow.some((cell) => typeof cell === 'string' && REF_REGEX.test(cell))) {
+            break;
+        }
+        if (rowContainsProduceLabel(candidateRow)) {
+            continue;
+        }
+        const tokens = extractGradeTokensFromRow(candidateRow);
+        if (tokens.length) {
+            return tokens;
+        }
+    }
 
-        for (let rowIndex = startIndex + 1; rowIndex < totalLines.length; rowIndex++) {
-            const rowLine = totalLines[rowIndex];
-            if (typeof rowLine !== 'string') {
-                continue;
-            }
-            if (!rowLine.trim()) {
-                lastIndex = rowIndex;
-                break;
-            }
-            const rowTokens = tokenizeLine(rowLine);
-            if (!rowTokens.length) {
-                lastIndex = rowIndex;
-                break;
-            }
-            if (isTotalTokensLine(rowTokens)) {
-                lastIndex = rowIndex;
-                break;
-            }
-            const [refToken, ...valueTokens] = rowTokens;
-            const refMatch = refToken.match(REF_REGEX);
-            if (!refMatch) {
-                lastIndex = rowIndex - 1;
-                break;
-            }
-            const ref = refMatch[1];
-            const [, suffix = ''] = ref.split('.');
+    return [];
+};
+
+const collectQuantitiesFromProduceRow = (row = []) => {
+    const labelIndex = row.findIndex((cell) => typeof cell === 'string' && PRODUCE_LABEL_REGEX.test(cell));
+    if (labelIndex === -1) {
+        return [];
+    }
+    const quantities = [];
+    quantities.push(...extractQuantitiesFromLine(row[labelIndex]));
+    for (let index = labelIndex + 1; index < row.length; index++) {
+        quantities.push(...extractNumbersFromCell(row[index]));
+    }
+    return quantities;
+};
+
+const collectQuantitiesFromTabularRow = (row = [], refToken = '') => {
+    if (!rowHasContent(row)) {
+        return [];
+    }
+    const quantities = [];
+    let collecting = false;
+
+    for (let cellIndex = 0; cellIndex < row.length; cellIndex++) {
+        const cell = row[cellIndex];
+        if (!cell) {
+            continue;
+        }
+        const match = typeof cell === 'string' ? cell.match(REF_REGEX) : null;
+        if (!collecting && match) {
+            const normalizedRef = match[1].toUpperCase();
+            const [, suffix = ''] = normalizedRef.split('.');
             if (isTotalLabel(suffix)) {
-                lastIndex = rowIndex;
-                continue;
+                return [];
             }
-            const quantities = valueTokens
-                .map(sanitizeNumberToken)
-                .filter((value) => value !== null);
-            if (!quantities.length) {
-                continue;
+            if (!refToken || normalizedRef === refToken) {
+                collecting = true;
+                const suffixText = cell.slice(cell.indexOf(match[0]) + match[0].length);
+                quantities.push(...extractNumbersFromCell(suffixText));
             }
-
-            variations.push({
-                ref,
-                grade: grades.slice(),
-                tamanhos: mapGradeToQuantities(grades, quantities),
-            });
-            lastIndex = rowIndex;
-        }
-
-        if (!variations.length) {
-            return null;
-        }
-
-        return { lastIndex, variations };
-    };
-
-    for (let i = 0; i < totalLines.length; i++) {
-        const line = totalLines[i];
-        if (typeof line !== 'string') {
             continue;
         }
 
-        const tabularResult = tryParseTabularSection(i);
-        if (tabularResult) {
-            blocks.push(...tabularResult.variations);
-            i = tabularResult.lastIndex;
+        if (!collecting) {
             continue;
         }
 
-        const refMatch = line.trim().match(REF_REGEX);
-        if (!refMatch) {
+        quantities.push(...extractNumbersFromCell(cell));
+    }
+
+    return quantities;
+};
+
+const findQuantitiesForRow = (rows = [], rowIndex = 0, refToken = '') => {
+    const lookaheadLimit = 8;
+    for (let offset = 0; offset <= lookaheadLimit && rowIndex + offset < rows.length; offset++) {
+        const candidateIndex = rowIndex + offset;
+        const candidateRow = rows[candidateIndex];
+        if (!rowHasContent(candidateRow)) {
             continue;
         }
-        const ref = refMatch[1];
-        const [, suffix = ''] = ref.split('.');
-        if (isTotalLabel(suffix)) {
+        if (offset > 0 && candidateRow.some((cell) => typeof cell === 'string' && REF_REGEX.test(cell))) {
+            break;
+        }
+        if (!rowContainsProduceLabel(candidateRow)) {
             continue;
         }
-
-        let gradeLineIndex = -1;
-        for (let j = i + 1; j < totalLines.length; j++) {
-            const candidate = totalLines[j];
-            if (typeof candidate !== 'string') {
-                continue;
-            }
-            const candidateTokens = tokenizeLine(candidate);
-            if (isTotalTokensLine(candidateTokens)) {
-                continue;
-            }
-            const trimmedCandidate = candidate.trim();
-            if (REF_REGEX.test(trimmedCandidate)) {
-                break;
-            }
-            if (GRADE_LABEL_REGEX.test(candidate)) {
-                gradeLineIndex = j;
-                break;
-            }
+        const produceQuantities = collectQuantitiesFromProduceRow(candidateRow);
+        if (produceQuantities.length) {
+            return {
+                quantities: produceQuantities,
+                lastRowIndex: candidateIndex,
+            };
         }
-        if (gradeLineIndex === -1) {
-            continue;
-        }
+    }
 
-        const grades = extractGradesFromLine(totalLines[gradeLineIndex]);
-        if (!grades.length) {
-            continue;
-        }
+    const tabularQuantities = collectQuantitiesFromTabularRow(rows[rowIndex], refToken);
+    if (tabularQuantities.length) {
+        return {
+            quantities: tabularQuantities,
+            lastRowIndex: rowIndex,
+        };
+    }
 
-        let produceLineIndex = -1;
-        for (let j = gradeLineIndex + 1; j < totalLines.length; j++) {
-            const candidate = totalLines[j];
-            if (typeof candidate !== 'string') {
-                continue;
-            }
-            const candidateTokens = tokenizeLine(candidate);
-            if (isTotalTokensLine(candidateTokens)) {
-                continue;
-            }
-            const trimmedCandidate = candidate.trim();
-            if (REF_REGEX.test(trimmedCandidate)) {
-                break;
-            }
-            if (PRODUCE_LABEL_REGEX.test(candidate)) {
-                produceLineIndex = j;
-                break;
-            }
-        }
+    return null;
+};
 
-        if (produceLineIndex === -1) {
+const parseRowsIntoBlocks = (rows = []) => {
+    const sanitizedRows = Array.isArray(rows) ? rows.map(sanitizeRow) : [];
+    const blocks = [];
+
+    for (let rowIndex = 0; rowIndex < sanitizedRows.length; rowIndex++) {
+        const row = sanitizedRows[rowIndex];
+        if (!rowHasContent(row)) {
             continue;
         }
 
@@ -298,20 +372,63 @@ export const parseLinesIntoBlocks = (lines = []) => {
             continue;
         }
 
-        const mapped = mapGradeToQuantities(grades, quantities);
-        if (Object.keys(mapped).length === 0) {
+        const { ref, cellIndex, token } = refInfo;
+        const gradeTokens = findGradeForVariation(sanitizedRows, rowIndex, cellIndex, token);
+        const quantitiesResult = findQuantitiesForRow(sanitizedRows, rowIndex, token);
+
+        if (!quantitiesResult) {
             continue;
         }
 
+        const { lastRowIndex } = quantitiesResult;
+        let { quantities } = quantitiesResult;
+        let resolvedGrade = gradeTokens.slice();
+
+        if (!resolvedGrade.length) {
+            if (quantities.length === 1) {
+                resolvedGrade = ['UNICA'];
+            } else {
+                continue;
+            }
+        }
+
+        if (quantities.length === resolvedGrade.length + 1) {
+            quantities = quantities.slice(0, resolvedGrade.length);
+        }
+
+        if (quantities.length !== resolvedGrade.length) {
+            if (quantities.length < resolvedGrade.length) {
+                const padding = new Array(resolvedGrade.length - quantities.length).fill(0);
+                quantities = [...quantities, ...padding];
+            } else {
+                quantities = quantities.slice(0, resolvedGrade.length);
+            }
+        }
+
+        const tamanhos = mapGradeToQuantities(resolvedGrade, quantities);
         blocks.push({
             ref,
-            grade: grades.slice(),
-            tamanhos: mapped,
+            grade: resolvedGrade,
+            tamanhos,
         });
-        i = produceLineIndex;
+
+        if (lastRowIndex > rowIndex) {
+            rowIndex = lastRowIndex;
+        }
     }
 
     return blocks;
+};
+
+export const parseLinesIntoBlocks = (lines = []) => {
+    const normalizedLines = Array.isArray(lines) ? lines : [];
+    const rows = normalizedLines.map((line) => {
+        if (Array.isArray(line)) {
+            return line;
+        }
+        return [line];
+    });
+    return parseRowsIntoBlocks(rows);
 };
 
 const areGradesEqual = (gradeA = [], gradeB = []) => {
@@ -364,6 +481,15 @@ const aggregateBlocksIntoSnapshots = (blocks = []) => {
     return Array.from(grouped.values());
 };
 
+const ensureBlocksFound = (blocks) => {
+    if (!Array.isArray(blocks) || !blocks.length) {
+        const error = new Error("Nenhuma variação encontrada no arquivo importado. Verifique se o relatório segue o layout padrão com códigos no formato '000.XX' e a linha 'A PRODUZIR'.");
+        error.code = NO_VARIATIONS_FOUND_ERROR;
+        throw error;
+    }
+    return blocks;
+};
+
 const defaultPdfjsLib = {
     getDocument: typeof getDocumentFromPdfjs === 'function' ? getDocumentFromPdfjs : null,
     GlobalWorkerOptions: GlobalWorkerOptions || null,
@@ -378,13 +504,13 @@ const ensurePdfWorkerConfigured = () => {
         return;
     }
 
-    if (typeof pdfWorkerSrc !== 'string' || !pdfWorkerSrc) {
+    if (!pdfWorker) {
         const configurationError = new Error('Não foi possível localizar o worker da biblioteca pdf.js. Verifique a instalação das dependências.');
         configurationError.code = PDF_LIBRARY_UNAVAILABLE_ERROR;
         throw configurationError;
     }
 
-    defaultPdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+    defaultPdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 };
 
 let cachedPdfjsLib = null;
@@ -461,7 +587,7 @@ const extractPdfLines = async (arrayBuffer) => {
     }
 };
 
-const extractXlsxLines = (arrayBuffer) => {
+const extractXlsxRows = (arrayBuffer) => {
     const workbook = read(arrayBuffer, { type: 'array' });
     const sheetName = workbook.SheetNames[0];
     if (!sheetName) {
@@ -469,12 +595,7 @@ const extractXlsxLines = (arrayBuffer) => {
     }
     const sheet = workbook.Sheets[sheetName];
     const rows = utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' });
-    return rows
-        .map((row) => row
-            .map((cell) => (typeof cell === 'string' ? cell : (Number.isFinite(cell) ? String(cell) : '')))
-            .join(' ')
-            .trim())
-        .filter(Boolean);
+    return rows.map((row) => (Array.isArray(row) ? row.map(sanitizeCellValue) : [sanitizeCellValue(row)]));
 };
 
 export const flattenSnapshotsToVariations = (snapshots = []) => {
@@ -513,13 +634,13 @@ export const importStockFile = async ({ file, arrayBuffer, type }) => {
 
     if (normalizedType === 'pdf' || (file?.type || '').includes('pdf')) {
         const lines = await extractPdfLines(buffer);
-        const blocks = parseLinesIntoBlocks(lines);
+        const blocks = ensureBlocksFound(parseLinesIntoBlocks(lines));
         return aggregateBlocksIntoSnapshots(blocks);
     }
 
     if (normalizedType === 'xlsx' || (file?.type || '').includes('sheet')) {
-        const lines = extractXlsxLines(buffer);
-        const blocks = parseLinesIntoBlocks(lines);
+        const rows = extractXlsxRows(buffer);
+        const blocks = ensureBlocksFound(parseRowsIntoBlocks(rows));
         return aggregateBlocksIntoSnapshots(blocks);
     }
 
