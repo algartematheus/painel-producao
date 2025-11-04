@@ -164,24 +164,35 @@ const inferGradeFromVariations = (variations = [], fallbackGrade = []) => {
     return [];
 };
 
-export const calcularTotalPorTamanho = (variations = [], grade = []) => {
+const calcularTotaisPorTamanhoComDetalhes = (variations = [], grade = []) => {
     const sanitizedVariations = sanitizeVariations(variations);
     const gradeBase = cloneGrade(grade);
     const gradeToUse = gradeBase.length ? gradeBase : inferGradeFromVariations(sanitizedVariations);
     const totals = {};
+    const detalhes = {};
     gradeToUse.forEach((size) => {
         totals[size] = 0;
+        detalhes[size] = { positivo: 0, negativo: 0, liquido: 0 };
     });
 
     sanitizedVariations.forEach((variation) => {
         gradeToUse.forEach((size) => {
             const value = normalizeNumber(variation.tamanhos[size]);
             totals[size] = (totals[size] || 0) + value;
+            const detalhe = detalhes[size];
+            detalhe.liquido += value;
+            if (value > 0) {
+                detalhe.positivo += value;
+            } else if (value < 0) {
+                detalhe.negativo += value;
+            }
         });
     });
 
-    return totals;
+    return { grade: gradeToUse, totalPorTamanho: totals, detalhesPorTamanho: detalhes };
 };
+
+export const calcularTotalPorTamanho = (variations = [], grade = []) => calcularTotaisPorTamanhoComDetalhes(variations, grade).totalPorTamanho;
 
 export const resumoPositivoNegativo = (totalPorTamanho = {}) => {
     const entries = Object.entries(totalPorTamanho || {});
@@ -214,13 +225,18 @@ export const criarSnapshotProduto = ({
     }
     const sanitizedGrade = cloneGrade(grade);
     const sanitizedVariations = sanitizeVariations(variations);
-    const totalPorTamanho = calcularTotalPorTamanho(sanitizedVariations, sanitizedGrade);
+    const { grade: gradeCalculada, totalPorTamanho, detalhesPorTamanho } = calcularTotaisPorTamanhoComDetalhes(
+        sanitizedVariations,
+        sanitizedGrade,
+    );
     const resumo = resumoPositivoNegativo(totalPorTamanho);
+    const gradeFinal = sanitizedGrade.length ? sanitizedGrade : gradeCalculada;
     return {
         produtoBase,
-        grade: sanitizedGrade.length ? sanitizedGrade : inferGradeFromVariations(sanitizedVariations),
+        grade: gradeFinal,
         variations: sanitizedVariations,
         totalPorTamanho,
+        totalPorTamanhoDetalhado: detalhesPorTamanho,
         resumoPositivoNegativo: resumo,
         metadata: {
             dataLancamentoISO: dataLancamentoISO || null,
@@ -282,6 +298,7 @@ export const renderizarBlocoProdutoHTML = (produtoSnapshot) => {
     const grade = cloneGrade(produtoSnapshot.grade);
     const variations = Array.isArray(produtoSnapshot.variations) ? produtoSnapshot.variations : [];
     const totalPorTamanho = produtoSnapshot.totalPorTamanho || {};
+    const detalhesPorTamanho = produtoSnapshot.totalPorTamanhoDetalhado || {};
     const resumo = produtoSnapshot.resumoPositivoNegativo || { positivoTotal: 0, negativoTotal: 0, formatoHumano: '0 0' };
 
     const headerCells = grade.map((size) => `<th>${size}</th>`).join('');
@@ -308,8 +325,27 @@ export const renderizarBlocoProdutoHTML = (produtoSnapshot) => {
 
     const totalCells = grade
         .map((size) => {
-            const value = normalizeNumber(totalPorTamanho[size]);
-            return `<td class="${getValueClass(value)}">${formatNumber(value)}</td>`;
+            const detalhe = detalhesPorTamanho[size] || { positivo: 0, negativo: 0, liquido: normalizeNumber(totalPorTamanho[size]) };
+            const positivo = normalizeNumber(detalhe.positivo);
+            const negativo = normalizeNumber(detalhe.negativo);
+            const liquido = normalizeNumber(detalhe.liquido ?? totalPorTamanho[size]);
+            let className = '';
+            let texto;
+
+            if (positivo > 0 && negativo < 0) {
+                texto = `${formatNumber(positivo)}-${formatNumber(Math.abs(negativo))}`;
+            } else if (positivo > 0) {
+                texto = formatNumber(positivo);
+                className = getValueClass(positivo);
+            } else if (negativo < 0) {
+                texto = formatNumber(negativo);
+                className = getValueClass(negativo);
+            } else {
+                texto = formatNumber(liquido);
+                className = getValueClass(liquido);
+            }
+
+            return `<td class="${className}">${texto}</td>`;
         })
         .join('');
 

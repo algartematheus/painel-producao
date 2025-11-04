@@ -7,8 +7,8 @@ import importStockFile, {
     setPdfjsLibForTests,
 } from './stockImporter';
 
-jest.mock('pdfjs-dist/legacy/build/pdf.worker.mjs', () => 'pdf.worker.js');
-jest.mock('pdfjs-dist/legacy/build/pdf', () => ({
+jest.mock('pdfjs-dist/build/pdf.worker.mjs', () => 'pdf.worker.js');
+jest.mock('pdfjs-dist', () => ({
     GlobalWorkerOptions: { workerSrc: null },
     getDocument: jest.fn(),
 }));
@@ -259,6 +259,34 @@ describe('stockImporter', () => {
                         ref: '017.01',
                         grade: ['34', '36', '38', '40'],
                         tamanhos: { '34': 1, '36': 2, '38': 3, '40': 4 },
+                    },
+                ],
+            },
+        ]);
+    });
+
+    it('parses XLSX content with grade única layout', async () => {
+        const workbook = utils.book_new();
+        const worksheet = utils.aoa_to_sheet([
+            ['016.AZ'],
+            ['Grade: 2 - UNICA'],
+            ['A PRODUZIR', 943, 943],
+        ]);
+        utils.book_append_sheet(workbook, worksheet, 'Planilha1');
+        const buffer = write(workbook, { bookType: 'xlsx', type: 'array' });
+
+        const snapshots = await importStockFile({ arrayBuffer: buffer, type: 'xlsx' });
+
+        expect(snapshots).toEqual([
+            {
+                productCode: '016',
+                grade: ['UNICA'],
+                warnings: [],
+                variations: [
+                    {
+                        ref: '016.AZ',
+                        grade: ['UNICA'],
+                        tamanhos: { UNICA: 943 },
                     },
                 ],
             },
