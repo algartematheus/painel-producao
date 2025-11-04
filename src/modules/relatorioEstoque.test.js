@@ -167,6 +167,10 @@ describe('relatorioEstoque module', () => {
         });
 
         expect(snapshot.totalPorTamanho).toEqual({ '06': -1, '08': 3 });
+        expect(snapshot.totalPorTamanhoDetalhado).toEqual({
+            '06': { positivo: 1, negativo: -2, liquido: -1 },
+            '08': { positivo: 4, negativo: -1, liquido: 3 },
+        });
         expect(snapshot.resumoPositivoNegativo).toEqual({ positivoTotal: 3, negativoTotal: -1, formatoHumano: '3 -1' });
         expect(snapshot.metadata).toEqual({ dataLancamentoISO: '2024-01-01T00:00:00Z', responsavel: 'Matheus' });
     });
