@@ -87,6 +87,11 @@ const formatDateTime = (isoString) => {
     }
 };
 
+const normalizePreviewNumber = (value) => {
+    const numero = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(numero) ? numero : 0;
+};
+
 const getValueTone = (value) => {
     if (value > 0) {
         return 'text-red-600 dark:text-red-400 font-semibold';
@@ -95,6 +100,38 @@ const getValueTone = (value) => {
         return 'text-blue-600 dark:text-blue-400 font-semibold';
     }
     return 'text-gray-700 dark:text-gray-200';
+};
+
+const formatDetalheTotalPreview = (detalhe, liquido) => {
+    const positivo = normalizePreviewNumber(detalhe?.positivo);
+    const negativo = normalizePreviewNumber(detalhe?.negativo);
+    const liquidoNumero = normalizePreviewNumber(detalhe?.liquido ?? liquido);
+
+    if (positivo > 0 && negativo < 0) {
+        return {
+            texto: `${positivo}-${Math.abs(negativo)}`,
+            classe: 'text-gray-800 dark:text-gray-100',
+        };
+    }
+
+    if (positivo > 0) {
+        return {
+            texto: String(positivo),
+            classe: getValueTone(positivo),
+        };
+    }
+
+    if (negativo < 0) {
+        return {
+            texto: String(negativo),
+            classe: getValueTone(negativo),
+        };
+    }
+
+    return {
+        texto: String(liquidoNumero),
+        classe: getValueTone(liquidoNumero),
+    };
 };
 
 const sumSnapshotsResumo = (snapshots = []) => {
@@ -589,11 +626,16 @@ const GestaoProducaoEstoqueModule = ({
                                                     <tfoot>
                                                         <tr className="border-t border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 font-semibold">
                                                             <td className="px-3 py-2 text-gray-800 dark:text-gray-100">{snapshot.produtoBase}.</td>
-                                                            {snapshot.grade.map((tamanho) => (
-                                                                <td key={`${snapshot.produtoBase}-total-${tamanho}`} className={`px-3 py-2 text-center ${getValueTone(snapshot.totalPorTamanho?.[tamanho] || 0)}`}>
-                                                                    {snapshot.totalPorTamanho?.[tamanho] ?? 0}
-                                                                </td>
-                                                            ))}
+                                                            {snapshot.grade.map((tamanho) => {
+                                                                const liquido = snapshot.totalPorTamanho?.[tamanho] ?? 0;
+                                                                const detalhe = snapshot.totalPorTamanhoDetalhado?.[tamanho];
+                                                                const { texto, classe } = formatDetalheTotalPreview(detalhe, liquido);
+                                                                return (
+                                                                    <td key={`${snapshot.produtoBase}-total-${tamanho}`} className={`px-3 py-2 text-center ${classe}`}>
+                                                                        {texto}
+                                                                    </td>
+                                                                );
+                                                            })}
                                                             <td className={`px-3 py-2 text-center ${getValueTone(Object.values(snapshot.totalPorTamanho || {}).reduce((acc, value) => acc + value, 0))}`}>
                                                                 {Object.values(snapshot.totalPorTamanho || {}).reduce((acc, value) => acc + value, 0)}
                                                             </td>
