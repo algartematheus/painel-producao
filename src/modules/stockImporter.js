@@ -8,6 +8,9 @@ try {
     if (GlobalWorkerOptions) {
         GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
     }
+} catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn('Não foi possível configurar o worker do PDF.', error);
 }
 
 const REF_REGEX = /^(\d{3}\.[\w-]+)/i;
