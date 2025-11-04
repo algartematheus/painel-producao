@@ -1,19 +1,18 @@
 import { read, utils } from 'xlsx';
 import { GlobalWorkerOptions, getDocument as getDocumentFromPdfjs } from 'pdfjs-dist';
-import pdfjsDistPackage from 'pdfjs-dist/package.json';
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs';
 
-if (GlobalWorkerOptions) {
-    try {
-        const version = pdfjsDistPackage?.version || '4.2.67';
-        GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${version}/pdf.worker.min.js`;
-    } catch (error) {
-        // Ignorado: configuração do worker pode falhar em ambientes de teste sem suporte a import.meta.url
+let pdfWorkerSrc = pdfWorker;
+
+try {
+    if (GlobalWorkerOptions) {
+        GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
     }
 }
 
-const REF_REGEX = /^(\d{3,}\.[A-Z0-9]+)/i;
+const REF_REGEX = /^(\d{3}\.[\w-]+)/i;
 const GRADE_LABEL_REGEX = /grade/i;
-const PRODUCE_LABEL_REGEX = /a\s*produzir/i;
+const PRODUCE_LABEL_REGEX = /a produzir/i;
 const TOTAL_LABELS = new Set(['TOTAL', 'TOTAIS', 'TOTALGERAL', 'TOTALGERAL:', 'TOTALGERAL.', 'TOTALG', 'TOT', 'TOTALPRODUZIR', 'TOTALPRODUÇÃO']);
 
 export const PDF_LIBRARY_UNAVAILABLE_ERROR = 'PDF_LIBRARY_UNAVAILABLE';
@@ -118,40 +117,33 @@ const isPotentialSizeToken = (token) => {
     if (PRODUCE_LABEL_REGEX.test(token)) {
         return false;
     }
-    if (isTotalLabel(token)) {
-        return false;
+    const candidates = tokens
+        .slice(gradeIndex + 1)
+        .filter((token) => !isTotalLabel(token));
+
+    if (candidates.some(token => /unica/i.test(token))) {
+        return ['UNICA'];
     }
-    if (/^[0-9]$/.test(normalized)) {
-        return false;
-    }
-    if (/^[0-9]{2,4}$/.test(normalized)) {
-        return true;
-    }
-    if (/^[A-Z]{1,4}$/.test(normalized)) {
-        return true;
-    }
-    if (/^[0-9]{1,2}[A-Z]{1,2}$/.test(normalized)) {
-        return true;
-    }
-    if (/^[A-Z]{1,2}[0-9]{1,2}$/.test(normalized)) {
-        return true;
-    }
-    if (normalized === 'UNICA' || normalized === 'UNICO' || normalized === 'UNIQUE') {
-        return true;
-    }
-    return false;
+
+    return candidates;
 };
 
-const extractQuantitiesFromLine = (line) => {
+const extractQuantitiesFromLine = (line, grades = []) => {
     if (typeof line !== 'string') {
         return [];
     }
     const normalized = line.normalize('NFD');
     const [, tail = ''] = normalized.split(/a\s*produzir/i);
-    return tail
+    let quantities = tail
         .split(/[^0-9,.-]+/)
         .map(sanitizeNumberToken)
         .filter((value) => value !== null);
+
+    if (grades.length > 0 && quantities.length === grades.length + 1) {
+        quantities = quantities.slice(0, grades.length);
+    }
+
+    return quantities;
 };
 
 const extractNumbersFromCell = (cell) => {
@@ -375,8 +367,8 @@ const parseRowsIntoBlocks = (rows = []) => {
             continue;
         }
 
-        const refInfo = findRefInRow(row);
-        if (!refInfo) {
+        const quantities = extractQuantitiesFromLine(totalLines[produceLineIndex], grades);
+        if (!quantities.length) {
             continue;
         }
 
@@ -447,6 +439,10 @@ const areGradesEqual = (gradeA = [], gradeB = []) => {
 };
 
 const aggregateBlocksIntoSnapshots = (blocks = []) => {
+    if (!Array.isArray(blocks) || blocks.length === 0) {
+        return [];
+    }
+
     const grouped = new Map();
     blocks.forEach((block) => {
         const originalRef = typeof block?.ref === 'string' ? block.ref : '';
