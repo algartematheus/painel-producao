@@ -370,8 +370,8 @@ const parseRowsIntoBlocks = (rows = []) => {
             continue;
         }
 
-        const quantities = extractQuantitiesFromLine(totalLines[produceLineIndex], grades);
-        if (!quantities.length) {
+        const refInfo = findRefInRow(row);
+        if (!refInfo) {
             continue;
         }
 
