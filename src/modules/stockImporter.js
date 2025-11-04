@@ -1,10 +1,11 @@
 import { read, utils } from 'xlsx';
 import { GlobalWorkerOptions, getDocument as getDocumentFromPdfjs } from 'pdfjs-dist';
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs';
+import pdfjsDistPackage from 'pdfjs-dist/package.json';
 
-if (GlobalWorkerOptions && pdfWorker) {
+if (GlobalWorkerOptions) {
     try {
-        GlobalWorkerOptions.workerSrc = pdfWorker;
+        const version = pdfjsDistPackage?.version || '4.2.67';
+        GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${version}/pdf.worker.min.js`;
     } catch (error) {
         // Ignorado: configuração do worker pode falhar em ambientes de teste sem suporte a import.meta.url
     }
