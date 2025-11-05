@@ -71,7 +71,7 @@ const getPdfWorkerPort = () => {
     return cachedPdfWorkerPort;
 };
 
-const REF_REGEX = /^(\d{3}\.[\w-]+)/i;
+const REF_REGEX = /^(\d{3,}\.[\w-]+)/i;
 const PRODUCE_LABEL_REGEX = /a produzir/i;
 const TOTAL_LABELS = new Set(['TOTAL', 'TOTAIS', 'TOTALGERAL', 'TOTALGERAL:', 'TOTALGERAL.', 'TOTALG', 'TOT', 'TOTALPRODUZIR', 'TOTALPRODUÇÃO']);
 
