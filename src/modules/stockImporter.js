@@ -4,11 +4,11 @@ import { GlobalWorkerOptions, getDocument as getDocumentFromPdfjs } from 'pdfjs-
 let pdfWorkerSrc = null;
 
 const resolveWorkerConstructor = () => {
+    if (typeof Worker === 'function') {
+        return Worker;
+    }
     if (typeof window !== 'undefined' && typeof window.Worker === 'function') {
         return window.Worker;
-    }
-    if (typeof globalThis !== 'undefined' && typeof globalThis.Worker === 'function') {
-        return globalThis.Worker;
     }
     if (typeof global !== 'undefined' && typeof global.Worker === 'function') {
         return global.Worker;
