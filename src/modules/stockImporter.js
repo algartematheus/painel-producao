@@ -3,20 +3,18 @@ import { GlobalWorkerOptions, getDocument as getDocumentFromPdfjs } from 'pdfjs-
 
 let pdfWorkerSrc = null;
 
-const getGlobalScope = () => {
-    if (typeof window !== 'undefined') {
-        return window;
+const resolveWorkerConstructor = () => {
+    if (typeof window !== 'undefined' && typeof window.Worker === 'function') {
+        return window.Worker;
     }
-    if (typeof self !== 'undefined') {
-        return self;
+    if (typeof globalThis !== 'undefined' && typeof globalThis.Worker === 'function') {
+        return globalThis.Worker;
     }
-    if (typeof global !== 'undefined') {
-        return global;
+    if (typeof global !== 'undefined' && typeof global.Worker === 'function') {
+        return global.Worker;
     }
-    return {};
+    return null;
 };
-
-const runtimeGlobal = getGlobalScope();
 
 try {
     pdfWorkerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
@@ -57,12 +55,13 @@ const getPdfWorkerPort = () => {
 
     attemptedPdfWorkerCreation = true;
 
-    if (typeof runtimeGlobal.Worker === 'undefined') {
+    const WorkerConstructor = resolveWorkerConstructor();
+    if (!WorkerConstructor) {
         return null;
     }
 
     try {
-        cachedPdfWorkerPort = new runtimeGlobal.Worker(new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url), { type: 'module' });
+        cachedPdfWorkerPort = new WorkerConstructor(new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url), { type: 'module' });
     } catch (error) {
         cachedPdfWorkerPort = null;
         // eslint-disable-next-line no-console
