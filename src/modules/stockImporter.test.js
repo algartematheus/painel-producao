@@ -242,17 +242,17 @@ describe('stockImporter', () => {
         ]);
     });
 
-    it('parses XLSX content exported in tabular layout', async () => {
+    it('parses XLSX content exported in tabular layout, incluindo referências com quatro dígitos', async () => {
         const workbook = utils.book_new();
         const worksheet = utils.aoa_to_sheet([
             ['REFTAM', 'PP', 'P', 'M', 'G', 'TOTAL'],
-            ['016.01', 10, 20, 30, 40, 100],
-            ['016.02', 5, 10, 15, 20, 50],
+            ['1234.01', 10, 20, 30, 40, 100],
+            ['1234.02', 5, 10, 15, 20, 50],
             ['TOTAL', 15, 30, 45, 60, 150],
             [],
             ['REFTAM', '34', '36', '38', '40', 'TOTAL'],
-            ['017.01', 1, 2, 3, 4, 10],
-            ['017.TOTAL', 1, 2, 3, 4, 10],
+            ['5678.01', 1, 2, 3, 4, 10],
+            ['5678.TOTAL', 1, 2, 3, 4, 10],
         ]);
         utils.book_append_sheet(workbook, worksheet, 'Planilha1');
         const buffer = write(workbook, { bookType: 'xlsx', type: 'array' });
@@ -261,29 +261,29 @@ describe('stockImporter', () => {
 
         expect(snapshots).toEqual([
             {
-                productCode: '016',
+                productCode: '1234',
                 grade: ['PP', 'P', 'M', 'G'],
                 warnings: [],
                 variations: [
                     {
-                        ref: '016.01',
+                        ref: '1234.01',
                         grade: ['PP', 'P', 'M', 'G'],
                         tamanhos: { PP: 10, P: 20, M: 30, G: 40 },
                     },
                     {
-                        ref: '016.02',
+                        ref: '1234.02',
                         grade: ['PP', 'P', 'M', 'G'],
                         tamanhos: { PP: 5, P: 10, M: 15, G: 20 },
                     },
                 ],
             },
             {
-                productCode: '017',
+                productCode: '5678',
                 grade: ['34', '36', '38', '40'],
                 warnings: [],
                 variations: [
                     {
-                        ref: '017.01',
+                        ref: '5678.01',
                         grade: ['34', '36', '38', '40'],
                         tamanhos: { '34': 1, '36': 2, '38': 3, '40': 4 },
                     },
