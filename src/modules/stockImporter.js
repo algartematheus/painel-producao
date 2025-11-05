@@ -11,16 +11,51 @@ try {
     console.warn('Não foi possível resolver o worker do PDF.', error);
 }
 
-if (pdfWorkerSrc) {
-    try {
-        if (GlobalWorkerOptions) {
-            GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+let cachedPdfWorkerPort = null;
+let attemptedPdfWorkerCreation = false;
+
+const terminateCachedPdfWorker = () => {
+    if (cachedPdfWorkerPort && typeof cachedPdfWorkerPort.terminate === 'function') {
+        try {
+            cachedPdfWorkerPort.terminate();
+        } catch (error) {
+            // eslint-disable-next-line no-console
+            console.warn('Não foi possível finalizar o worker do PDF.', error);
         }
-    } catch (error) {
-        // eslint-disable-next-line no-console
-        console.warn('Não foi possível configurar o worker do PDF.', error);
     }
-}
+    cachedPdfWorkerPort = null;
+    attemptedPdfWorkerCreation = false;
+
+    if (GlobalWorkerOptions) {
+        GlobalWorkerOptions.workerPort = null;
+    }
+};
+
+const getPdfWorkerPort = () => {
+    if (cachedPdfWorkerPort) {
+        return cachedPdfWorkerPort;
+    }
+
+    if (attemptedPdfWorkerCreation) {
+        return null;
+    }
+
+    attemptedPdfWorkerCreation = true;
+
+    if (typeof globalThis.Worker === 'undefined') {
+        return null;
+    }
+
+    try {
+        cachedPdfWorkerPort = new globalThis.Worker(new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url), { type: 'module' });
+    } catch (error) {
+        cachedPdfWorkerPort = null;
+        // eslint-disable-next-line no-console
+        console.warn('Não foi possível instanciar o worker do PDF.', error);
+    }
+
+    return cachedPdfWorkerPort;
+};
 
 const REF_REGEX = /^(\d{3}\.[\w-]+)/i;
 const PRODUCE_LABEL_REGEX = /a produzir/i;
@@ -520,19 +555,21 @@ const defaultPdfjsLib = {
 };
 
 const ensurePdfWorkerConfigured = () => {
-    if (!defaultPdfjsLib.GlobalWorkerOptions) {
+    const workerOptions = defaultPdfjsLib.GlobalWorkerOptions;
+    if (!workerOptions) {
         return;
     }
 
-    if (defaultPdfjsLib.GlobalWorkerOptions.workerSrc) {
-        return;
+    if (!workerOptions.workerPort) {
+        const workerPort = getPdfWorkerPort();
+        if (workerPort) {
+            workerOptions.workerPort = workerPort;
+        }
     }
 
-    if (!pdfWorkerSrc) {
-        return;
+    if (!workerOptions.workerPort && pdfWorkerSrc && !workerOptions.workerSrc) {
+        workerOptions.workerSrc = pdfWorkerSrc;
     }
-
-    defaultPdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 };
 
 let cachedPdfjsLib = null;
@@ -542,7 +579,14 @@ export const clearPdfjsLibCache = () => {
     cachedPdfjsLib = null;
 };
 
-export const setPdfjsLibForTests = (lib) => {
+export const terminatePdfjsWorkerForTests = () => {
+    terminateCachedPdfWorker();
+};
+
+export const setPdfjsLibForTests = (lib, { terminateWorker = true } = {}) => {
+    if (terminateWorker) {
+        terminateCachedPdfWorker();
+    }
     injectedPdfjsLib = lib || null;
     cachedPdfjsLib = null;
 };
