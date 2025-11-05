@@ -1,16 +1,25 @@
 import { read, utils } from 'xlsx';
 import { GlobalWorkerOptions, getDocument as getDocumentFromPdfjs } from 'pdfjs-dist';
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs';
 
-let pdfWorkerSrc = pdfWorker;
+let pdfWorkerSrc = null;
 
 try {
-    if (GlobalWorkerOptions) {
-        GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
-    }
+    pdfWorkerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
 } catch (error) {
+    pdfWorkerSrc = null;
     // eslint-disable-next-line no-console
-    console.warn('Não foi possível configurar o worker do PDF.', error);
+    console.warn('Não foi possível resolver o worker do PDF.', error);
+}
+
+if (pdfWorkerSrc) {
+    try {
+        if (GlobalWorkerOptions) {
+            GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+        }
+    } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn('Não foi possível configurar o worker do PDF.', error);
+    }
 }
 
 const REF_REGEX = /^(\d{3}\.[\w-]+)/i;
