@@ -1,16 +1,25 @@
 import { read, utils } from 'xlsx';
 import { GlobalWorkerOptions, getDocument as getDocumentFromPdfjs } from 'pdfjs-dist';
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs';
 
-let pdfWorkerSrc = pdfWorker;
+let pdfWorkerSrc = null;
 
 try {
-    if (GlobalWorkerOptions) {
-        GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
-    }
+    pdfWorkerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
 } catch (error) {
+    pdfWorkerSrc = null;
     // eslint-disable-next-line no-console
-    console.warn('Não foi possível configurar o worker do PDF.', error);
+    console.warn('Não foi possível resolver o worker do PDF.', error);
+}
+
+if (pdfWorkerSrc) {
+    try {
+        if (GlobalWorkerOptions) {
+            GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+        }
+    } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn('Não foi possível configurar o worker do PDF.', error);
+    }
 }
 
 const REF_REGEX = /^(\d{3}\.[\w-]+)/i;
@@ -120,15 +129,28 @@ const isPotentialSizeToken = (token) => {
     if (PRODUCE_LABEL_REGEX.test(token)) {
         return false;
     }
-    const candidates = tokens
-        .slice(gradeIndex + 1)
-        .filter((token) => !isTotalLabel(token));
-
-    if (candidates.some(token => /unica/i.test(token))) {
-        return ['UNICA'];
+    if (isTotalLabel(token)) {
+        return false;
     }
-
-    return candidates;
+    if (/^[0-9]$/.test(normalized)) {
+        return false;
+    }
+    if (/^[0-9]{2,4}$/.test(normalized)) {
+        return true;
+    }
+    if (/^[A-Z]{1,4}$/.test(normalized)) {
+        return true;
+    }
+    if (/^[0-9]{1,2}[A-Z]{1,2}$/.test(normalized)) {
+        return true;
+    }
+    if (/^[A-Z]{1,2}[0-9]{1,2}$/.test(normalized)) {
+        return true;
+    }
+    if (normalized === 'UNICA' || normalized === 'UNICO' || normalized === 'UNIQUE') {
+        return true;
+    }
+    return false;
 };
 
 const extractQuantitiesFromLine = (line, grades = []) => {
@@ -507,13 +529,11 @@ const ensurePdfWorkerConfigured = () => {
         return;
     }
 
-    if (!pdfWorker) {
-        const configurationError = new Error('Não foi possível localizar o worker da biblioteca pdf.js. Verifique a instalação das dependências.');
-        configurationError.code = PDF_LIBRARY_UNAVAILABLE_ERROR;
-        throw configurationError;
+    if (!pdfWorkerSrc) {
+        return;
     }
 
-    defaultPdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+    defaultPdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 };
 
 let cachedPdfjsLib = null;
