@@ -16,10 +16,10 @@ const resolveWorkerConstructor = () => {
     return null;
 };
 
-import { version as pdfjsVersion } from 'pdfjs-dist/package.json';
+import pdfjsPackage from 'pdfjs-dist/package.json';
 
 try {
-    pdfWorkerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsVersion}/build/pdf.worker.mjs`;
+    pdfWorkerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsPackage.version}/build/pdf.worker.mjs`;
 } catch (error) {
     console.warn('Não foi possível resolver o worker do PDF.', error);
 }
