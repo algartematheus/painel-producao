@@ -1,5 +1,6 @@
 import { read, utils } from 'xlsx';
 import { GlobalWorkerOptions, getDocument as getDocumentFromPdfjs } from 'pdfjs-dist';
+import pdfjsPackage from 'pdfjs-dist/package.json';
 
 let pdfWorkerSrc = null;
 
@@ -15,8 +16,6 @@ const resolveWorkerConstructor = () => {
     }
     return null;
 };
-
-import pdfjsPackage from 'pdfjs-dist/package.json';
 
 try {
     pdfWorkerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsPackage.version}/build/pdf.worker.mjs`;
