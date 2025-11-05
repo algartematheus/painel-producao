@@ -23,7 +23,6 @@ if (pdfWorkerSrc) {
 }
 
 const REF_REGEX = /^(\d{3}\.[\w-]+)/i;
-const GRADE_LABEL_REGEX = /grade/i;
 const PRODUCE_LABEL_REGEX = /a produzir/i;
 const TOTAL_LABELS = new Set(['TOTAL', 'TOTAIS', 'TOTALGERAL', 'TOTALGERAL:', 'TOTALGERAL.', 'TOTALG', 'TOT', 'TOTALPRODUZIR', 'TOTALPRODUÇÃO']);
 
