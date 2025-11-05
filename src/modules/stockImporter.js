@@ -3,6 +3,21 @@ import { GlobalWorkerOptions, getDocument as getDocumentFromPdfjs } from 'pdfjs-
 
 let pdfWorkerSrc = null;
 
+const getGlobalScope = () => {
+    if (typeof window !== 'undefined') {
+        return window;
+    }
+    if (typeof self !== 'undefined') {
+        return self;
+    }
+    if (typeof global !== 'undefined') {
+        return global;
+    }
+    return {};
+};
+
+const runtimeGlobal = getGlobalScope();
+
 try {
     pdfWorkerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
 } catch (error) {
@@ -42,12 +57,12 @@ const getPdfWorkerPort = () => {
 
     attemptedPdfWorkerCreation = true;
 
-    if (typeof globalThis.Worker === 'undefined') {
+    if (typeof runtimeGlobal.Worker === 'undefined') {
         return null;
     }
 
     try {
-        cachedPdfWorkerPort = new globalThis.Worker(new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url), { type: 'module' });
+        cachedPdfWorkerPort = new runtimeGlobal.Worker(new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url), { type: 'module' });
     } catch (error) {
         cachedPdfWorkerPort = null;
         // eslint-disable-next-line no-console
