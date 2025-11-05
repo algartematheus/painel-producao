@@ -16,11 +16,11 @@ const resolveWorkerConstructor = () => {
     return null;
 };
 
+import { version as pdfjsVersion } from 'pdfjs-dist/package.json';
+
 try {
-    pdfWorkerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
+    pdfWorkerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsVersion}/build/pdf.worker.mjs`;
 } catch (error) {
-    pdfWorkerSrc = null;
-    // eslint-disable-next-line no-console
     console.warn('Não foi possível resolver o worker do PDF.', error);
 }
 
@@ -56,12 +56,12 @@ const getPdfWorkerPort = () => {
     attemptedPdfWorkerCreation = true;
 
     const WorkerConstructor = resolveWorkerConstructor();
-    if (!WorkerConstructor) {
+    if (!WorkerConstructor || !pdfWorkerSrc) {
         return null;
     }
 
     try {
-        cachedPdfWorkerPort = new WorkerConstructor(new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url), { type: 'module' });
+        cachedPdfWorkerPort = new WorkerConstructor(pdfWorkerSrc, { type: 'module' });
     } catch (error) {
         cachedPdfWorkerPort = null;
         // eslint-disable-next-line no-console
