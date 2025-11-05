@@ -5,10 +5,12 @@ import importStockFile, {
     flattenSnapshotsToVariations,
     parseLinesIntoBlocks,
     setPdfjsLibForTests,
+    terminatePdfjsWorkerForTests,
+    loadPdfJsLibrary,
 } from './stockImporter';
 
 jest.mock('pdfjs-dist', () => ({
-    GlobalWorkerOptions: { workerSrc: null },
+    GlobalWorkerOptions: { workerSrc: null, workerPort: null },
     getDocument: jest.fn(),
 }));
 
@@ -21,11 +23,37 @@ describe('stockImporter', () => {
             getDocument: mockGetDocument,
         });
         clearPdfjsLibCache();
+        terminatePdfjsWorkerForTests();
     });
 
     afterEach(() => {
         setPdfjsLibForTests(null);
         clearPdfjsLibCache();
+        terminatePdfjsWorkerForTests();
+    });
+
+    it('terminates cached pdf.js workers during test cleanup', async () => {
+        const originalWorker = global.Worker;
+        const terminate = jest.fn();
+        const mockWorkerInstance = { terminate };
+        global.Worker = jest.fn(() => mockWorkerInstance);
+
+        try {
+            setPdfjsLibForTests(null);
+            clearPdfjsLibCache();
+
+            const pdfjsLib = await loadPdfJsLibrary();
+
+            expect(global.Worker).toHaveBeenCalledTimes(1);
+            expect(pdfjsLib.GlobalWorkerOptions.workerPort).toBe(mockWorkerInstance);
+
+            terminatePdfjsWorkerForTests();
+
+            expect(terminate).toHaveBeenCalledTimes(1);
+            expect(pdfjsLib.GlobalWorkerOptions.workerPort).toBeNull();
+        } finally {
+            global.Worker = originalWorker;
+        }
     });
 
     it('throws an informative error when the pdf.js library is unavailable', async () => {
