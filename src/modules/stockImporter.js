@@ -71,6 +71,7 @@ const getPdfWorkerPort = () => {
 };
 
 const REF_REGEX = /^(\d{3,}\.[\w-]+)/i;
+const NUMERIC_ONLY_REGEX = /^-?\d+(?:[.,]\d+)?$/;
 const PRODUCE_LABEL_REGEX = /a produzir/i;
 const TOTAL_LABELS = new Set(['TOTAL', 'TOTAIS', 'TOTALGERAL', 'TOTALGERAL:', 'TOTALGERAL.', 'TOTALG', 'TOT', 'TOTALPRODUZIR', 'TOTALPRODUÇÃO']);
 
@@ -83,6 +84,31 @@ const normalizeLabel = (label) => {
         return '';
     }
     return label.normalize('NFD').replace(/[^\w]/g, '').toUpperCase();
+};
+
+const isLikelyReferenceSuffix = (suffix = '') => {
+    if (typeof suffix !== 'string') {
+        return false;
+    }
+
+    const normalized = suffix
+        .normalize('NFD')
+        .replace(/[^A-Z0-9-]/gi, '')
+        .toUpperCase();
+
+    if (!normalized) {
+        return false;
+    }
+
+    if (/^[0-9-]+$/.test(normalized)) {
+        const digitsOnly = normalized.replace(/-/g, '');
+        if (!digitsOnly || /^0+$/.test(digitsOnly)) {
+            return false;
+        }
+        return digitsOnly.length <= 4;
+    }
+
+    return /^[A-Z0-9-]+$/.test(normalized);
 };
 
 const isTotalLabel = (label) => {
@@ -259,6 +285,9 @@ const findRefInRow = (row = []) => {
             if (isTotalLabel(suffix)) {
                 continue;
             }
+            if (!isLikelyReferenceSuffix(suffix)) {
+                continue;
+            }
             return {
                 ref: normalizedRef,
                 cellIndex,
@@ -267,6 +296,37 @@ const findRefInRow = (row = []) => {
         }
     }
     return null;
+};
+
+const rowIsNumericOnly = (row = []) => {
+    let hasValue = false;
+    for (const cell of row) {
+        if (typeof cell === 'number') {
+            if (!Number.isFinite(cell)) {
+                return false;
+            }
+            hasValue = true;
+            continue;
+        }
+
+        if (typeof cell === 'string') {
+            const trimmed = cell.trim();
+            if (!trimmed) {
+                continue;
+            }
+            if (!NUMERIC_ONLY_REGEX.test(trimmed)) {
+                return false;
+            }
+            hasValue = true;
+            continue;
+        }
+
+        if (cell) {
+            return false;
+        }
+    }
+
+    return hasValue;
 };
 
 const extractGradeTokensFromRow = (row = [], { startCellIndex = 0, skipRefToken } = {}) => {
@@ -402,8 +462,13 @@ const findQuantitiesForRow = (rows = [], rowIndex = 0, refToken = '') => {
         if (!rowHasContent(candidateRow)) {
             continue;
         }
-        if (offset > 0 && candidateRow.some((cell) => typeof cell === 'string' && REF_REGEX.test(cell))) {
-            break;
+        if (offset > 0) {
+            if (rowIsNumericOnly(candidateRow)) {
+                continue;
+            }
+            if (findRefInRow(candidateRow)) {
+                break;
+            }
         }
         if (!rowContainsProduceLabel(candidateRow)) {
             continue;
