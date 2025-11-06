@@ -649,13 +649,24 @@ const extractPdfLines = async (arrayBuffer) => {
         for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
             const page = await pdf.getPage(pageNumber);
             const textContent = await page.getTextContent();
-            const pageText = textContent.items
-                .map((item) => item.str)
-                .join(' ')
-                .split(/\r?\n|(?<=\s{2,})/)
-                .map((segment) => segment.trim())
-                .filter(Boolean);
-            lines.push(...pageText);
+            const items = textContent.items;
+
+            const linesMap = new Map();
+            items.forEach(item => {
+                const y = Math.round(item.transform[5]);
+                if (!linesMap.has(y)) {
+                    linesMap.set(y, []);
+                }
+                linesMap.get(y).push(item);
+            });
+
+            const sortedY = Array.from(linesMap.keys()).sort((a, b) => b - a);
+
+            for (const y of sortedY) {
+                const lineItems = linesMap.get(y);
+                lineItems.sort((a, b) => a.transform[4] - b.transform[4]);
+                lines.push(lineItems.map(item => item.str).join(' '));
+            }
         }
         return lines;
     } catch (error) {
