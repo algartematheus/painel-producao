@@ -169,6 +169,46 @@ describe('stockImporter', () => {
         ]);
     });
 
+    it('parses PDF content skipping numeric summary lines before produce totals', async () => {
+        const mockPage = {
+            getTextContent: jest.fn().mockResolvedValue({
+                items: [
+                    { str: '2468.BC VESTIDO' },
+                    { str: 'GRADE PP P M G TOTAL' },
+                    { str: '482.00' },
+                    { str: '0,00' },
+                    { str: 'A PRODUZIR 7 14 21 28 70' },
+                ],
+            }),
+        };
+
+        mockGetDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 1,
+                getPage: jest.fn().mockResolvedValue(mockPage),
+            }),
+        });
+
+        const buffer = new ArrayBuffer(8);
+        const snapshots = await importStockFile({ arrayBuffer: buffer, type: 'pdf' });
+
+        expect(mockGetDocument).toHaveBeenCalledTimes(1);
+        expect(snapshots).toEqual([
+            {
+                productCode: '2468',
+                grade: ['PP', 'P', 'M', 'G'],
+                warnings: [],
+                variations: [
+                    {
+                        ref: '2468.BC',
+                        grade: ['PP', 'P', 'M', 'G'],
+                        tamanhos: { PP: 7, P: 14, M: 21, G: 28 },
+                    },
+                ],
+            },
+        ]);
+    });
+
     it('parses PDF content exported in tabular layout', async () => {
         const mockPage = {
             getTextContent: jest.fn().mockResolvedValue({
