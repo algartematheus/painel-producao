@@ -396,8 +396,7 @@ const collectQuantitiesFromTabularRow = (row = [], refToken = '') => {
 };
 
 const findQuantitiesForRow = (rows = [], rowIndex = 0, refToken = '') => {
-    const lookaheadLimit = 8;
-    for (let offset = 0; offset <= lookaheadLimit && rowIndex + offset < rows.length; offset++) {
+    for (let offset = 0; rowIndex + offset < rows.length; offset++) {
         const candidateIndex = rowIndex + offset;
         const candidateRow = rows[candidateIndex];
         if (!rowHasContent(candidateRow)) {

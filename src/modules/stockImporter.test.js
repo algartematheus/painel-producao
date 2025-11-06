@@ -129,6 +129,46 @@ describe('stockImporter', () => {
         ]);
     });
 
+    it('parses PDF content when produce totals appear after extended summary lines', async () => {
+        const fillerLines = Array.from({ length: 9 }, (_, index) => ({ str: `RESUMO ${index + 1}` }));
+        const mockPage = {
+            getTextContent: jest.fn().mockResolvedValue({
+                items: [
+                    { str: '5678.AB BLUSA' },
+                    { str: 'GRADE PP P M G TOTAL' },
+                    ...fillerLines,
+                    { str: 'A PRODUZIR 3 6 9 12 30' },
+                ],
+            }),
+        };
+
+        mockGetDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 1,
+                getPage: jest.fn().mockResolvedValue(mockPage),
+            }),
+        });
+
+        const buffer = new ArrayBuffer(8);
+        const snapshots = await importStockFile({ arrayBuffer: buffer, type: 'pdf' });
+
+        expect(mockGetDocument).toHaveBeenCalledTimes(1);
+        expect(snapshots).toEqual([
+            {
+                productCode: '5678',
+                grade: ['PP', 'P', 'M', 'G'],
+                warnings: [],
+                variations: [
+                    {
+                        ref: '5678.AB',
+                        grade: ['PP', 'P', 'M', 'G'],
+                        tamanhos: { PP: 3, P: 6, M: 9, G: 12 },
+                    },
+                ],
+            },
+        ]);
+    });
+
     it('parses PDF content exported in tabular layout', async () => {
         const mockPage = {
             getTextContent: jest.fn().mockResolvedValue({
