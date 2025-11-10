@@ -306,32 +306,6 @@ const extractGradeFromQtdeRow = (row = []) => {
     return grade;
 };
 
-const normalizeProduceValues = (values = [], gradeLength = 0) => {
-    if (!Array.isArray(values)) {
-        return new Array(gradeLength).fill(0);
-    }
-
-    let normalized = values.slice();
-    if (gradeLength > 0) {
-        if (normalized.length === gradeLength + 1) {
-            normalized = normalized.slice(0, gradeLength);
-        } else if (normalized.length > gradeLength + 1) {
-            normalized = normalized.slice(0, gradeLength);
-        }
-    }
-
-    if (gradeLength > 0) {
-        const filled = [];
-        for (let index = 0; index < gradeLength; index++) {
-            const value = normalized[index];
-            filled.push(Number.isFinite(value) ? value : 0);
-        }
-        return filled;
-    }
-
-    return normalized.map((value) => (Number.isFinite(value) ? value : 0));
-};
-
 const findRefInRow = (row = []) => {
     for (let cellIndex = 0; cellIndex < row.length; cellIndex++) {
         const cell = row[cellIndex];
