@@ -269,53 +269,82 @@ describe('stockImporter', () => {
         ]);
     });
 
-    it('parses XLSX content ignoring total columns and supporting references with alphabetic suffixes', async () => {
+    it('parses XLSX content using A PRODUZIR blocks and Qtde grade rows', async () => {
         const workbook = utils.book_new();
-        const worksheet = utils.aoa_to_sheet([
-            ['1234.AZ'],
-            ['Grade', 'PP', 'P', 'M', 'Total'],
-            ['A Produzir', '12', '8', '4', '24'],
-            [],
-            ['1234.BY'],
-            ['GRADE', 'PP', 'P', 'M', 'TOTAL'],
-            ['A PRODUZIR', 6, 4, 2, 12],
-            [],
-            ['017.01'],
-            ['GRADE', '34', '36', '38', '40', 'TOTAL'],
-            ['A PRODUZIR', 1, 2, 3, 4, 10],
+        const sheet1 = utils.aoa_to_sheet([
+            ['016.AZ'],
+            ['CALÇA MASC.INFANT JUVENIL'],
+            ['AZUL SEGUNDA QUALIDADE'],
+            ['Lotes Anteriores:', 248, 31, 36, 33, 30, 32, 24, 29, 463],
+            ['TOTAL ESTOQUES:', 10, 20, 30, 40],
+            ['A PRODUZIR', -5, 10, 0, 4, -3, 2, 1, 20, 29],
+            ['Saldo/Sobras', 0],
+            ['Qtde', '06', '08', '10', '12', '14', '16', '02', '04'],
+            ['016.DV'],
+            ['CALÇA MASC.INFANT JUVENIL'],
+            ['A PRODUZIR', 1, 2, 3, 4, 5, 6, 7, 8, 36],
+            ['Produção Extra', 0],
+            ['Qtde', '06', '08', '10', '12', '14', '16', '02', '04'],
         ]);
-        utils.book_append_sheet(workbook, worksheet, 'Planilha1');
+        const sheet2 = utils.aoa_to_sheet([
+            ['017.ST'],
+            ['CALÇA FEMININA'],
+            ['A PRODUZIR', 9, 8, 7, 6, 30],
+            ['Saldo/Sobras', 0],
+            ['Qtde', 'P', 'M', 'G', 'GG'],
+        ]);
+
+        utils.book_append_sheet(workbook, sheet1, 'Planilha1');
+        utils.book_append_sheet(workbook, sheet2, 'Planilha2');
         const buffer = write(workbook, { bookType: 'xlsx', type: 'array' });
 
         const snapshots = await importStockFile({ arrayBuffer: buffer, type: 'xlsx' });
 
         expect(snapshots).toEqual([
             {
-                productCode: '1234',
-                grade: ['PP', 'P', 'M'],
+                productCode: '016',
+                grade: ['06', '08', '10', '12', '14', '16', '02', '04'],
                 warnings: [],
                 variations: [
                     {
-                        ref: '1234.AZ',
-                        grade: ['PP', 'P', 'M'],
-                        tamanhos: { PP: 12, P: 8, M: 4 },
+                        ref: '016.AZ',
+                        grade: ['06', '08', '10', '12', '14', '16', '02', '04'],
+                        tamanhos: {
+                            '06': -5,
+                            '08': 10,
+                            '10': 0,
+                            '12': 4,
+                            '14': -3,
+                            '16': 2,
+                            '02': 1,
+                            '04': 20,
+                        },
                     },
                     {
-                        ref: '1234.BY',
-                        grade: ['PP', 'P', 'M'],
-                        tamanhos: { PP: 6, P: 4, M: 2 },
+                        ref: '016.DV',
+                        grade: ['06', '08', '10', '12', '14', '16', '02', '04'],
+                        tamanhos: {
+                            '06': 1,
+                            '08': 2,
+                            '10': 3,
+                            '12': 4,
+                            '14': 5,
+                            '16': 6,
+                            '02': 7,
+                            '04': 8,
+                        },
                     },
                 ],
             },
             {
                 productCode: '017',
-                grade: ['34', '36', '38', '40'],
+                grade: ['P', 'M', 'G', 'GG'],
                 warnings: [],
                 variations: [
                     {
-                        ref: '017.01',
-                        grade: ['34', '36', '38', '40'],
-                        tamanhos: { '34': 1, '36': 2, '38': 3, '40': 4 },
+                        ref: '017.ST',
+                        grade: ['P', 'M', 'G', 'GG'],
+                        tamanhos: { P: 9, M: 8, G: 7, GG: 6 },
                     },
                 ],
             },
