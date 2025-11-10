@@ -402,7 +402,8 @@ const parseAProduzirRowsIntoBlocks = (rows = []) => {
         }
 
         const firstCell = row[0];
-        if (!firstCell || normalizeLabel(firstCell) !== 'APRODUZIR') {
+        const sanitizedFirstCell = typeof firstCell === 'string' ? firstCell.trim() : '';
+        if (!sanitizedFirstCell || !sanitizedFirstCell.toUpperCase().startsWith('A PRODUZIR')) {
             continue;
         }
 
@@ -422,7 +423,10 @@ const parseAProduzirRowsIntoBlocks = (rows = []) => {
             continue;
         }
 
-        const produceValues = extractProduceValues(row);
+        const produceValues = [
+            ...extractQuantitiesFromLine(sanitizedFirstCell, grade),
+            ...extractProduceValues(row),
+        ];
         const normalizedProduceValues = normalizeProduceValues(produceValues, grade.length);
 
         const tamanhos = {};
