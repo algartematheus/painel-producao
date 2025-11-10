@@ -734,12 +734,258 @@ const parseRowsIntoBlocks = (rows = []) => {
     return blocks;
 };
 
-const parseXlsxRowsIntoBlocks = (rows = []) => {
-    const produceBlocks = parseAProduzirRowsIntoBlocks(rows);
-    if (produceBlocks.length) {
-        return produceBlocks;
+const collectRowNumbersFromColumns = (row = [], { startColumnIndex = 1, maxColumns } = {}) => {
+    if (!Array.isArray(row)) {
+        return [];
     }
-    return parseRowsIntoBlocks(rows);
+
+    const limit = typeof maxColumns === 'number' ? maxColumns : row.length;
+    const numbers = [];
+    for (let columnIndex = startColumnIndex; columnIndex < limit; columnIndex++) {
+        const cell = row[columnIndex];
+        if (cell === null || typeof cell === 'undefined' || cell === '') {
+            continue;
+        }
+        const parsed = sanitizeNumberToken(cell);
+        if (parsed === null) {
+            continue;
+        }
+        numbers.push(parsed);
+    }
+    return numbers;
+};
+
+const collectRowNumbersWithFallback = (row = [], gradeLength = 0) => {
+    const numbers = collectRowNumbersFromColumns(row, { startColumnIndex: 1 });
+    if (numbers.length) {
+        return numbers;
+    }
+
+    const firstCellNumbers = extractNumbersFromCell(row?.[0]);
+    if (firstCellNumbers.length) {
+        return firstCellNumbers;
+    }
+
+    if (gradeLength <= 0) {
+        return collectRowNumbersFromColumns(row, { startColumnIndex: 0 });
+    }
+
+    return numbers;
+};
+
+const collectRowNonEmptyValues = (row = [], { startColumnIndex = 1, maxColumns } = {}) => {
+    if (!Array.isArray(row)) {
+        return [];
+    }
+
+    const limit = typeof maxColumns === 'number' ? maxColumns : row.length;
+    const values = [];
+    for (let columnIndex = startColumnIndex; columnIndex < limit; columnIndex++) {
+        const cell = row[columnIndex];
+        if (cell === null || typeof cell === 'undefined') {
+            continue;
+        }
+        const sanitized = sanitizeCellValue(cell);
+        if (!sanitized) {
+            continue;
+        }
+        values.push(sanitized);
+    }
+    return values;
+};
+
+const shouldDebugVariation = (productBase) => ['016', '101'].includes(productBase);
+
+const logXlsxDebugInfo = ({
+    ref,
+    linhaCodigo,
+    linhaAProduzir,
+    linhaQtde,
+    rows,
+    gradeValues,
+}) => {
+    const [productBase] = ref.split('.');
+    if (!shouldDebugVariation(productBase)) {
+        return;
+    }
+
+    const safeIndex = (index) => (typeof index === 'number' && index >= 0 ? index : null);
+    const codigoIndex = safeIndex(linhaCodigo);
+    const produzirIndex = safeIndex(linhaAProduzir);
+    const qtdeIndex = safeIndex(linhaQtde);
+
+    const codigoRow = codigoIndex !== null ? rows[codigoIndex] : null;
+    const produzirRow = produzirIndex !== null ? rows[produzirIndex] : null;
+    const qtdeRow = qtdeIndex !== null ? rows[qtdeIndex] : null;
+
+    const codigoColA = getFirstColumnValue(codigoRow) || '';
+    const produzirColA = getFirstColumnValue(produzirRow) || '';
+    const qtdeColA = getFirstColumnValue(qtdeRow) || '';
+
+    const produzirNumericValues = collectRowNumbersWithFallback(produzirRow, gradeValues.length);
+    const qtdeValues = collectRowNonEmptyValues(qtdeRow, { startColumnIndex: 1 });
+
+    const formatLineNumber = (index) => (index !== null ? index + 1 : 'N/D');
+
+    // eslint-disable-next-line no-console
+    console.log('[DEBUG XLSX] Variacao:', ref);
+    // eslint-disable-next-line no-console
+    console.log('  linhaCodigo   =', formatLineNumber(codigoIndex), 'valor colA:', codigoColA);
+    // eslint-disable-next-line no-console
+    console.log('  linhaAProduzir=', formatLineNumber(produzirIndex), 'valor colA:', produzirColA);
+    // eslint-disable-next-line no-console
+    console.log('  linhaQtde     =', formatLineNumber(qtdeIndex), 'valor colA:', qtdeColA);
+    // eslint-disable-next-line no-console
+    console.log('  linhaAProduzir valores:', produzirNumericValues);
+    // eslint-disable-next-line no-console
+    console.log('  linhaQtde tamanhos:', qtdeValues);
+};
+
+const parseXlsxRowsIntoBlocks = (rows = []) => {
+    if (!Array.isArray(rows) || !rows.length) {
+        return [];
+    }
+
+    const sanitizedRows = rows.map(sanitizeRow);
+    const blocks = [];
+
+    for (let rowIndex = 0; rowIndex < sanitizedRows.length; rowIndex++) {
+        const row = sanitizedRows[rowIndex];
+        const firstCell = getFirstColumnValue(row);
+        if (!firstCell) {
+            continue;
+        }
+
+        const normalizedFirstCell = firstCell.trim().toUpperCase();
+        const variationMatch = normalizedFirstCell.match(STRICT_VARIATION_CODE_REGEX);
+        if (!variationMatch) {
+            continue;
+        }
+
+        const ref = variationMatch[1];
+        const linhaCodigo = rowIndex;
+
+        let linhaAProduzir = -1;
+        for (let searchIndex = rowIndex + 1; searchIndex < sanitizedRows.length; searchIndex++) {
+            const candidateRow = sanitizedRows[searchIndex];
+            const candidateFirstCell = getFirstColumnValue(candidateRow);
+            const candidateNormalized = candidateFirstCell.trim().toUpperCase();
+
+            if (STRICT_VARIATION_CODE_REGEX.test(candidateNormalized)) {
+                linhaAProduzir = -1;
+                break;
+            }
+
+            if (!candidateNormalized) {
+                continue;
+            }
+
+            if (candidateNormalized.startsWith('A PRODUZIR')) {
+                linhaAProduzir = searchIndex;
+                break;
+            }
+        }
+
+        if (linhaAProduzir === -1) {
+            continue;
+        }
+
+        let linhaQtde = -1;
+        for (let searchIndex = linhaAProduzir + 1; searchIndex < sanitizedRows.length; searchIndex++) {
+            const candidateRow = sanitizedRows[searchIndex];
+            const candidateFirstCell = getFirstColumnValue(candidateRow);
+            const candidateNormalized = candidateFirstCell.trim().toUpperCase();
+
+            if (STRICT_VARIATION_CODE_REGEX.test(candidateNormalized)) {
+                linhaQtde = -1;
+                break;
+            }
+
+            if (!candidateNormalized) {
+                continue;
+            }
+
+            if (candidateNormalized === 'QTDE') {
+                linhaQtde = searchIndex;
+                break;
+            }
+        }
+
+        if (linhaQtde === -1) {
+            logXlsxDebugInfo({
+                ref,
+                linhaCodigo,
+                linhaAProduzir,
+                linhaQtde,
+                rows: sanitizedRows,
+                gradeValues: [],
+            });
+            continue;
+        }
+
+        const produceRow = sanitizedRows[linhaAProduzir];
+        const gradeRow = sanitizedRows[linhaQtde];
+
+        const grade = extractGradeFromQtdeRow(gradeRow);
+        if (!grade.length) {
+            logXlsxDebugInfo({
+                ref,
+                linhaCodigo,
+                linhaAProduzir,
+                linhaQtde,
+                rows: sanitizedRows,
+                gradeValues: [],
+            });
+            continue;
+        }
+
+        const produceNumbers = collectRowNumbersWithFallback(produceRow, grade.length);
+        let valoresPorTamanho = produceNumbers.slice();
+        if (valoresPorTamanho.length === grade.length + 1) {
+            valoresPorTamanho = valoresPorTamanho.slice(0, grade.length);
+        }
+
+        if (valoresPorTamanho.length !== grade.length) {
+            logXlsxDebugInfo({
+                ref,
+                linhaCodigo,
+                linhaAProduzir,
+                linhaQtde,
+                rows: sanitizedRows,
+                gradeValues: grade,
+            });
+            // eslint-disable-next-line no-console
+            console.warn('[DEBUG XLSX] Grade e valores com tamanhos diferentes para', ref, grade, valoresPorTamanho);
+            continue;
+        }
+
+        const tamanhos = {};
+        grade.forEach((gradeValue, index) => {
+            const quantity = Number(valoresPorTamanho[index] || 0);
+            tamanhos[String(gradeValue)] = Number.isFinite(quantity) ? quantity : 0;
+        });
+
+        logXlsxDebugInfo({
+            ref,
+            linhaCodigo,
+            linhaAProduzir,
+            linhaQtde,
+            rows: sanitizedRows,
+            gradeValues: grade,
+        });
+
+        blocks.push({
+            ref,
+            grade: grade.slice(),
+            tamanhos,
+        });
+
+        if (linhaQtde > rowIndex) {
+            rowIndex = linhaQtde;
+        }
+    }
+
+    return blocks;
 };
 
 export const parseLinesIntoBlocks = (lines = []) => {
