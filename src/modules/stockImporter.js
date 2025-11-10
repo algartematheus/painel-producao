@@ -71,10 +71,12 @@ const getPdfWorkerPort = () => {
 };
 
 const REF_REGEX = /^(\d{3,}\.[\w-]+)/i;
-const STRICT_VARIATION_CODE_REGEX = /^(\d{3}\.[A-Z0-9]+)/i;
+const VARIATION_CODE_REGEX = /^(\d{3}\.[A-Z0-9]{2,})/i;
 const NUMERIC_ONLY_REGEX = /^-?\d+(?:[.,]\d+)?$/;
 const PRODUCE_LABEL_REGEX = /a produzir/i;
 const TOTAL_LABELS = new Set(['TOTAL', 'TOTAIS', 'TOTALGERAL', 'TOTALGERAL:', 'TOTALGERAL.', 'TOTALG', 'TOT', 'TOTALPRODUZIR', 'TOTALPRODUÇÃO']);
+
+const LABEL_COLUMN_INDEX = 0;
 
 export const PDF_LIBRARY_UNAVAILABLE_ERROR = 'PDF_LIBRARY_UNAVAILABLE';
 export const PDF_EXTRACTION_FAILED_ERROR = 'PDF_EXTRACTION_FAILED';
@@ -164,6 +166,26 @@ const sanitizeCellValue = (cell) => {
         return '';
     }
     return String(cell).trim();
+};
+
+const toTrimmedUppercase = (value) => {
+    const raw = sanitizeCellValue(value);
+    if (!raw) {
+        return '';
+    }
+    return raw.toUpperCase().trim();
+};
+
+const normalizeForComparison = (value) => {
+    const raw = sanitizeCellValue(value);
+    if (!raw) {
+        return '';
+    }
+    return raw
+        .toUpperCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
 };
 
 const mapGradeToQuantities = (grades, quantities) => {
@@ -270,10 +292,10 @@ const rowHasContent = (row = []) => row.some((cell) => typeof cell === 'string' 
 const rowContainsProduceLabel = (row = []) => row.some((cell) => typeof cell === 'string' && PRODUCE_LABEL_REGEX.test(cell));
 
 const getFirstColumnValue = (row = []) => {
-    if (!Array.isArray(row) || !row.length) {
+    if (!Array.isArray(row) || row.length <= LABEL_COLUMN_INDEX) {
         return '';
     }
-    return sanitizeCellValue(row[0]);
+    return sanitizeCellValue(row[LABEL_COLUMN_INDEX]);
 };
 
 const formatGradeValue = (value) => {
@@ -716,8 +738,8 @@ const parseXlsxRowsIntoBlocks = (rows = []) => {
             continue;
         }
 
-        const normalizedFirstCell = firstCell.trim().toUpperCase();
-        const variationMatch = normalizedFirstCell.match(STRICT_VARIATION_CODE_REGEX);
+        const normalizedFirstCell = toTrimmedUppercase(firstCell);
+        const variationMatch = normalizedFirstCell.match(VARIATION_CODE_REGEX);
         if (!variationMatch) {
             continue;
         }
@@ -729,18 +751,19 @@ const parseXlsxRowsIntoBlocks = (rows = []) => {
         for (let searchIndex = rowIndex + 1; searchIndex < sanitizedRows.length; searchIndex++) {
             const candidateRow = sanitizedRows[searchIndex];
             const candidateFirstCell = getFirstColumnValue(candidateRow);
-            const candidateNormalized = candidateFirstCell.trim().toUpperCase();
+            const candidateNormalized = toTrimmedUppercase(candidateFirstCell);
+            const candidateComparable = normalizeForComparison(candidateFirstCell);
 
-            if (STRICT_VARIATION_CODE_REGEX.test(candidateNormalized)) {
+            if (VARIATION_CODE_REGEX.test(candidateNormalized)) {
                 linhaAProduzir = -1;
                 break;
             }
 
-            if (!candidateNormalized) {
+            if (!candidateComparable) {
                 continue;
             }
 
-            if (candidateNormalized.startsWith('A PRODUZIR')) {
+            if (candidateComparable.includes('PRODUZIR')) {
                 linhaAProduzir = searchIndex;
                 break;
             }
@@ -754,18 +777,19 @@ const parseXlsxRowsIntoBlocks = (rows = []) => {
         for (let searchIndex = linhaAProduzir + 1; searchIndex < sanitizedRows.length; searchIndex++) {
             const candidateRow = sanitizedRows[searchIndex];
             const candidateFirstCell = getFirstColumnValue(candidateRow);
-            const candidateNormalized = candidateFirstCell.trim().toUpperCase();
+            const candidateNormalized = toTrimmedUppercase(candidateFirstCell);
+            const candidateComparable = normalizeForComparison(candidateFirstCell);
 
-            if (STRICT_VARIATION_CODE_REGEX.test(candidateNormalized)) {
+            if (VARIATION_CODE_REGEX.test(candidateNormalized)) {
                 linhaQtde = -1;
                 break;
             }
 
-            if (!candidateNormalized) {
+            if (!candidateComparable) {
                 continue;
             }
 
-            if (candidateNormalized === 'QTDE') {
+            if (candidateComparable.startsWith('QTDE')) {
                 linhaQtde = searchIndex;
                 break;
             }
@@ -918,6 +942,48 @@ const ensureBlocksFound = (blocks) => {
     return blocks;
 };
 
+const getRawCellValue = (cell) => {
+    if (!cell) {
+        return null;
+    }
+    if (typeof cell.v !== 'undefined') {
+        return cell.v;
+    }
+    if (typeof cell.w !== 'undefined') {
+        return cell.w;
+    }
+    return null;
+};
+
+const logSheetColumnADebugInfo = (sheet, sheetName) => {
+    if (!sheet || !sheet['!ref']) {
+        return;
+    }
+
+    const range = utils.decode_range(sheet['!ref']);
+    const startRow = range.s.r;
+    const endRow = range.e.r;
+
+    for (let rowIndex = startRow; rowIndex <= endRow; rowIndex++) {
+        const cellRef = utils.encode_cell({ c: LABEL_COLUMN_INDEX, r: rowIndex });
+        const cell = sheet[cellRef];
+        const raw = getRawCellValue(cell);
+        const stringValue = raw == null ? '' : String(raw);
+        const upper = stringValue.toUpperCase().trim();
+        const rowNumber = rowIndex + 1;
+
+        if (/^\d{3}\./.test(upper)) {
+            // eslint-disable-next-line no-console
+            console.log('[DEBUG XLSX] possivel codigo na linha', rowNumber, 'aba', sheetName || '(sem nome)', ':', JSON.stringify(stringValue));
+        }
+
+        if (upper.includes('PRODUZIR')) {
+            // eslint-disable-next-line no-console
+            console.log('[DEBUG XLSX] linha com PRODUZIR na linha', rowNumber, 'aba', sheetName || '(sem nome)', ':', JSON.stringify(stringValue));
+        }
+    }
+};
+
 const defaultPdfjsLib = {
     getDocument: typeof getDocumentFromPdfjs === 'function' ? getDocumentFromPdfjs : null,
     GlobalWorkerOptions: GlobalWorkerOptions || null,
@@ -1031,6 +1097,7 @@ const extractXlsxRows = (arrayBuffer) => {
         if (!sheet) {
             return;
         }
+        logSheetColumnADebugInfo(sheet, sheetName);
         const sheetRows = utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
         sheetRows.forEach((row) => {
             if (Array.isArray(row)) {
