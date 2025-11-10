@@ -351,6 +351,48 @@ describe('stockImporter', () => {
         ]);
     });
 
+    it('parses XLSX content when A PRODUZIR quantities live in the first cell', async () => {
+        const workbook = utils.book_new();
+        const worksheet = utils.aoa_to_sheet([
+            ['447.AZ'],
+            ['CALÇA MASC.INFANT JUVENIL'],
+            ['Lotes Anteriores:', 248, 31, 36, 33, 30, 32, 24, 29, 463],
+            ['TOTAL ESTOQUES:', 10, 20, 30, 40],
+            ['A PRODUZIR: -57 -5 10 0 4 -3 2 1'],
+            ['Saldo/Sobras', 0],
+            ['Qtde', '06', '08', '10', '12', '14', '16', '02', '04'],
+        ]);
+
+        utils.book_append_sheet(workbook, worksheet, 'Planilha1');
+        const buffer = write(workbook, { bookType: 'xlsx', type: 'array' });
+
+        const snapshots = await importStockFile({ arrayBuffer: buffer, type: 'xlsx' });
+
+        expect(snapshots).toEqual([
+            {
+                productCode: '447',
+                grade: ['06', '08', '10', '12', '14', '16', '02', '04'],
+                warnings: [],
+                variations: [
+                    {
+                        ref: '447.AZ',
+                        grade: ['06', '08', '10', '12', '14', '16', '02', '04'],
+                        tamanhos: {
+                            '06': -57,
+                            '08': -5,
+                            '10': 10,
+                            '12': 0,
+                            '14': 4,
+                            '16': -3,
+                            '02': 2,
+                            '04': 1,
+                        },
+                    },
+                ],
+            },
+        ]);
+    });
+
     it('parses XLSX content exported in tabular layout, incluindo referências com quatro dígitos', async () => {
         const workbook = utils.book_new();
         const worksheet = utils.aoa_to_sheet([
