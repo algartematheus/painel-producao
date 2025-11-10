@@ -447,8 +447,8 @@ describe('stockImporter', () => {
         const workbook = utils.book_new();
         const worksheet = utils.aoa_to_sheet([
             ['016.AZ'],
-            ['Grade: 2 - UNICA'],
             ['A PRODUZIR', 943, 943],
+            ['Qtde', 'UNICA', 'TOTAL'],
         ]);
         utils.book_append_sheet(workbook, worksheet, 'Planilha1');
         const buffer = write(workbook, { bookType: 'xlsx', type: 'array' });
