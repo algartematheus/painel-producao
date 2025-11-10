@@ -168,6 +168,42 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
             }),
         ).toThrow('Cadastre pelo menos uma variação com tamanhos válidos.');
     });
+
+    it('interpreta sequências alinhadas à grade com espaços e tabulações', () => {
+        adicionarProdutoAoPortfolio.mockReturnValue([]);
+
+        const resultado = validarEAdicionarProdutoAoPortfolio({
+            codigo: '999',
+            grade: 'PP P M G',
+            variacoes: [
+                {
+                    ref: '999-A',
+                    tamanhos: '10 20 30 40',
+                },
+                {
+                    ref: '999-B',
+                    tamanhos: '5\t\t15\t',
+                },
+                {
+                    ref: '999-C',
+                    tamanhos: '7\t8',
+                },
+            ],
+            agrupamento: 'juntas',
+        });
+
+        expect(adicionarProdutoAoPortfolio).toHaveBeenCalledWith({
+            codigo: '999',
+            grade: ['PP', 'P', 'M', 'G'],
+            variations: [
+                { ref: '999-A', tamanhos: { PP: 10, P: 20, M: 30, G: 40 } },
+                { ref: '999-B', tamanhos: { PP: 5, P: 0, M: 15, G: 0 } },
+                { ref: '999-C', tamanhos: { PP: 7, P: 8, M: 0, G: 0 } },
+            ],
+            agruparVariacoes: true,
+        });
+        expect(resultado.mensagemSucesso).toBe('Produto 999 salvo com variações agrupadas.');
+    });
 });
 
 describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {

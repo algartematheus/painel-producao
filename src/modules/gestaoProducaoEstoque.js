@@ -50,10 +50,48 @@ const parseGradeString = (value = '') => value
     .map((item) => item.trim())
     .filter(Boolean);
 
-const parseTamanhosString = (value = '') => {
+const parseTamanhosString = (value = '', options = {}) => {
     const resultados = {};
-    if (typeof value !== 'string' || !value.trim()) {
+    if (typeof value !== 'string') {
         return resultados;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+        return resultados;
+    }
+
+    const gradeLista = Array.isArray(options?.grade)
+        ? options.grade.map((item) => String(item).trim()).filter(Boolean)
+        : [];
+
+    if (gradeLista.length && !/[=:]/.test(value)) {
+        const sanitized = value.replace(/\r/g, '').replace(/\n/g, '\t');
+        const rawTokens = sanitized.includes('\t')
+            ? sanitized.split('\t').flatMap((segment) => {
+                  if (segment === '') {
+                      return [''];
+                  }
+                  const partes = segment.split(/\s+/);
+                  return partes.length ? partes : [''];
+              })
+            : sanitized.split(/\s+/);
+        const tokens = rawTokens.map((token) => token.trim());
+
+        const numeroRegex = /^-?\d+(?:[.,]\d+)?$/;
+        const tokensValidos = tokens.length > 0 && tokens.every((token) => token === '' || numeroRegex.test(token));
+
+        if (tokensValidos) {
+            gradeLista.forEach((tamanho, index) => {
+                const token = tokens[index];
+                if (token === undefined) {
+                    return;
+                }
+                const tokenNormalizado = token.replace(',', '.');
+                const quantidade = token.trim() === '' ? 0 : Number(tokenNormalizado);
+                resultados[tamanho] = Number.isFinite(quantidade) ? quantidade : 0;
+            });
+        }
     }
 
     const regex = /([^\s=:,;]+)\s*(?:[:=]\s*|\s+)(-?\d+(?:[.,]\d+)?)/g;
@@ -67,10 +105,80 @@ const parseTamanhosString = (value = '') => {
         }
         resultados[tamanho] = Number.isFinite(quantidade) ? quantidade : 0;
     }
+
     return resultados;
 };
 
 const criarVariacaoVazia = () => ({ ref: '', tamanhos: '' });
+
+const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const normalizarQuantidade = (valor) => {
+    if (typeof valor === 'number') {
+        return Number.isFinite(valor) ? valor : 0;
+    }
+    if (typeof valor === 'string') {
+        const numero = Number(valor.replace(',', '.'));
+        return Number.isFinite(numero) ? numero : 0;
+    }
+    return 0;
+};
+
+const preencherTamanhosComGrade = (gradeLista = [], tamanhos = {}) => {
+    const resultado = {};
+    const mapa = isPlainObject(tamanhos) ? tamanhos : {};
+    const adicionarTamanho = (tamanho, valor) => {
+        if (!tamanho) {
+            return;
+        }
+        resultado[tamanho] = normalizarQuantidade(valor);
+    };
+
+    if (Array.isArray(gradeLista) && gradeLista.length) {
+        gradeLista.forEach((tamanho) => {
+            if (!tamanho) {
+                return;
+            }
+            if (Object.prototype.hasOwnProperty.call(mapa, tamanho)) {
+                adicionarTamanho(tamanho, mapa[tamanho]);
+            } else {
+                resultado[tamanho] = 0;
+            }
+        });
+
+        Object.keys(mapa).forEach((tamanho) => {
+            if (!gradeLista.includes(tamanho)) {
+                adicionarTamanho(tamanho, mapa[tamanho]);
+            }
+        });
+
+        return resultado;
+    }
+
+    Object.keys(mapa).forEach((tamanho) => {
+        adicionarTamanho(tamanho, mapa[tamanho]);
+    });
+
+    return resultado;
+};
+
+const prepararVariacoesComGrade = (variacoes = [], gradeLista = []) =>
+    (Array.isArray(variacoes) ? variacoes : []).map((variacao) => {
+        const tamanhosEntrada = variacao?.tamanhos;
+        if (typeof tamanhosEntrada !== 'string' || !tamanhosEntrada.trim()) {
+            return { ...variacao };
+        }
+
+        const tamanhosMapeados = parseTamanhosString(tamanhosEntrada, { grade: gradeLista });
+        const tamanhosCompletos = Object.keys(tamanhosMapeados).length
+            ? preencherTamanhosComGrade(gradeLista, tamanhosMapeados)
+            : tamanhosMapeados;
+
+        return {
+            ...variacao,
+            tamanhos: tamanhosCompletos,
+        };
+    });
 
 const formatDateTime = (isoString) => {
     if (!isoString) {
@@ -118,7 +226,18 @@ export const validarEAdicionarProdutoAoPortfolio = ({
     const variacoesProcessadas = (Array.isArray(variacoes) ? variacoes : [])
         .map((variacao) => {
             const ref = typeof variacao?.ref === 'string' ? variacao.ref.trim() : '';
-            const tamanhos = parseTamanhosString(variacao?.tamanhos);
+            let tamanhos = {};
+            if (isPlainObject(variacao?.tamanhos)) {
+                Object.entries(variacao.tamanhos).forEach(([tamanho, quantidade]) => {
+                    const tamanhoNormalizado = String(tamanho).trim();
+                    if (!tamanhoNormalizado) {
+                        return;
+                    }
+                    tamanhos[tamanhoNormalizado] = normalizarQuantidade(quantidade);
+                });
+            } else {
+                tamanhos = parseTamanhosString(variacao?.tamanhos, { grade: gradeLista });
+            }
             if (!ref || !Object.keys(tamanhos).length) {
                 return null;
             }
@@ -151,10 +270,15 @@ export const validarEAdicionarProdutoAoPortfolio = ({
     );
     const gradeFinal = Array.from(new Set([...gradeLista, ...todosOsTamanhosDasVariacoes]));
 
+    const variacoesNormalizadas = variacoesProcessadas.map((variacao) => ({
+        ref: variacao.ref,
+        tamanhos: preencherTamanhosComGrade(gradeFinal, variacao.tamanhos),
+    }));
+
     const portfolioAtualizado = adicionarProduto({
         codigo: codigoTrim,
         grade: gradeFinal,
-        variations: variacoesProcessadas,
+        variations: variacoesNormalizadas,
         agruparVariacoes: agrupamento === 'juntas',
     });
 
@@ -431,10 +555,12 @@ const GestaoProducaoEstoqueModule = ({
 
     const handleAdicionarProduto = useCallback(() => {
         try {
+            const gradeCalculada = parseGradeString(novoProdutoGrade);
+            const variacoesPreparadas = prepararVariacoesComGrade(novoProdutoVariacoes, gradeCalculada);
             const { portfolioAtualizado, mensagemSucesso } = validarEAdicionarProdutoAoPortfolio({
                 codigo: novoProdutoCodigo,
                 grade: novoProdutoGrade,
-                variacoes: novoProdutoVariacoes,
+                variacoes: variacoesPreparadas,
                 agrupamento: novoProdutoAgrupamento,
             });
             setPortfolio(portfolioAtualizado);
@@ -446,7 +572,13 @@ const GestaoProducaoEstoqueModule = ({
         } catch (error) {
             setStatus({ type: 'error', message: error?.message || 'Não foi possível adicionar o produto.' });
         }
-    }, [novoProdutoCodigo, novoProdutoGrade, novoProdutoVariacoes, novoProdutoAgrupamento, resetFormularioNovoProduto]);
+    }, [
+        novoProdutoCodigo,
+        novoProdutoGrade,
+        novoProdutoVariacoes,
+        novoProdutoAgrupamento,
+        resetFormularioNovoProduto,
+    ]);
 
     const handleSalvarPortfolio = useCallback(() => {
         if (!temRascunho) {
@@ -454,10 +586,12 @@ const GestaoProducaoEstoqueModule = ({
             return;
         }
         try {
+            const gradeCalculada = parseGradeString(novoProdutoGrade);
+            const variacoesPreparadas = prepararVariacoesComGrade(novoProdutoVariacoes, gradeCalculada);
             const { portfolioAtualizado, mensagemSucesso } = validarEAdicionarProdutoAoPortfolio({
                 codigo: novoProdutoCodigo,
                 grade: novoProdutoGrade,
-                variacoes: novoProdutoVariacoes,
+                variacoes: variacoesPreparadas,
                 agrupamento: novoProdutoAgrupamento,
             });
             const atualizadoPersistido = salvarPortfolio(portfolioAtualizado);
@@ -769,7 +903,10 @@ const GestaoProducaoEstoqueModule = ({
                                             </button>
                                         </div>
                                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                                            Utilize formatos como <span className="font-medium">06=10</span> ou <span className="font-medium">06 10</span>. Separe múltiplos tamanhos por espaço, vírgula ou quebra de linha.
+                                            Com a grade definida, cole as quantidades na mesma ordem usando espaço ou tabulação
+                                            (ex.: <span className="font-medium">10 20 30</span>). Células vazias viram zero e o
+                                            formato tradicional com tamanho e saldo (ex.: <span className="font-medium">06=10</span>)
+                                            continua disponível.
                                         </p>
                                         <div className="space-y-3">
                                             {novoProdutoVariacoes.map((variacao, index) => (
@@ -792,7 +929,7 @@ const GestaoProducaoEstoqueModule = ({
                                                                 onChange={(event) => handleAtualizarVariacao(index, 'tamanhos', event.target.value)}
                                                                 className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
                                                                 rows={2}
-                                                                placeholder="06=10, 08=-5, 10 3"
+                                                                placeholder="Ex.: 10 20 30 ou 06=10, 08=-5"
                                                             />
                                                         </div>
                                                     </div>
