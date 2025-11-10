@@ -82,7 +82,7 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
             variacoes: [
                 {
                     ref: '123-A',
-                    tamanhos: 'PP=10, P=-2',
+                    tamanhos: { PP: 10, P: -2 },
                 },
             ],
             agrupamento: 'juntas',
@@ -112,7 +112,7 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
             variacoes: [
                 {
                     ref: '456-B',
-                    tamanhos: '06=1 08=2',
+                    tamanhos: { '06': 1, '08': 2 },
                 },
             ],
             agrupamento: 'separadas',
@@ -247,10 +247,18 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
         expect(salvarButton).toBeDisabled();
 
         fireEvent.change(screen.getByLabelText('Código do produto base'), { target: { value: '016' } });
-        fireEvent.change(screen.getAllByLabelText('Referência da variação')[0], { target: { value: '016.az' } });
-        fireEvent.change(screen.getAllByLabelText('Tamanhos e saldos')[0], {
-            target: { value: '06=10, 08=-5' },
-        });
+        fireEvent.change(
+            screen.getByLabelText('Grade (tamanhos separados por espaço, vírgula ou quebra de linha)'),
+            { target: { value: '06 08' } },
+        );
+
+        fireEvent.change(screen.getByLabelText('Referência da variação 1'), { target: { value: '016.az' } });
+
+        const tamanho06Input = await screen.findByLabelText('Quantidade para tamanho 06 da variação 1');
+        const tamanho08Input = await screen.findByLabelText('Quantidade para tamanho 08 da variação 1');
+
+        fireEvent.change(tamanho06Input, { target: { value: '10' } });
+        fireEvent.change(tamanho08Input, { target: { value: '-5' } });
 
         expect(salvarButton).toBeEnabled();
 
@@ -281,6 +289,137 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
         });
 
         expect(salvarButton).toBeDisabled();
+    });
+
+    it('permite colar sequências alinhadas à grade para preencher rapidamente os tamanhos', async () => {
+        adicionarProdutoAoPortfolio.mockReturnValue([]);
+
+        render(
+            <GestaoProducaoEstoqueModule
+                onNavigateToCrono={null}
+                onNavigateToStock={null}
+                onNavigateToFichaTecnica={null}
+                onNavigateToOperationalSequence={null}
+                onNavigateToReports={null}
+            />,
+        );
+
+        fireEvent.click(screen.getByText('Portfólio de produtos'));
+
+        fireEvent.change(screen.getByLabelText('Código do produto base'), { target: { value: '016' } });
+        fireEvent.change(
+            screen.getByLabelText('Grade (tamanhos separados por espaço, vírgula ou quebra de linha)'),
+            { target: { value: '06 08 10 12 14 16 02 04' } },
+        );
+
+        fireEvent.change(screen.getByLabelText('Referência da variação 1'), { target: { value: '016.AZ' } });
+
+        const tamanho06Input = await screen.findByLabelText('Quantidade para tamanho 06 da variação 1');
+        const tamanho08Input = await screen.findByLabelText('Quantidade para tamanho 08 da variação 1');
+        const tamanho10Input = await screen.findByLabelText('Quantidade para tamanho 10 da variação 1');
+        const tamanho12Input = await screen.findByLabelText('Quantidade para tamanho 12 da variação 1');
+        const tamanho14Input = await screen.findByLabelText('Quantidade para tamanho 14 da variação 1');
+        const tamanho16Input = await screen.findByLabelText('Quantidade para tamanho 16 da variação 1');
+        const tamanho02Input = await screen.findByLabelText('Quantidade para tamanho 02 da variação 1');
+        const tamanho04Input = await screen.findByLabelText('Quantidade para tamanho 04 da variação 1');
+
+        const clipboardData = {
+            getData: jest.fn((type) =>
+                type === 'text' || type === 'text/plain'
+                    ? '016.AZ\t-7\t-4\t-16\t-6\t11\t4\t-9\t-49'
+                    : '',
+            ),
+        };
+        const preventDefault = jest.fn();
+
+        fireEvent.paste(tamanho06Input, { clipboardData, preventDefault });
+
+        expect(clipboardData.getData).toHaveBeenCalled();
+        expect(preventDefault).toHaveBeenCalled();
+
+        await waitFor(() => {
+            expect(tamanho06Input).toHaveValue('-7');
+        });
+        expect(tamanho08Input).toHaveValue('-4');
+        expect(tamanho10Input).toHaveValue('-16');
+        expect(tamanho12Input).toHaveValue('-6');
+        expect(tamanho14Input).toHaveValue('11');
+        expect(tamanho16Input).toHaveValue('4');
+        expect(tamanho02Input).toHaveValue('-9');
+        expect(tamanho04Input).toHaveValue('-49');
+    });
+
+    it('permite adicionar variações extras e alterar o agrupamento antes de salvar', async () => {
+        const portfolioAtualizado = [
+            {
+                codigo: '099',
+                grade: ['06', '08'],
+                variations: [
+                    { ref: '099.AZ', tamanhos: { '06': 10, '08': 5 } },
+                    { ref: '099.PT', tamanhos: { '06': 4, '08': -1 } },
+                ],
+                agruparVariacoes: false,
+            },
+        ];
+
+        adicionarProdutoAoPortfolio.mockReturnValue(portfolioAtualizado);
+
+        render(
+            <GestaoProducaoEstoqueModule
+                onNavigateToCrono={null}
+                onNavigateToStock={null}
+                onNavigateToFichaTecnica={null}
+                onNavigateToOperationalSequence={null}
+                onNavigateToReports={null}
+            />,
+        );
+
+        fireEvent.click(screen.getByText('Portfólio de produtos'));
+
+        fireEvent.change(screen.getByLabelText('Código do produto base'), { target: { value: '099' } });
+        fireEvent.change(
+            screen.getByLabelText('Grade (tamanhos separados por espaço, vírgula ou quebra de linha)'),
+            { target: { value: '06 08' } },
+        );
+
+        fireEvent.change(screen.getByLabelText('Referência da variação 1'), { target: { value: '099.az' } });
+
+        const primeiroTamanho06 = await screen.findByLabelText('Quantidade para tamanho 06 da variação 1');
+        const primeiroTamanho08 = await screen.findByLabelText('Quantidade para tamanho 08 da variação 1');
+        fireEvent.change(primeiroTamanho06, { target: { value: '10' } });
+        fireEvent.change(primeiroTamanho08, { target: { value: '5' } });
+
+        fireEvent.click(screen.getByRole('button', { name: /Adicionar variação/i }));
+
+        const referenciaSegundaVariacao = await screen.findByLabelText('Referência da variação 2');
+        fireEvent.change(referenciaSegundaVariacao, { target: { value: '099.pt' } });
+
+        const segundoTamanho06 = await screen.findByLabelText('Quantidade para tamanho 06 da variação 2');
+        const segundoTamanho08 = await screen.findByLabelText('Quantidade para tamanho 08 da variação 2');
+        fireEvent.change(segundoTamanho06, { target: { value: '4' } });
+        fireEvent.change(segundoTamanho08, { target: { value: '-1' } });
+
+        fireEvent.click(screen.getByLabelText('Separadas'));
+
+        fireEvent.click(screen.getByRole('button', { name: /Salvar alterações/i }));
+
+        await waitFor(() => {
+            expect(adicionarProdutoAoPortfolio).toHaveBeenCalledWith({
+                codigo: '099',
+                grade: ['06', '08'],
+                variations: [
+                    { ref: '099.AZ', tamanhos: { '06': 10, '08': 5 } },
+                    { ref: '099.PT', tamanhos: { '06': 4, '08': -1 } },
+                ],
+                agruparVariacoes: false,
+            });
+        });
+
+        expect(salvarPortfolio).toHaveBeenCalledWith(portfolioAtualizado);
+
+        expect(
+            await screen.findByText('Rascunho salvo: Produto 099 salvo com variações separadas.'),
+        ).toBeInTheDocument();
     });
 });
 
