@@ -631,6 +631,106 @@ const GestaoProducaoEstoqueModule = ({
         });
     }, []);
 
+    const handleAplicarValoresColados = useCallback(
+        (index, tamanhoInicial, textoBruto) => {
+            if (typeof textoBruto !== 'string' || !textoBruto.trim()) {
+                return;
+            }
+
+            const indiceInicial = tamanhoInicial ? gradeListaAtual.indexOf(tamanhoInicial) : -1;
+            const gradeSegmento = indiceInicial >= 0 ? gradeListaAtual.slice(indiceInicial) : gradeListaAtual;
+
+            const construirMapaSequencial = () => {
+                if (!gradeSegmento.length) {
+                    return {};
+                }
+                const sanitized = textoBruto.replace(/\r/g, '').replace(/\n/g, '\t');
+                const tokens = sanitized
+                    .split('\t')
+                    .flatMap((segmento) => segmento.split(/[,;]+/))
+                    .flatMap((segmento) => segmento.split(/\s+/))
+                    .map((token) => token.trim())
+                    .filter(Boolean);
+                const numeroRegex = /^-?\d+(?:[.,]\d+)?$/;
+                const tokensNumericos = tokens.filter((token) => numeroRegex.test(token));
+                if (!tokensNumericos.length) {
+                    return {};
+                }
+                const mapaSequencial = {};
+                gradeSegmento.forEach((tamanho, idx) => {
+                    const token = tokensNumericos[idx];
+                    if (token === undefined) {
+                        return;
+                    }
+                    mapaSequencial[tamanho] = token;
+                });
+                return mapaSequencial;
+            };
+
+            const mapaDireto = parseTamanhosString(textoBruto, { grade: gradeSegmento });
+            const mapaValores = Object.keys(mapaDireto).length ? mapaDireto : construirMapaSequencial();
+
+            if (!Object.keys(mapaValores).length) {
+                return;
+            }
+
+            setNovoProdutoVariacoes((prev) =>
+                prev.map((variacao, idx) => {
+                    if (idx !== index) {
+                        return variacao;
+                    }
+                    const tamanhosAtuais = preencherTamanhosComGrade(gradeListaAtual, variacao.tamanhos);
+                    const tamanhosAtualizados = { ...tamanhosAtuais };
+
+                    const aplicarValor = (tamanho, valor) => {
+                        if (!tamanho) {
+                            return;
+                        }
+                        tamanhosAtualizados[tamanho] = normalizarQuantidade(valor);
+                    };
+
+                    gradeSegmento.forEach((tamanho) => {
+                        if (Object.prototype.hasOwnProperty.call(mapaValores, tamanho)) {
+                            aplicarValor(tamanho, mapaValores[tamanho]);
+                        }
+                    });
+
+                    Object.entries(mapaValores).forEach(([tamanho, valor]) => {
+                        if (!Object.prototype.hasOwnProperty.call(tamanhosAtualizados, tamanho)) {
+                            aplicarValor(tamanho, valor);
+                        }
+                    });
+
+                    if (saoMapasDeTamanhosIguais(tamanhosAtualizados, tamanhosAtuais)) {
+                        return variacao;
+                    }
+
+                    return {
+                        ...variacao,
+                        tamanhos: tamanhosAtualizados,
+                    };
+                }),
+            );
+        },
+        [gradeListaAtual],
+    );
+
+    const handleColarNaVariacao = useCallback(
+        (event, index, tamanhoAlvo) => {
+            if (!event?.clipboardData) {
+                return;
+            }
+            const texto =
+                event.clipboardData.getData('text') || event.clipboardData.getData('text/plain');
+            if (!texto) {
+                return;
+            }
+            event.preventDefault();
+            handleAplicarValoresColados(index, tamanhoAlvo, texto);
+        },
+        [handleAplicarValoresColados],
+    );
+
     const handleRemoverVariacao = useCallback(
         (index) => {
             setNovoProdutoVariacoes((prev) => {
@@ -1057,24 +1157,27 @@ const GestaoProducaoEstoqueModule = ({
                                                             </td>
                                                             {gradeListaAtual.map((tamanho) => (
                                                                 <td key={`${tamanho}-${index}`} className="px-2 py-2 align-middle text-center">
-                                                                    <input
-                                                                        type="text"
-                                                                        inputMode="decimal"
-                                                                        pattern="-?\\d*(?:[\\.,]\\d*)?"
-                                                                        value={obterValorParaCampoDeTamanho(variacao.tamanhos, tamanho)}
-                                                                        onChange={(event) =>
-                                                                            handleAtualizarVariacao(
-                                                                                index,
-                                                                                'tamanhos',
-                                                                                event.target.value,
-                                                                                tamanho,
-                                                                            )
-                                                                        }
-                                                                        className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1.5 text-right"
-                                                                        aria-label={`Quantidade para tamanho ${tamanho} da variação ${index + 1}`}
-                                                                        placeholder="0"
-                                                                        autoComplete="off"
-                                                                    />
+                                                                <input
+                                                                    type="text"
+                                                                    inputMode="decimal"
+                                                                    pattern="-?\\d*(?:[\\.,]\\d*)?"
+                                                                    value={obterValorParaCampoDeTamanho(variacao.tamanhos, tamanho)}
+                                                                    onChange={(event) =>
+                                                                        handleAtualizarVariacao(
+                                                                            index,
+                                                                            'tamanhos',
+                                                                            event.target.value,
+                                                                            tamanho,
+                                                                        )
+                                                                    }
+                                                                    onPaste={(event) =>
+                                                                        handleColarNaVariacao(event, index, tamanho)
+                                                                    }
+                                                                    className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1.5 text-right"
+                                                                    aria-label={`Quantidade para tamanho ${tamanho} da variação ${index + 1}`}
+                                                                    placeholder="0"
+                                                                    autoComplete="off"
+                                                                />
                                                                 </td>
                                                             ))}
                                                             <td className="px-3 py-2 text-center align-middle">
