@@ -295,30 +295,7 @@ const findVariationCodeAbove = (rows = [], startIndex = 0) => {
     return '';
 };
 
-const extractGradeInfoFromRow = (row = []) => {
-    const grade = [];
-    const columnIndexes = [];
-
-    for (let columnIndex = 1; columnIndex < row.length; columnIndex++) {
-        const cell = row[columnIndex];
-        if (cell === null || typeof cell === 'undefined') {
-            continue;
-        }
-        const rawValue = typeof cell === 'string' ? cell.trim() : String(cell).trim();
-        if (!rawValue) {
-            continue;
-        }
-        if (isTotalLabel(rawValue)) {
-            continue;
-        }
-        grade.push(rawValue);
-        columnIndexes.push(columnIndex);
-    }
-
-    return { grade, columnIndexes };
-};
-
-const findGradeInfoBelow = (rows = [], startIndex = 0) => {
+const findQtdeRowIndexBelow = (rows = [], startIndex = 0) => {
     for (let offset = 1; startIndex + offset < rows.length; offset++) {
         const candidateRow = rows[startIndex + offset];
         if (!Array.isArray(candidateRow)) {
@@ -328,20 +305,86 @@ const findGradeInfoBelow = (rows = [], startIndex = 0) => {
         if (!firstCell) {
             continue;
         }
-        const normalizedFirst = normalizeLabel(firstCell);
-        if (normalizedFirst === 'QTDE') {
-            const gradeInfo = extractGradeInfoFromRow(candidateRow);
-            if (gradeInfo.grade.length) {
-                return gradeInfo;
-            }
-            return gradeInfo;
+        if (normalizeLabel(firstCell) === 'QTDE') {
+            return startIndex + offset;
         }
         if (STRICT_VARIATION_CODE_REGEX.test(firstCell.trim().toUpperCase())) {
             break;
         }
     }
+    return -1;
+};
 
-    return null;
+const formatGradeValue = (value) => {
+    const raw = sanitizeCellValue(value);
+    if (!raw) {
+        return '';
+    }
+    if (/^\d$/.test(raw)) {
+        return raw.padStart(2, '0');
+    }
+    return raw;
+};
+
+const extractGradeFromQtdeRow = (row = []) => {
+    const grade = [];
+    for (let columnIndex = 1; columnIndex < row.length; columnIndex++) {
+        const cell = row[columnIndex];
+        if (cell === null || typeof cell === 'undefined') {
+            continue;
+        }
+        const formatted = formatGradeValue(cell);
+        if (!formatted) {
+            continue;
+        }
+        if (isTotalLabel(formatted)) {
+            continue;
+        }
+        grade.push(formatted);
+    }
+    return grade;
+};
+
+const extractProduceValues = (row = []) => {
+    const values = [];
+    for (let columnIndex = 1; columnIndex < row.length; columnIndex++) {
+        const cell = row[columnIndex];
+        if (cell === null || typeof cell === 'undefined') {
+            continue;
+        }
+        const parsed = sanitizeNumberToken(cell);
+        if (parsed === null) {
+            continue;
+        }
+        values.push(parsed);
+    }
+    return values;
+};
+
+const normalizeProduceValues = (values = [], gradeLength = 0) => {
+    if (!Array.isArray(values)) {
+        return new Array(gradeLength).fill(0);
+    }
+
+    let normalized = values.slice();
+    if (gradeLength > 0) {
+        if (normalized.length === gradeLength + 1) {
+            normalized = normalized.slice(0, gradeLength);
+        } else if (normalized.length > gradeLength + 1) {
+            normalized = normalized.slice(0, gradeLength);
+        }
+    }
+
+    if (gradeLength > 0) {
+        const filled = [];
+        for (let index = 0; index < gradeLength; index++) {
+            const value = normalized[index];
+            filled.push(Number.isFinite(value) ? value : 0);
+        }
+        return filled;
+    }
+
+    return normalized.map((value) => (Number.isFinite(value) ? value : 0));
 };
 
 const parseAProduzirRowsIntoBlocks = (rows = []) => {
@@ -368,31 +411,30 @@ const parseAProduzirRowsIntoBlocks = (rows = []) => {
             continue;
         }
 
-        const gradeInfo = findGradeInfoBelow(sanitizedRows, rowIndex);
-        if (!gradeInfo || !gradeInfo.grade.length) {
+        const qtdeRowIndex = findQtdeRowIndexBelow(sanitizedRows, rowIndex);
+        if (qtdeRowIndex === -1) {
             continue;
         }
 
-        const { grade, columnIndexes } = gradeInfo;
-        const produceValues = columnIndexes.map((columnIndex) => {
-            const cellValue = row[columnIndex];
-            const parsed = sanitizeNumberToken(cellValue);
-            if (parsed === null) {
-                return 0;
-            }
-            return parsed;
-        });
+        const gradeRow = sanitizedRows[qtdeRowIndex];
+        const grade = extractGradeFromQtdeRow(gradeRow);
+        if (!grade.length) {
+            continue;
+        }
+
+        const produceValues = extractProduceValues(row);
+        const normalizedProduceValues = normalizeProduceValues(produceValues, grade.length);
 
         const tamanhos = {};
         grade.forEach((gradeValue, index) => {
-            const sizeKey = typeof gradeValue === 'string' ? gradeValue.trim() : String(gradeValue).trim();
-            const quantity = produceValues[index];
+            const sizeKey = gradeValue;
+            const quantity = normalizedProduceValues[index];
             tamanhos[sizeKey] = Number.isFinite(quantity) ? quantity : 0;
         });
 
         blocks.push({
             ref: variationRef,
-            grade: grade.map((value) => (typeof value === 'string' ? value.trim() : String(value).trim())),
+            grade: grade.slice(),
             tamanhos,
         });
     }
