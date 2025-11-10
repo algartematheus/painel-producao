@@ -71,6 +71,7 @@ const getPdfWorkerPort = () => {
 };
 
 const REF_REGEX = /^(\d{3,}\.[\w-]+)/i;
+const STRICT_VARIATION_CODE_REGEX = /^(\d{3}\.[A-Z0-9]+)/i;
 const NUMERIC_ONLY_REGEX = /^-?\d+(?:[.,]\d+)?$/;
 const PRODUCE_LABEL_REGEX = /a produzir/i;
 const TOTAL_LABELS = new Set(['TOTAL', 'TOTAIS', 'TOTALGERAL', 'TOTALGERAL:', 'TOTALGERAL.', 'TOTALG', 'TOT', 'TOTALPRODUZIR', 'TOTALPRODUÇÃO']);
@@ -267,6 +268,137 @@ const sanitizeRow = (row) => {
 const rowHasContent = (row = []) => row.some((cell) => typeof cell === 'string' ? cell.trim() : cell);
 
 const rowContainsProduceLabel = (row = []) => row.some((cell) => typeof cell === 'string' && PRODUCE_LABEL_REGEX.test(cell));
+
+const getFirstColumnValue = (row = []) => {
+    if (!Array.isArray(row) || !row.length) {
+        return '';
+    }
+    return sanitizeCellValue(row[0]);
+};
+
+const findVariationCodeAbove = (rows = [], startIndex = 0) => {
+    for (let offset = 1; startIndex - offset >= 0; offset++) {
+        const candidateRow = rows[startIndex - offset];
+        if (!rowHasContent(candidateRow)) {
+            continue;
+        }
+        const firstCell = getFirstColumnValue(candidateRow);
+        if (!firstCell) {
+            continue;
+        }
+        const normalized = firstCell.trim().toUpperCase();
+        const match = normalized.match(STRICT_VARIATION_CODE_REGEX);
+        if (match) {
+            return match[1];
+        }
+    }
+    return '';
+};
+
+const extractGradeInfoFromRow = (row = []) => {
+    const grade = [];
+    const columnIndexes = [];
+
+    for (let columnIndex = 1; columnIndex < row.length; columnIndex++) {
+        const cell = row[columnIndex];
+        if (cell === null || typeof cell === 'undefined') {
+            continue;
+        }
+        const rawValue = typeof cell === 'string' ? cell.trim() : String(cell).trim();
+        if (!rawValue) {
+            continue;
+        }
+        if (isTotalLabel(rawValue)) {
+            continue;
+        }
+        grade.push(rawValue);
+        columnIndexes.push(columnIndex);
+    }
+
+    return { grade, columnIndexes };
+};
+
+const findGradeInfoBelow = (rows = [], startIndex = 0) => {
+    for (let offset = 1; startIndex + offset < rows.length; offset++) {
+        const candidateRow = rows[startIndex + offset];
+        if (!Array.isArray(candidateRow)) {
+            continue;
+        }
+        const firstCell = getFirstColumnValue(candidateRow);
+        if (!firstCell) {
+            continue;
+        }
+        const normalizedFirst = normalizeLabel(firstCell);
+        if (normalizedFirst === 'QTDE') {
+            const gradeInfo = extractGradeInfoFromRow(candidateRow);
+            if (gradeInfo.grade.length) {
+                return gradeInfo;
+            }
+            return gradeInfo;
+        }
+        if (STRICT_VARIATION_CODE_REGEX.test(firstCell.trim().toUpperCase())) {
+            break;
+        }
+    }
+
+    return null;
+};
+
+const parseAProduzirRowsIntoBlocks = (rows = []) => {
+    if (!Array.isArray(rows) || !rows.length) {
+        return [];
+    }
+
+    const sanitizedRows = rows.map(sanitizeRow);
+    const blocks = [];
+
+    for (let rowIndex = 0; rowIndex < sanitizedRows.length; rowIndex++) {
+        const row = sanitizedRows[rowIndex];
+        if (!Array.isArray(row) || !row.length) {
+            continue;
+        }
+
+        const firstCell = row[0];
+        if (!firstCell || normalizeLabel(firstCell) !== 'APRODUZIR') {
+            continue;
+        }
+
+        const variationRef = findVariationCodeAbove(sanitizedRows, rowIndex);
+        if (!variationRef) {
+            continue;
+        }
+
+        const gradeInfo = findGradeInfoBelow(sanitizedRows, rowIndex);
+        if (!gradeInfo || !gradeInfo.grade.length) {
+            continue;
+        }
+
+        const { grade, columnIndexes } = gradeInfo;
+        const produceValues = columnIndexes.map((columnIndex) => {
+            const cellValue = row[columnIndex];
+            const parsed = sanitizeNumberToken(cellValue);
+            if (parsed === null) {
+                return 0;
+            }
+            return parsed;
+        });
+
+        const tamanhos = {};
+        grade.forEach((gradeValue, index) => {
+            const sizeKey = typeof gradeValue === 'string' ? gradeValue.trim() : String(gradeValue).trim();
+            const quantity = produceValues[index];
+            tamanhos[sizeKey] = Number.isFinite(quantity) ? quantity : 0;
+        });
+
+        blocks.push({
+            ref: variationRef,
+            grade: grade.map((value) => (typeof value === 'string' ? value.trim() : String(value).trim())),
+            tamanhos,
+        });
+    }
+
+    return blocks;
+};
 
 const findRefInRow = (row = []) => {
     for (let cellIndex = 0; cellIndex < row.length; cellIndex++) {
@@ -556,6 +688,14 @@ const parseRowsIntoBlocks = (rows = []) => {
     return blocks;
 };
 
+const parseXlsxRowsIntoBlocks = (rows = []) => {
+    const produceBlocks = parseAProduzirRowsIntoBlocks(rows);
+    if (produceBlocks.length) {
+        return produceBlocks;
+    }
+    return parseRowsIntoBlocks(rows);
+};
+
 export const parseLinesIntoBlocks = (lines = []) => {
     const normalizedLines = Array.isArray(lines) ? lines : [];
     const rows = normalizedLines.map((line) => {
@@ -732,13 +872,24 @@ const extractPdfLines = async (arrayBuffer) => {
 
 const extractXlsxRows = (arrayBuffer) => {
     const workbook = read(arrayBuffer, { type: 'array' });
-    const sheetName = workbook.SheetNames[0];
-    if (!sheetName) {
-        return [];
-    }
-    const sheet = workbook.Sheets[sheetName];
-    const rows = utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' });
-    return rows.map((row) => (Array.isArray(row) ? row.map(sanitizeCellValue) : [sanitizeCellValue(row)]));
+    const rows = [];
+
+    workbook.SheetNames.forEach((sheetName) => {
+        const sheet = workbook.Sheets[sheetName];
+        if (!sheet) {
+            return;
+        }
+        const sheetRows = utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+        sheetRows.forEach((row) => {
+            if (Array.isArray(row)) {
+                rows.push(row);
+            } else {
+                rows.push([row]);
+            }
+        });
+    });
+
+    return rows;
 };
 
 export const flattenSnapshotsToVariations = (snapshots = []) => {
@@ -783,7 +934,7 @@ export const importStockFile = async ({ file, arrayBuffer, type }) => {
 
     if (normalizedType === 'xlsx' || (file?.type || '').includes('sheet')) {
         const rows = extractXlsxRows(buffer);
-        const blocks = ensureBlocksFound(parseRowsIntoBlocks(rows));
+        const blocks = ensureBlocksFound(parseXlsxRowsIntoBlocks(rows));
         return aggregateBlocksIntoSnapshots(blocks);
     }
 
