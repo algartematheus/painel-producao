@@ -102,6 +102,72 @@ const getValueTone = (value) => {
     return 'text-gray-700 dark:text-gray-200';
 };
 
+export const validarEAdicionarProdutoAoPortfolio = ({
+    codigo,
+    grade,
+    variacoes,
+    agrupamento,
+    adicionarProduto = adicionarProdutoAoPortfolio,
+}) => {
+    const codigoTrim = typeof codigo === 'string' ? codigo.trim() : '';
+    if (!codigoTrim) {
+        throw new Error('Informe o código do produto base.');
+    }
+
+    const gradeLista = parseGradeString(grade);
+    const variacoesProcessadas = (Array.isArray(variacoes) ? variacoes : [])
+        .map((variacao) => {
+            const ref = typeof variacao?.ref === 'string' ? variacao.ref.trim() : '';
+            const tamanhos = parseTamanhosString(variacao?.tamanhos);
+            if (!ref || !Object.keys(tamanhos).length) {
+                return null;
+            }
+            return {
+                ref,
+                tamanhos,
+            };
+        })
+        .filter(Boolean);
+
+    if (!gradeLista.length) {
+        const tamanhosEncontrados = Array.from(
+            new Set(variacoesProcessadas.flatMap((variacao) => Object.keys(variacao.tamanhos || {}))),
+        );
+        if (tamanhosEncontrados.length) {
+            gradeLista.push(...tamanhosEncontrados);
+        }
+    }
+
+    if (!gradeLista.length) {
+        throw new Error('Informe ao menos um tamanho na grade.');
+    }
+
+    if (!variacoesProcessadas.length) {
+        throw new Error('Cadastre pelo menos uma variação com tamanhos válidos.');
+    }
+
+    const todosOsTamanhosDasVariacoes = variacoesProcessadas.flatMap((variacao) =>
+        Object.keys(variacao.tamanhos || {}),
+    );
+    const gradeFinal = Array.from(new Set([...gradeLista, ...todosOsTamanhosDasVariacoes]));
+
+    const portfolioAtualizado = adicionarProduto({
+        codigo: codigoTrim,
+        grade: gradeFinal,
+        variations: variacoesProcessadas,
+        agruparVariacoes: agrupamento === 'juntas',
+    });
+
+    const mensagemSucesso = `Produto ${codigoTrim} salvo com variações ${
+        agrupamento === 'juntas' ? 'agrupadas' : 'separadas'
+    }.`;
+
+    return {
+        portfolioAtualizado,
+        mensagemSucesso,
+    };
+};
+
 const formatDetalheTotalPreview = (detalhe, liquido) => {
     const positivo = normalizePreviewNumber(detalhe?.positivo);
     const negativo = normalizePreviewNumber(detalhe?.negativo);
@@ -345,72 +411,73 @@ const GestaoProducaoEstoqueModule = ({
         });
     }, []);
 
+    const resetFormularioNovoProduto = useCallback(() => {
+        setNovoProdutoCodigo('');
+        setNovoProdutoGrade('');
+        setNovoProdutoVariacoes([criarVariacaoVazia()]);
+        setNovoProdutoAgrupamento('juntas');
+    }, []);
+
+    const temRascunho = useMemo(() => {
+        if (novoProdutoCodigo.trim() || novoProdutoGrade.trim()) {
+            return true;
+        }
+        return novoProdutoVariacoes.some((variacao) => {
+            const refPreenchido = typeof variacao?.ref === 'string' && variacao.ref.trim();
+            const tamanhosPreenchidos = typeof variacao?.tamanhos === 'string' && variacao.tamanhos.trim();
+            return Boolean(refPreenchido || tamanhosPreenchidos);
+        });
+    }, [novoProdutoCodigo, novoProdutoGrade, novoProdutoVariacoes]);
+
     const handleAdicionarProduto = useCallback(() => {
         try {
-            const gradeLista = parseGradeString(novoProdutoGrade);
-            if (!novoProdutoCodigo.trim()) {
-                setStatus({ type: 'error', message: 'Informe o código do produto base.' });
-                return;
-            }
-            const variacoesProcessadas = novoProdutoVariacoes
-                .map((variacao) => {
-                    const ref = (variacao.ref || '').trim();
-                    const tamanhos = parseTamanhosString(variacao.tamanhos);
-                    if (!ref || !Object.keys(tamanhos).length) {
-                        return null;
-                    }
-                    return {
-                        ref,
-                        tamanhos,
-                    };
-                })
-                .filter(Boolean);
-
-            if (!gradeLista.length) {
-                const tamanhosEncontrados = Array.from(new Set(variacoesProcessadas.flatMap((variacao) => Object.keys(variacao.tamanhos))));
-                if (tamanhosEncontrados.length) {
-                    gradeLista.push(...tamanhosEncontrados);
-                }
-            }
-
-            if (!gradeLista.length) {
-                setStatus({ type: 'error', message: 'Informe ao menos um tamanho na grade.' });
-                return;
-            }
-
-            if (!variacoesProcessadas.length) {
-                setStatus({ type: 'error', message: 'Cadastre pelo menos uma variação com tamanhos válidos.' });
-                return;
-            }
-
-            const todosOsTamanhosDasVariacoes = variacoesProcessadas.flatMap((variacao) => Object.keys(variacao.tamanhos));
-            const gradeFinal = Array.from(new Set([...gradeLista, ...todosOsTamanhosDasVariacoes]));
-
-            const atualizado = adicionarProdutoAoPortfolio({
-                codigo: novoProdutoCodigo.trim(),
-                grade: gradeFinal,
-                variations: variacoesProcessadas,
-                agruparVariacoes: novoProdutoAgrupamento === 'juntas',
+            const { portfolioAtualizado, mensagemSucesso } = validarEAdicionarProdutoAoPortfolio({
+                codigo: novoProdutoCodigo,
+                grade: novoProdutoGrade,
+                variacoes: novoProdutoVariacoes,
+                agrupamento: novoProdutoAgrupamento,
             });
-            setPortfolio(atualizado);
-            setNovoProdutoCodigo('');
-            setNovoProdutoGrade('');
-            setNovoProdutoVariacoes([criarVariacaoVazia()]);
-            setNovoProdutoAgrupamento('juntas');
+            setPortfolio(portfolioAtualizado);
+            resetFormularioNovoProduto();
             setStatus({
                 type: 'success',
-                message: `Produto ${novoProdutoCodigo.trim()} adicionado ao portfólio (${novoProdutoAgrupamento === 'juntas' ? 'variações juntas' : 'variações separadas'}).`,
+                message: `${mensagemSucesso} Alterações salvas automaticamente.`,
             });
         } catch (error) {
             setStatus({ type: 'error', message: error?.message || 'Não foi possível adicionar o produto.' });
         }
-    }, [novoProdutoCodigo, novoProdutoGrade, novoProdutoVariacoes, novoProdutoAgrupamento]);
+    }, [novoProdutoCodigo, novoProdutoGrade, novoProdutoVariacoes, novoProdutoAgrupamento, resetFormularioNovoProduto]);
 
     const handleSalvarPortfolio = useCallback(() => {
-        const atualizado = salvarPortfolio(portfolio);
-        setPortfolio(atualizado);
-        setStatus({ type: 'success', message: 'Portfólio salvo com sucesso.' });
-    }, [portfolio]);
+        if (!temRascunho) {
+            setStatus({ type: 'info', message: 'Preencha o formulário para salvar um novo produto.' });
+            return;
+        }
+        try {
+            const { portfolioAtualizado, mensagemSucesso } = validarEAdicionarProdutoAoPortfolio({
+                codigo: novoProdutoCodigo,
+                grade: novoProdutoGrade,
+                variacoes: novoProdutoVariacoes,
+                agrupamento: novoProdutoAgrupamento,
+            });
+            const atualizadoPersistido = salvarPortfolio(portfolioAtualizado);
+            setPortfolio(atualizadoPersistido);
+            resetFormularioNovoProduto();
+            setStatus({
+                type: 'success',
+                message: `Rascunho salvo: ${mensagemSucesso}`,
+            });
+        } catch (error) {
+            setStatus({ type: 'error', message: error?.message || 'Não foi possível salvar o rascunho.' });
+        }
+    }, [
+        temRascunho,
+        novoProdutoCodigo,
+        novoProdutoGrade,
+        novoProdutoVariacoes,
+        novoProdutoAgrupamento,
+        resetFormularioNovoProduto,
+    ]);
 
     const handleRemoverProduto = useCallback((codigo) => {
         const atualizado = removerProdutoDoPortfolio(codigo);
@@ -792,7 +859,12 @@ const GestaoProducaoEstoqueModule = ({
                                     <button
                                         type="button"
                                         onClick={handleSalvarPortfolio}
-                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                                        disabled={!temRascunho}
+                                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
+                                            temRascunho
+                                                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                                : 'bg-gray-300 text-gray-500 cursor-not-allowed dark:bg-gray-700 dark:text-gray-400'
+                                        }`}
                                     >
                                         <CheckCircle2 size={16} />
                                         Salvar alterações

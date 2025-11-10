@@ -1,0 +1,250 @@
+import React from 'react';
+import '@testing-library/jest-dom';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import GestaoProducaoEstoqueModule, { validarEAdicionarProdutoAoPortfolio } from './gestaoProducaoEstoque';
+import {
+    adicionarProdutoAoPortfolio,
+    carregarHistorico,
+    carregarPortfolio,
+    salvarPortfolio,
+} from './relatorioEstoque';
+
+jest.mock('./auth', () => ({
+    __esModule: true,
+    useAuth: jest.fn(() => ({
+        user: { displayName: 'Usuário Teste', email: 'usuario@teste.com' },
+        logout: jest.fn(),
+    })),
+}));
+
+jest.mock('./shared', () => ({
+    __esModule: true,
+    usePersistedTheme: jest.fn(() => ({ theme: 'light', toggleTheme: jest.fn() })),
+    GlobalStyles: () => <div data-testid="global-styles" />,
+}));
+
+jest.mock('../components/HeaderContainer', () => ({
+    __esModule: true,
+    default: ({ children }) => <div data-testid="header-container">{children}</div>,
+}));
+
+jest.mock('../components/GlobalNavigation', () => ({
+    __esModule: true,
+    default: () => <nav data-testid="global-navigation" />,
+}));
+
+jest.mock('./stockImporter', () => ({
+    __esModule: true,
+    default: jest.fn(),
+    PDF_LIBRARY_UNAVAILABLE_ERROR: 'PDF_LIBRARY_UNAVAILABLE_ERROR',
+}));
+
+jest.mock('./relatorioEstoque', () => ({
+    __esModule: true,
+    carregarPortfolio: jest.fn(),
+    salvarPortfolio: jest.fn(),
+    adicionarProdutoAoPortfolio: jest.fn(),
+    removerProdutoDoPortfolio: jest.fn(),
+    reordenarPortfolio: jest.fn(),
+    criarSnapshotProduto: jest.fn(),
+    carregarHistorico: jest.fn(),
+    paginarRelatorioEmPaginasA4: jest.fn(),
+    gerarHTMLImpressaoPaginado: jest.fn(),
+    importarArquivoDeProducao: jest.fn(),
+    exemploFluxoCompleto: jest.fn(),
+}));
+
+describe('validarEAdicionarProdutoAoPortfolio', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('valida campos e retorna o portfólio atualizado', () => {
+        const portfolioEsperado = [
+            {
+                codigo: '123',
+                grade: ['PP', 'P'],
+                variations: [
+                    {
+                        ref: '123-A',
+                        tamanhos: { PP: 10, P: -2 },
+                    },
+                ],
+                agruparVariacoes: true,
+            },
+        ];
+
+        adicionarProdutoAoPortfolio.mockReturnValue(portfolioEsperado);
+
+        const resultado = validarEAdicionarProdutoAoPortfolio({
+            codigo: '123 ',
+            grade: 'PP, P',
+            variacoes: [
+                {
+                    ref: '123-A',
+                    tamanhos: 'PP=10, P=-2',
+                },
+            ],
+            agrupamento: 'juntas',
+        });
+
+        expect(adicionarProdutoAoPortfolio).toHaveBeenCalledWith({
+            codigo: '123',
+            grade: ['PP', 'P'],
+            variations: [
+                {
+                    ref: '123-A',
+                    tamanhos: { PP: 10, P: -2 },
+                },
+            ],
+            agruparVariacoes: true,
+        });
+        expect(resultado.portfolioAtualizado).toEqual(portfolioEsperado);
+        expect(resultado.mensagemSucesso).toBe('Produto 123 salvo com variações agrupadas.');
+    });
+
+    it('infere grade quando necessário e lança erros apropriados', () => {
+        adicionarProdutoAoPortfolio.mockReturnValue([]);
+
+        const resultado = validarEAdicionarProdutoAoPortfolio({
+            codigo: '456',
+            grade: '',
+            variacoes: [
+                {
+                    ref: '456-B',
+                    tamanhos: '06=1 08=2',
+                },
+            ],
+            agrupamento: 'separadas',
+        });
+
+        expect(adicionarProdutoAoPortfolio).toHaveBeenCalledWith({
+            codigo: '456',
+            grade: ['06', '08'],
+            variations: [
+                {
+                    ref: '456-B',
+                    tamanhos: { '06': 1, '08': 2 },
+                },
+            ],
+            agruparVariacoes: false,
+        });
+        expect(resultado.mensagemSucesso).toBe('Produto 456 salvo com variações separadas.');
+
+        expect(() =>
+            validarEAdicionarProdutoAoPortfolio({
+                codigo: '  ',
+                grade: '',
+                variacoes: [],
+                agrupamento: 'juntas',
+            }),
+        ).toThrow('Informe o código do produto base.');
+
+        expect(() =>
+            validarEAdicionarProdutoAoPortfolio({
+                codigo: '789',
+                grade: '',
+                variacoes: [
+                    {
+                        ref: '',
+                        tamanhos: '',
+                    },
+                ],
+                agrupamento: 'juntas',
+            }),
+        ).toThrow('Informe ao menos um tamanho na grade.');
+
+        expect(() =>
+            validarEAdicionarProdutoAoPortfolio({
+                codigo: '789',
+                grade: 'PP',
+                variacoes: [
+                    {
+                        ref: '',
+                        tamanhos: '',
+                    },
+                ],
+                agrupamento: 'juntas',
+            }),
+        ).toThrow('Cadastre pelo menos uma variação com tamanhos válidos.');
+    });
+});
+
+describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+        carregarPortfolio.mockReturnValue([]);
+        carregarHistorico.mockReturnValue([]);
+        salvarPortfolio.mockImplementation((portfolio) => portfolio);
+    });
+
+    it('desabilita salvar sem rascunho e persiste dados quando o formulário está preenchido', async () => {
+        const portfolioAtualizado = [
+            {
+                codigo: '016',
+                grade: ['06', '08'],
+                variations: [
+                    {
+                        ref: '016.AZ',
+                        tamanhos: { '06': 10, '08': -5 },
+                    },
+                ],
+                agruparVariacoes: true,
+            },
+        ];
+
+        adicionarProdutoAoPortfolio.mockReturnValue(portfolioAtualizado);
+
+        render(
+            <GestaoProducaoEstoqueModule
+                onNavigateToCrono={null}
+                onNavigateToStock={null}
+                onNavigateToFichaTecnica={null}
+                onNavigateToOperationalSequence={null}
+                onNavigateToReports={null}
+            />,
+        );
+
+        fireEvent.click(screen.getByText('Portfólio de produtos'));
+
+        const salvarButton = screen.getByRole('button', { name: /Salvar alterações/i });
+        expect(salvarButton).toBeDisabled();
+
+        fireEvent.change(screen.getByLabelText('Código do produto base'), { target: { value: '016' } });
+        fireEvent.change(screen.getAllByLabelText('Referência da variação')[0], { target: { value: '016.az' } });
+        fireEvent.change(screen.getAllByLabelText('Tamanhos e saldos')[0], {
+            target: { value: '06=10, 08=-5' },
+        });
+
+        expect(salvarButton).toBeEnabled();
+
+        fireEvent.click(salvarButton);
+
+        await waitFor(() => {
+            expect(adicionarProdutoAoPortfolio).toHaveBeenCalledWith({
+                codigo: '016',
+                grade: ['06', '08'],
+                variations: [
+                    {
+                        ref: '016.AZ',
+                        tamanhos: { '06': 10, '08': -5 },
+                    },
+                ],
+                agruparVariacoes: true,
+            });
+        });
+
+        expect(salvarPortfolio).toHaveBeenCalledWith(portfolioAtualizado);
+
+        expect(
+            await screen.findByText('Rascunho salvo: Produto 016 salvo com variações agrupadas.'),
+        ).toBeInTheDocument();
+
+        await waitFor(() => {
+            expect(screen.getByLabelText('Código do produto base')).toHaveValue('');
+        });
+
+        expect(salvarButton).toBeDisabled();
+    });
+});
+
