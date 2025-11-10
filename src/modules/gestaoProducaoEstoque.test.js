@@ -82,7 +82,7 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
             variacoes: [
                 {
                     ref: '123-A',
-                    tamanhos: 'PP=10, P=-2',
+                    tamanhos: { PP: 10, P: -2 },
                 },
             ],
             agrupamento: 'juntas',
@@ -112,7 +112,7 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
             variacoes: [
                 {
                     ref: '456-B',
-                    tamanhos: '06=1 08=2',
+                    tamanhos: { '06': 1, '08': 2 },
                 },
             ],
             agrupamento: 'separadas',
@@ -247,10 +247,18 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
         expect(salvarButton).toBeDisabled();
 
         fireEvent.change(screen.getByLabelText('Código do produto base'), { target: { value: '016' } });
-        fireEvent.change(screen.getAllByLabelText('Referência da variação')[0], { target: { value: '016.az' } });
-        fireEvent.change(screen.getAllByLabelText('Tamanhos e saldos')[0], {
-            target: { value: '06=10, 08=-5' },
-        });
+        fireEvent.change(
+            screen.getByLabelText('Grade (tamanhos separados por espaço, vírgula ou quebra de linha)'),
+            { target: { value: '06 08' } },
+        );
+
+        fireEvent.change(screen.getByLabelText('Referência da variação 1'), { target: { value: '016.az' } });
+
+        const tamanho06Input = await screen.findByLabelText('Quantidade para tamanho 06 da variação 1');
+        const tamanho08Input = await screen.findByLabelText('Quantidade para tamanho 08 da variação 1');
+
+        fireEvent.change(tamanho06Input, { target: { value: '10' } });
+        fireEvent.change(tamanho08Input, { target: { value: '-5' } });
 
         expect(salvarButton).toBeEnabled();
 
@@ -281,6 +289,79 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
         });
 
         expect(salvarButton).toBeDisabled();
+    });
+
+    it('permite adicionar variações extras e alterar o agrupamento antes de salvar', async () => {
+        const portfolioAtualizado = [
+            {
+                codigo: '099',
+                grade: ['06', '08'],
+                variations: [
+                    { ref: '099.AZ', tamanhos: { '06': 10, '08': 5 } },
+                    { ref: '099.PT', tamanhos: { '06': 4, '08': -1 } },
+                ],
+                agruparVariacoes: false,
+            },
+        ];
+
+        adicionarProdutoAoPortfolio.mockReturnValue(portfolioAtualizado);
+
+        render(
+            <GestaoProducaoEstoqueModule
+                onNavigateToCrono={null}
+                onNavigateToStock={null}
+                onNavigateToFichaTecnica={null}
+                onNavigateToOperationalSequence={null}
+                onNavigateToReports={null}
+            />,
+        );
+
+        fireEvent.click(screen.getByText('Portfólio de produtos'));
+
+        fireEvent.change(screen.getByLabelText('Código do produto base'), { target: { value: '099' } });
+        fireEvent.change(
+            screen.getByLabelText('Grade (tamanhos separados por espaço, vírgula ou quebra de linha)'),
+            { target: { value: '06 08' } },
+        );
+
+        fireEvent.change(screen.getByLabelText('Referência da variação 1'), { target: { value: '099.az' } });
+
+        const primeiroTamanho06 = await screen.findByLabelText('Quantidade para tamanho 06 da variação 1');
+        const primeiroTamanho08 = await screen.findByLabelText('Quantidade para tamanho 08 da variação 1');
+        fireEvent.change(primeiroTamanho06, { target: { value: '10' } });
+        fireEvent.change(primeiroTamanho08, { target: { value: '5' } });
+
+        fireEvent.click(screen.getByRole('button', { name: /Adicionar variação/i }));
+
+        const referenciaSegundaVariacao = await screen.findByLabelText('Referência da variação 2');
+        fireEvent.change(referenciaSegundaVariacao, { target: { value: '099.pt' } });
+
+        const segundoTamanho06 = await screen.findByLabelText('Quantidade para tamanho 06 da variação 2');
+        const segundoTamanho08 = await screen.findByLabelText('Quantidade para tamanho 08 da variação 2');
+        fireEvent.change(segundoTamanho06, { target: { value: '4' } });
+        fireEvent.change(segundoTamanho08, { target: { value: '-1' } });
+
+        fireEvent.click(screen.getByLabelText('Separadas'));
+
+        fireEvent.click(screen.getByRole('button', { name: /Salvar alterações/i }));
+
+        await waitFor(() => {
+            expect(adicionarProdutoAoPortfolio).toHaveBeenCalledWith({
+                codigo: '099',
+                grade: ['06', '08'],
+                variations: [
+                    { ref: '099.AZ', tamanhos: { '06': 10, '08': 5 } },
+                    { ref: '099.PT', tamanhos: { '06': 4, '08': -1 } },
+                ],
+                agruparVariacoes: false,
+            });
+        });
+
+        expect(salvarPortfolio).toHaveBeenCalledWith(portfolioAtualizado);
+
+        expect(
+            await screen.findByText('Rascunho salvo: Produto 099 salvo com variações separadas.'),
+        ).toBeInTheDocument();
     });
 });
 

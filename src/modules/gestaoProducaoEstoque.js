@@ -109,7 +109,23 @@ const parseTamanhosString = (value = '', options = {}) => {
     return resultados;
 };
 
-const criarVariacaoVazia = () => ({ ref: '', tamanhos: '' });
+const normalizarGradeLista = (gradeLista = []) =>
+    Array.from(
+        new Set(
+            (Array.isArray(gradeLista) ? gradeLista : [])
+                .map((item) => String(item).trim())
+                .filter(Boolean),
+        ),
+    );
+
+const criarVariacaoVazia = (gradeLista = []) => {
+    const listaNormalizada = normalizarGradeLista(gradeLista);
+    const tamanhos = listaNormalizada.reduce((acc, tamanho) => {
+        acc[tamanho] = 0;
+        return acc;
+    }, {});
+    return { ref: '', tamanhos };
+};
 
 const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
@@ -162,23 +178,70 @@ const preencherTamanhosComGrade = (gradeLista = [], tamanhos = {}) => {
     return resultado;
 };
 
-const prepararVariacoesComGrade = (variacoes = [], gradeLista = []) =>
-    (Array.isArray(variacoes) ? variacoes : []).map((variacao) => {
-        const tamanhosEntrada = variacao?.tamanhos;
-        if (typeof tamanhosEntrada !== 'string' || !tamanhosEntrada.trim()) {
-            return { ...variacao };
+const normalizarMapaDeTamanhos = (tamanhosEntrada, gradeLista = []) => {
+    const mapa = isPlainObject(tamanhosEntrada)
+        ? tamanhosEntrada
+        : parseTamanhosString(tamanhosEntrada, { grade: gradeLista });
+    const listaNormalizada = normalizarGradeLista(gradeLista);
+    const resultado = {};
+
+    listaNormalizada.forEach((tamanho) => {
+        if (!tamanho) {
+            return;
         }
+        const valor = Object.prototype.hasOwnProperty.call(mapa, tamanho) ? mapa[tamanho] : 0;
+        resultado[tamanho] = normalizarQuantidade(valor);
+    });
 
-        const tamanhosMapeados = parseTamanhosString(tamanhosEntrada, { grade: gradeLista });
-        const tamanhosCompletos = Object.keys(tamanhosMapeados).length
-            ? preencherTamanhosComGrade(gradeLista, tamanhosMapeados)
-            : tamanhosMapeados;
+    Object.entries(mapa || {}).forEach(([tamanho, valor]) => {
+        const chave = String(tamanho).trim();
+        if (!chave || listaNormalizada.includes(chave)) {
+            return;
+        }
+        resultado[chave] = normalizarQuantidade(valor);
+    });
 
+    return resultado;
+};
+
+const saoMapasDeTamanhosIguais = (a = {}, b = {}) => {
+    const chavesA = Object.keys(a || {});
+    const chavesB = Object.keys(b || {});
+    if (chavesA.length !== chavesB.length) {
+        return false;
+    }
+    return chavesA.every((chave) => Object.is(a[chave], b[chave]));
+};
+
+const prepararVariacoesComGrade = (variacoes = [], gradeLista = []) => {
+    const listaNormalizada = normalizarGradeLista(gradeLista);
+    return (Array.isArray(variacoes) ? variacoes : []).map((variacao = {}) => {
+        const tamanhosNormalizados = normalizarMapaDeTamanhos(variacao.tamanhos, listaNormalizada);
         return {
             ...variacao,
-            tamanhos: tamanhosCompletos,
+            tamanhos: tamanhosNormalizados,
         };
     });
+};
+
+const temQuantidadeInformada = (tamanhos = {}) =>
+    Object.values(isPlainObject(tamanhos) ? tamanhos : {}).some(
+        (quantidade) => normalizarQuantidade(quantidade) !== 0,
+    );
+
+const obterValorParaCampoDeTamanho = (tamanhos = {}, tamanho) => {
+    if (!isPlainObject(tamanhos)) {
+        return '';
+    }
+    const valor = tamanhos[tamanho];
+    if (valor === undefined || valor === null) {
+        return '';
+    }
+    if (typeof valor === 'number') {
+        return Number.isFinite(valor) ? String(valor) : '';
+    }
+    return String(valor);
+};
 
 const formatDateTime = (isoString) => {
     if (!isoString) {
@@ -222,38 +285,27 @@ export const validarEAdicionarProdutoAoPortfolio = ({
         throw new Error('Informe o código do produto base.');
     }
 
-    const gradeLista = parseGradeString(grade);
+    let gradeLista = normalizarGradeLista(parseGradeString(grade));
     const variacoesProcessadas = (Array.isArray(variacoes) ? variacoes : [])
         .map((variacao) => {
             const ref = typeof variacao?.ref === 'string' ? variacao.ref.trim() : '';
-            let tamanhos = {};
-            if (isPlainObject(variacao?.tamanhos)) {
-                Object.entries(variacao.tamanhos).forEach(([tamanho, quantidade]) => {
-                    const tamanhoNormalizado = String(tamanho).trim();
-                    if (!tamanhoNormalizado) {
-                        return;
-                    }
-                    tamanhos[tamanhoNormalizado] = normalizarQuantidade(quantidade);
-                });
-            } else {
-                tamanhos = parseTamanhosString(variacao?.tamanhos, { grade: gradeLista });
-            }
-            if (!ref || !Object.keys(tamanhos).length) {
+            const tamanhosNormalizados = normalizarMapaDeTamanhos(variacao?.tamanhos, gradeLista);
+            if (!ref || !temQuantidadeInformada(tamanhosNormalizados)) {
                 return null;
             }
             return {
                 ref,
-                tamanhos,
+                tamanhos: tamanhosNormalizados,
             };
         })
         .filter(Boolean);
 
     if (!gradeLista.length) {
-        const tamanhosEncontrados = Array.from(
-            new Set(variacoesProcessadas.flatMap((variacao) => Object.keys(variacao.tamanhos || {}))),
+        const tamanhosEncontrados = normalizarGradeLista(
+            variacoesProcessadas.flatMap((variacao) => Object.keys(variacao.tamanhos || {})),
         );
         if (tamanhosEncontrados.length) {
-            gradeLista.push(...tamanhosEncontrados);
+            gradeLista = tamanhosEncontrados;
         }
     }
 
@@ -268,7 +320,7 @@ export const validarEAdicionarProdutoAoPortfolio = ({
     const todosOsTamanhosDasVariacoes = variacoesProcessadas.flatMap((variacao) =>
         Object.keys(variacao.tamanhos || {}),
     );
-    const gradeFinal = Array.from(new Set([...gradeLista, ...todosOsTamanhosDasVariacoes]));
+    const gradeFinal = normalizarGradeLista([...gradeLista, ...todosOsTamanhosDasVariacoes]);
 
     const variacoesNormalizadas = variacoesProcessadas.map((variacao) => ({
         ref: variacao.ref,
@@ -358,6 +410,11 @@ const GestaoProducaoEstoqueModule = ({
     const [processing, setProcessing] = useState(false);
     const [status, setStatus] = useState({ type: 'idle', message: '' });
 
+    const gradeListaAtual = useMemo(
+        () => normalizarGradeLista(parseGradeString(novoProdutoGrade)),
+        [novoProdutoGrade],
+    );
+
     const formatarTamanhos = useCallback((tamanhos = {}) => {
         const entries = Object.entries(tamanhos || {});
         if (!entries.length) {
@@ -374,6 +431,26 @@ const GestaoProducaoEstoqueModule = ({
         setPortfolio(carregarPortfolio());
         setHistorico(carregarHistorico());
     }, []);
+
+    useEffect(() => {
+        setNovoProdutoVariacoes((prev) => {
+            const alinhadas = prepararVariacoesComGrade(prev, gradeListaAtual);
+            if (!alinhadas.length) {
+                return [criarVariacaoVazia(gradeListaAtual)];
+            }
+            const nenhumaMudanca =
+                alinhadas.length === prev.length &&
+                alinhadas.every((variacao, index) => {
+                    const original = prev[index] || {};
+                    const refOriginal = typeof original.ref === 'string' ? original.ref : '';
+                    return (
+                        variacao.ref === refOriginal &&
+                        saoMapasDeTamanhosIguais(variacao.tamanhos, original.tamanhos)
+                    );
+                });
+            return nenhumaMudanca ? prev : alinhadas;
+        });
+    }, [gradeListaAtual]);
 
     const navigationButtons = useMemo(() => ([
         onNavigateToCrono
@@ -506,34 +583,66 @@ const GestaoProducaoEstoqueModule = ({
     }, []);
 
     const handleAdicionarLinhaVariacao = useCallback(() => {
-        setNovoProdutoVariacoes((prev) => [...prev, criarVariacaoVazia()]);
-    }, []);
+        setNovoProdutoVariacoes((prev) => [...prev, criarVariacaoVazia(gradeListaAtual)]);
+    }, [gradeListaAtual]);
 
-    const handleAtualizarVariacao = useCallback((index, campo, valor) => {
+    const handleAtualizarVariacao = useCallback((index, campo, valor, tamanhoAlvo = null) => {
         setNovoProdutoVariacoes((prev) => {
             return prev.map((variacao, idx) => {
                 if (idx !== index) {
                     return variacao;
                 }
                 if (campo === 'ref') {
-                    return { ...variacao, ref: valor.toUpperCase() };
+                    const valorNormalizado = typeof valor === 'string' ? valor.toUpperCase() : '';
+                    if (variacao.ref === valorNormalizado) {
+                        return variacao;
+                    }
+                    return { ...variacao, ref: valorNormalizado };
                 }
-                if (campo === 'tamanhos') {
-                    return { ...variacao, tamanhos: valor };
+                if (campo === 'tamanhos' && tamanhoAlvo) {
+                    const tamanhosAtuais = isPlainObject(variacao.tamanhos) ? variacao.tamanhos : {};
+                    const valorBruto = typeof valor === 'string' ? valor : String(valor ?? '');
+                    if (valorBruto === '' || valorBruto === '-' || valorBruto === '+') {
+                        if (tamanhosAtuais[tamanhoAlvo] === valorBruto) {
+                            return variacao;
+                        }
+                        return {
+                            ...variacao,
+                            tamanhos: {
+                                ...tamanhosAtuais,
+                                [tamanhoAlvo]: valorBruto,
+                            },
+                        };
+                    }
+                    const quantidadeNormalizada = normalizarQuantidade(valorBruto);
+                    if (tamanhosAtuais[tamanhoAlvo] === quantidadeNormalizada) {
+                        return variacao;
+                    }
+                    return {
+                        ...variacao,
+                        tamanhos: {
+                            ...tamanhosAtuais,
+                            [tamanhoAlvo]: quantidadeNormalizada,
+                        },
+                    };
                 }
                 return variacao;
             });
         });
     }, []);
 
-    const handleRemoverVariacao = useCallback((index) => {
-        setNovoProdutoVariacoes((prev) => {
-            if (prev.length <= 1) {
-                return [criarVariacaoVazia()];
-            }
-            return prev.filter((_, idx) => idx !== index);
-        });
-    }, []);
+    const handleRemoverVariacao = useCallback(
+        (index) => {
+            setNovoProdutoVariacoes((prev) => {
+                const restante = prev.filter((_, idx) => idx !== index);
+                if (!restante.length) {
+                    return [criarVariacaoVazia(gradeListaAtual)];
+                }
+                return restante;
+            });
+        },
+        [gradeListaAtual],
+    );
 
     const resetFormularioNovoProduto = useCallback(() => {
         setNovoProdutoCodigo('');
@@ -548,15 +657,13 @@ const GestaoProducaoEstoqueModule = ({
         }
         return novoProdutoVariacoes.some((variacao) => {
             const refPreenchido = typeof variacao?.ref === 'string' && variacao.ref.trim();
-            const tamanhosPreenchidos = typeof variacao?.tamanhos === 'string' && variacao.tamanhos.trim();
-            return Boolean(refPreenchido || tamanhosPreenchidos);
+            return Boolean(refPreenchido || temQuantidadeInformada(variacao?.tamanhos));
         });
     }, [novoProdutoCodigo, novoProdutoGrade, novoProdutoVariacoes]);
 
     const handleAdicionarProduto = useCallback(() => {
         try {
-            const gradeCalculada = parseGradeString(novoProdutoGrade);
-            const variacoesPreparadas = prepararVariacoesComGrade(novoProdutoVariacoes, gradeCalculada);
+            const variacoesPreparadas = prepararVariacoesComGrade(novoProdutoVariacoes, gradeListaAtual);
             const { portfolioAtualizado, mensagemSucesso } = validarEAdicionarProdutoAoPortfolio({
                 codigo: novoProdutoCodigo,
                 grade: novoProdutoGrade,
@@ -577,6 +684,7 @@ const GestaoProducaoEstoqueModule = ({
         novoProdutoGrade,
         novoProdutoVariacoes,
         novoProdutoAgrupamento,
+        gradeListaAtual,
         resetFormularioNovoProduto,
     ]);
 
@@ -586,8 +694,7 @@ const GestaoProducaoEstoqueModule = ({
             return;
         }
         try {
-            const gradeCalculada = parseGradeString(novoProdutoGrade);
-            const variacoesPreparadas = prepararVariacoesComGrade(novoProdutoVariacoes, gradeCalculada);
+            const variacoesPreparadas = prepararVariacoesComGrade(novoProdutoVariacoes, gradeListaAtual);
             const { portfolioAtualizado, mensagemSucesso } = validarEAdicionarProdutoAoPortfolio({
                 codigo: novoProdutoCodigo,
                 grade: novoProdutoGrade,
@@ -610,6 +717,7 @@ const GestaoProducaoEstoqueModule = ({
         novoProdutoGrade,
         novoProdutoVariacoes,
         novoProdutoAgrupamento,
+        gradeListaAtual,
         resetFormularioNovoProduto,
     ]);
 
@@ -903,50 +1011,99 @@ const GestaoProducaoEstoqueModule = ({
                                             </button>
                                         </div>
                                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                                            Com a grade definida, cole as quantidades na mesma ordem usando espaço ou tabulação
-                                            (ex.: <span className="font-medium">10 20 30</span>). Células vazias viram zero e o
-                                            formato tradicional com tamanho e saldo (ex.: <span className="font-medium">06=10</span>)
-                                            continua disponível.
+                                            As colunas são geradas automaticamente a partir da grade definida acima. Informe as
+                                            quantidades em cada célula (valores negativos são permitidos) ou utilize o formato
+                                            tradicional com tamanho e saldo ao importar dados existentes.
                                         </p>
-                                        <div className="space-y-3">
-                                            {novoProdutoVariacoes.map((variacao, index) => (
-                                                <div key={`variacao-${index}`} className="rounded-md border border-dashed border-gray-300 dark:border-gray-600 p-3 space-y-3">
-                                                    <div className="grid gap-3 md:grid-cols-2">
-                                                        <div>
-                                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Referência da variação</label>
-                                                            <input
-                                                                type="text"
-                                                                value={variacao.ref}
-                                                                onChange={(event) => handleAtualizarVariacao(index, 'ref', event.target.value)}
-                                                                className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
-                                                                placeholder="Ex: 016.AZ"
-                                                            />
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tamanhos e saldos</label>
-                                                            <textarea
-                                                                value={variacao.tamanhos}
-                                                                onChange={(event) => handleAtualizarVariacao(index, 'tamanhos', event.target.value)}
-                                                                className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
-                                                                rows={2}
-                                                                placeholder="Ex.: 10 20 30 ou 06=10, 08=-5"
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                    {novoProdutoVariacoes.length > 1 && (
-                                                        <div className="flex justify-end">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleRemoverVariacao(index)}
-                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/40 dark:text-red-300"
+                                        <div className="overflow-x-auto rounded-md border border-dashed border-gray-300 dark:border-gray-600">
+                                            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                                                <thead className="bg-gray-50 dark:bg-gray-900/60">
+                                                    <tr>
+                                                        <th
+                                                            scope="col"
+                                                            className="px-3 py-2 text-left font-medium text-gray-700 dark:text-gray-200"
+                                                        >
+                                                            Referência
+                                                        </th>
+                                                        {gradeListaAtual.map((tamanho) => (
+                                                            <th
+                                                                key={`cabecalho-${tamanho}`}
+                                                                scope="col"
+                                                                className="px-3 py-2 text-center font-medium text-gray-700 dark:text-gray-200"
                                                             >
-                                                                <Trash2 size={14} />
-                                                                Remover variação
-                                                            </button>
-                                                        </div>
+                                                                {tamanho}
+                                                            </th>
+                                                        ))}
+                                                        <th
+                                                            scope="col"
+                                                            className="px-3 py-2 text-center font-medium text-gray-700 dark:text-gray-200"
+                                                        >
+                                                            Ações
+                                                        </th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
+                                                    {novoProdutoVariacoes.map((variacao, index) => (
+                                                        <tr key={`variacao-${index}`}>
+                                                            <td className="px-3 py-2 align-middle">
+                                                                <input
+                                                                    type="text"
+                                                                    value={variacao.ref}
+                                                                    onChange={(event) => handleAtualizarVariacao(index, 'ref', event.target.value)}
+                                                                    className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2"
+                                                                    placeholder="Ex: 016.AZ"
+                                                                    aria-label={`Referência da variação ${index + 1}`}
+                                                                />
+                                                            </td>
+                                                            {gradeListaAtual.map((tamanho) => (
+                                                                <td key={`${tamanho}-${index}`} className="px-2 py-2 align-middle text-center">
+                                                                    <input
+                                                                        type="text"
+                                                                        inputMode="decimal"
+                                                                        pattern="-?\\d*(?:[\\.,]\\d*)?"
+                                                                        value={obterValorParaCampoDeTamanho(variacao.tamanhos, tamanho)}
+                                                                        onChange={(event) =>
+                                                                            handleAtualizarVariacao(
+                                                                                index,
+                                                                                'tamanhos',
+                                                                                event.target.value,
+                                                                                tamanho,
+                                                                            )
+                                                                        }
+                                                                        className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1.5 text-right"
+                                                                        aria-label={`Quantidade para tamanho ${tamanho} da variação ${index + 1}`}
+                                                                        placeholder="0"
+                                                                        autoComplete="off"
+                                                                    />
+                                                                </td>
+                                                            ))}
+                                                            <td className="px-3 py-2 text-center align-middle">
+                                                                {novoProdutoVariacoes.length > 1 && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleRemoverVariacao(index)}
+                                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/40 dark:text-red-300"
+                                                                        aria-label={`Remover variação ${index + 1}`}
+                                                                    >
+                                                                        <Trash2 size={14} />
+                                                                        Remover
+                                                                    </button>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                    {!gradeListaAtual.length && (
+                                                        <tr>
+                                                            <td
+                                                                colSpan={Math.max(2, gradeListaAtual.length + 2)}
+                                                                className="px-4 py-6 text-center text-xs text-gray-500 dark:text-gray-400"
+                                                            >
+                                                                Defina a grade para habilitar as colunas de tamanho e preencher os saldos por variação.
+                                                            </td>
+                                                        </tr>
                                                     )}
-                                                </div>
-                                            ))}
+                                                </tbody>
+                                            </table>
                                         </div>
                                     </div>
 
