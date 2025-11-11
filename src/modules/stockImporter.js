@@ -532,7 +532,7 @@ const parseTabularLayout = (lines = []) => {
                 continue;
             }
             const ref = cleanToken(tokens[0]);
-            const values = tokens.slice(1).map(v => Number(v.replace(/[^\d\-]/g, '') || 0));
+            const values = tokens.slice(1).map(v => Number(v.replace(/[^\d-]/g, '') || 0));
             const tamanhos = {};
             currentGrade.forEach((size, idx) => {
                 tamanhos[size] = values[idx] ?? 0;
