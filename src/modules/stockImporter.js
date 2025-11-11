@@ -93,11 +93,6 @@ const isRefToken = (token) => {
     return REF_REGEX.test(cleanToken(token));
 };
 
-const isProduceRow = (text) => {
-    const s = cleanToken(text.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
-    return s.includes('PRODUZIR');
-};
-
 const isPdfGradeRow = (tokens) => {
     const cleaned = tokens.map(cleanToken).filter(Boolean);
     if (!cleaned.length) return false;
