@@ -70,17 +70,85 @@ const getPdfWorkerPort = () => {
     return cachedPdfWorkerPort;
 };
 
-const REF_REGEX = /^(\d{3,}\.[\w-]+)/i;
-const VARIATION_CODE_REGEX = /^(\d{3}\.[A-Z0-9]{2,})/i;
+const REF_REGEX = /^(\d{3,4}\.[A-Z0-9]{2,})/i;
 const NUMERIC_ONLY_REGEX = /^-?\d+(?:[.,]\d+)?$/;
 const PRODUCE_LABEL_REGEX = /a produzir/i;
 const TOTAL_LABELS = new Set(['TOTAL', 'TOTAIS', 'TOTALGERAL', 'TOTALGERAL:', 'TOTALGERAL.', 'TOTALG', 'TOT', 'TOTALPRODUZIR', 'TOTALPRODUÇÃO']);
+const SIZE_TOKEN_REGEX = /^(PP|P|M|G|GG|XG|EG|[0-9]{1,3})$/;
 
 const LABEL_COLUMN_INDEX = 0;
 
 export const PDF_LIBRARY_UNAVAILABLE_ERROR = 'PDF_LIBRARY_UNAVAILABLE';
 export const PDF_EXTRACTION_FAILED_ERROR = 'PDF_EXTRACTION_FAILED';
 export const NO_VARIATIONS_FOUND_ERROR = 'NO_VARIATIONS_FOUND';
+
+const cleanToken = (t) => {
+    return t
+        .replace(/[,:;]/g, '')
+        .replace(/\s+/g, '')
+        .toUpperCase();
+};
+
+const isRefToken = (token) => {
+    return REF_REGEX.test(cleanToken(token));
+};
+
+const isProduceRow = (text) => {
+    const s = cleanToken(text.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+    return s.includes('PRODUZIR');
+};
+
+const isPdfGradeRow = (tokens) => {
+    const cleaned = tokens.map(cleanToken).filter(Boolean);
+    if (!cleaned.length) return false;
+    const joined = cleaned.join(' ');
+    if (/(PRODUZIR|TOTAL|ESTOQUE|LOTE|SALDO|SOBRAS|PARCIAL)/.test(joined)) {
+        return false;
+    }
+    if (cleaned.length < 2) return false;
+    const hasLetter = cleaned.some(t => /[A-Z]/.test(t));
+    if (!hasLetter) return false;
+    return cleaned.every(t => SIZE_TOKEN_REGEX.test(t));
+};
+
+const isTabularGradeRow = (tokens) => {
+    const cleaned = tokens.map(cleanToken).filter(Boolean);
+    if (!cleaned.length) return false;
+    if (cleaned.length && isRefToken(cleaned[0])) return false;
+
+    const startsWithGrade = cleaned[0] === 'GRADE';
+    const relevantTokens = startsWithGrade ? cleaned.slice(1) : cleaned;
+
+    if (!relevantTokens.length) return false;
+
+    const hasNonNumericSize = relevantTokens.some(t => !/^\d+$/.test(t));
+    if (!startsWithGrade && !hasNonNumericSize) {
+        return false;
+    }
+
+    if (!relevantTokens.every(t => SIZE_TOKEN_REGEX.test(t))) return false;
+    if (relevantTokens.length > 10) return false;
+    return true;
+};
+
+const tokenizeLine = (line) => {
+    if (typeof line !== 'string') {
+        return [];
+    }
+    return line
+        .split(/[^\wÀ-ÿ.]+/)
+        .map((token) => token.trim())
+        .filter(Boolean);
+};
+
+const isPotentialSizeToken = (token) => {
+    const cleaned = cleanToken(token);
+    if (isRefToken(cleaned)) return false;
+    if (/(PRODUZIR|TOTAL|ESTOQUE|LOTE|SALDO|SOBRAS|PARCIAL|GRADE|REF)/.test(cleaned)) {
+        return false;
+    }
+    return SIZE_TOKEN_REGEX.test(cleaned);
+};
 
 const normalizeLabel = (label) => {
     if (typeof label !== 'string') {
@@ -199,54 +267,6 @@ const mapGradeToQuantities = (grades, quantities) => {
         }
     });
     return result;
-};
-
-const tokenizeLine = (line) => {
-    if (typeof line !== 'string') {
-        return [];
-    }
-    return line
-        .split(/[^\wÀ-ÿ.]+/)
-        .map((token) => token.trim())
-        .filter(Boolean);
-};
-
-const isPotentialSizeToken = (token) => {
-    const normalized = normalizeLabel(token);
-    if (!normalized) {
-        return false;
-    }
-    if (normalized === 'GRADE' || normalized.startsWith('GRADE')) {
-        return false;
-    }
-    if (normalized.startsWith('REF')) {
-        return false;
-    }
-    if (PRODUCE_LABEL_REGEX.test(token)) {
-        return false;
-    }
-    if (isTotalLabel(token)) {
-        return false;
-    }
-    if (/^[0-9]$/.test(normalized)) {
-        return false;
-    }
-    if (/^[0-9]{2,4}$/.test(normalized)) {
-        return true;
-    }
-    if (/^[A-Z]{1,4}$/.test(normalized)) {
-        return true;
-    }
-    if (/^[0-9]{1,2}[A-Z]{1,2}$/.test(normalized)) {
-        return true;
-    }
-    if (/^[A-Z]{1,2}[0-9]{1,2}$/.test(normalized)) {
-        return true;
-    }
-    if (normalized === 'UNICA' || normalized === 'UNICO' || normalized === 'UNIQUE') {
-        return true;
-    }
-    return false;
 };
 
 const extractQuantitiesFromLine = (line, grades = []) => {
@@ -415,54 +435,19 @@ const extractGradeTokensFromRow = (row = [], { startCellIndex = 0, skipRefToken 
     return tokens;
 };
 
-const findGradeForVariation = (rows = [], rowIndex = 0, refCellIndex = 0, refToken = '') => {
-    const currentRow = rows[rowIndex] || [];
-    const sameRowTokens = extractGradeTokensFromRow(currentRow, {
-        startCellIndex: refCellIndex,
-        skipRefToken: refToken,
-    });
-
-    if (sameRowTokens.length && sameRowTokens.some((token) => /[A-Z]/.test(token))) {
-        return sameRowTokens;
-    }
-
-    const lookaheadLimit = 6;
-    for (let offset = 1; offset <= lookaheadLimit && rowIndex + offset < rows.length; offset++) {
-        const candidateRow = rows[rowIndex + offset];
-        if (!rowHasContent(candidateRow)) {
-            continue;
-        }
-        if (candidateRow.some((cell) => typeof cell === 'string' && REF_REGEX.test(cell))) {
+const findGradeForVariation = (lines, produceIndex) => {
+    for (let i = produceIndex - 1; i >= 0 && i >= produceIndex - 8; i--) {
+        const line = lines[i];
+        if (!line) continue;
+        const tokens = line.trim().split(/\s+/);
+        if (tokens.length && isRefToken(tokens[0])) {
             break;
         }
-        if (rowContainsProduceLabel(candidateRow)) {
-            break;
-        }
-        const tokens = extractGradeTokensFromRow(candidateRow);
-        if (tokens.length) {
-            return tokens;
+        if (isPdfGradeRow(tokens)) {
+            return tokens.map(cleanToken);
         }
     }
-
-    const lookbehindLimit = 3;
-    for (let offset = 1; offset <= lookbehindLimit && rowIndex - offset >= 0; offset++) {
-        const candidateRow = rows[rowIndex - offset];
-        if (!rowHasContent(candidateRow)) {
-            continue;
-        }
-        if (candidateRow.some((cell) => typeof cell === 'string' && REF_REGEX.test(cell))) {
-            break;
-        }
-        if (rowContainsProduceLabel(candidateRow)) {
-            continue;
-        }
-        const tokens = extractGradeTokensFromRow(candidateRow);
-        if (tokens.length) {
-            return tokens;
-        }
-    }
-
-    return [];
+    return undefined;
 };
 
 const collectQuantitiesFromProduceRow = (row = []) => {
@@ -553,32 +538,74 @@ const findQuantitiesForRow = (rows = [], rowIndex = 0, refToken = '') => {
     return null;
 };
 
+const parseTabularLayout = (lines = []) => {
+    const blocks = [];
+    let currentGrade = null;
+    for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        const tokens = tokenizeLine(line);
+        if (!tokens.length) continue;
+
+        if (isRefToken(tokens[0])) {
+            if (!currentGrade) {
+                continue;
+            }
+            const ref = cleanToken(tokens[0]);
+            const values = tokens.slice(1).map(v => Number(v.replace(/[^\d\-]/g, '') || 0));
+            const tamanhos = {};
+            currentGrade.forEach((size, idx) => {
+                tamanhos[size] = values[idx] ?? 0;
+            });
+            blocks.push({
+                ref,
+                grade: [...currentGrade],
+                tamanhos,
+            });
+            continue;
+        }
+
+        if (isTabularGradeRow(tokens)) {
+            currentGrade = tokens.map(cleanToken).filter(isPotentialSizeToken);
+            continue;
+        }
+    }
+    return blocks;
+};
+
 const parseRowsIntoBlocks = (rows = []) => {
     const sanitizedRows = Array.isArray(rows) ? rows.map(sanitizeRow) : [];
     const blocks = [];
 
     for (let rowIndex = 0; rowIndex < sanitizedRows.length; rowIndex++) {
         const row = sanitizedRows[rowIndex];
-        if (!rowHasContent(row)) {
-            continue;
-        }
+        if (!rowHasContent(row)) continue;
 
         const refInfo = findRefInRow(row);
-        if (!refInfo) {
-            continue;
+        if (!refInfo) continue;
+
+        const quantitiesResult = findQuantitiesForRow(sanitizedRows, rowIndex, refInfo.token);
+        if (!quantitiesResult) continue;
+
+        let gradeTokens = [];
+        const sameLineTokens = extractGradeTokensFromRow(row, { startCellIndex: refInfo.cellIndex, skipRefToken: refInfo.token });
+
+        if (sameLineTokens.length > 1) {
+            gradeTokens = sameLineTokens;
+        } else {
+            // Look for a grade row between the reference and the 'A PRODUZIR' row
+            for (let i = rowIndex + 1; i < quantitiesResult.lastRowIndex; i++) {
+                const candidateRow = sanitizedRows[i];
+                const tokens = tokenizeLine(candidateRow.join(' '));
+                if (isPdfGradeRow(tokens)) {
+                    gradeTokens = tokens.filter(isPotentialSizeToken);
+                    break;
+                }
+            }
         }
 
-        const { ref, cellIndex, token } = refInfo;
-        const gradeTokens = findGradeForVariation(sanitizedRows, rowIndex, cellIndex, token);
-        const quantitiesResult = findQuantitiesForRow(sanitizedRows, rowIndex, token);
-
-        if (!quantitiesResult) {
-            continue;
-        }
-
-        const { lastRowIndex } = quantitiesResult;
         let { quantities } = quantitiesResult;
-        let resolvedGrade = gradeTokens.slice();
+        let resolvedGrade = gradeTokens;
 
         if (!resolvedGrade.length) {
             if (quantities.length === 1) {
@@ -603,13 +630,13 @@ const parseRowsIntoBlocks = (rows = []) => {
 
         const tamanhos = mapGradeToQuantities(resolvedGrade, quantities);
         blocks.push({
-            ref,
+            ref: refInfo.ref,
             grade: resolvedGrade,
             tamanhos,
         });
 
-        if (lastRowIndex > rowIndex) {
-            rowIndex = lastRowIndex;
+        if (quantitiesResult.lastRowIndex > rowIndex) {
+            rowIndex = quantitiesResult.lastRowIndex;
         }
     }
 
@@ -739,7 +766,7 @@ const parseXlsxRowsIntoBlocks = (rows = []) => {
         }
 
         const normalizedFirstCell = toTrimmedUppercase(firstCell);
-        const variationMatch = normalizedFirstCell.match(VARIATION_CODE_REGEX);
+        const variationMatch = normalizedFirstCell.match(REF_REGEX);
         if (!variationMatch) {
             continue;
         }
@@ -748,19 +775,14 @@ const parseXlsxRowsIntoBlocks = (rows = []) => {
         const linhaCodigo = rowIndex;
 
         let linhaAProduzir = -1;
-        for (let searchIndex = rowIndex + 1; searchIndex < sanitizedRows.length; searchIndex++) {
+        for (let searchIndex = rowIndex + 1; searchIndex < sanitizedRows.length && searchIndex < rowIndex + 10; searchIndex++) {
             const candidateRow = sanitizedRows[searchIndex];
             const candidateFirstCell = getFirstColumnValue(candidateRow);
             const candidateNormalized = toTrimmedUppercase(candidateFirstCell);
             const candidateComparable = normalizeForComparison(candidateFirstCell);
 
-            if (VARIATION_CODE_REGEX.test(candidateNormalized)) {
-                linhaAProduzir = -1;
+            if (REF_REGEX.test(candidateNormalized)) {
                 break;
-            }
-
-            if (!candidateComparable) {
-                continue;
             }
 
             if (candidateComparable.includes('PRODUZIR')) {
@@ -774,19 +796,14 @@ const parseXlsxRowsIntoBlocks = (rows = []) => {
         }
 
         let linhaQtde = -1;
-        for (let searchIndex = linhaAProduzir + 1; searchIndex < sanitizedRows.length; searchIndex++) {
+        for (let searchIndex = linhaAProduzir + 1; searchIndex < sanitizedRows.length && searchIndex < linhaAProduzir + 5; searchIndex++) {
             const candidateRow = sanitizedRows[searchIndex];
             const candidateFirstCell = getFirstColumnValue(candidateRow);
             const candidateNormalized = toTrimmedUppercase(candidateFirstCell);
             const candidateComparable = normalizeForComparison(candidateFirstCell);
 
-            if (VARIATION_CODE_REGEX.test(candidateNormalized)) {
-                linhaQtde = -1;
+            if (REF_REGEX.test(candidateNormalized)) {
                 break;
-            }
-
-            if (!candidateComparable) {
-                continue;
             }
 
             if (candidateComparable.startsWith('QTDE')) {
@@ -872,15 +889,43 @@ const parseXlsxRowsIntoBlocks = (rows = []) => {
     return blocks;
 };
 
-export const parseLinesIntoBlocks = (lines = []) => {
-    const normalizedLines = Array.isArray(lines) ? lines : [];
-    const rows = normalizedLines.map((line) => {
-        if (Array.isArray(line)) {
-            return line;
+const isBlockLayout = (rows = []) => {
+    if (!rows || rows.length < 3) return false;
+
+    let hasRef = false;
+    let hasProduce = false;
+    let hasQtde = false;
+
+    for (const row of rows) {
+        const firstCell = getFirstColumnValue(row);
+        if (!firstCell) continue;
+
+        const comparable = normalizeForComparison(firstCell);
+        if (REF_REGEX.test(comparable)) hasRef = true;
+        if (comparable.includes('PRODUZIR')) hasProduce = true;
+        if (comparable.startsWith('QTDE')) hasQtde = true;
+    }
+
+    return hasRef && hasProduce && hasQtde;
+};
+
+const isTabularLayout = (rows = []) => {
+    if (!rows || rows.length < 2) return false;
+
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const tokens = tokenizeLine(row.join(' '));
+        if (isTabularGradeRow(tokens)) {
+            if (i + 1 < rows.length) {
+                const nextRowTokens = tokenizeLine(rows[i + 1].join(' '));
+                if (nextRowTokens.length > 1 && isRefToken(nextRowTokens[0])) {
+                    return true;
+                }
+            }
         }
-        return [line];
-    });
-    return parseRowsIntoBlocks(rows);
+    }
+
+    return false;
 };
 
 const areGradesEqual = (gradeA = [], gradeB = []) => {
@@ -973,13 +1018,11 @@ const logSheetColumnADebugInfo = (sheet, sheetName) => {
         const rowNumber = rowIndex + 1;
 
         if (/^\d{3}\./.test(upper)) {
-            // eslint-disable-next-line no-console
-            console.log('[DEBUG XLSX] possivel codigo na linha', rowNumber, 'aba', sheetName || '(sem nome)', ':', JSON.stringify(stringValue));
+            // console.log('[DEBUG XLSX] possivel codigo na linha', rowNumber, 'aba', sheetName || '(sem nome)', ':', JSON.stringify(stringValue));
         }
 
         if (upper.includes('PRODUZIR')) {
-            // eslint-disable-next-line no-console
-            console.log('[DEBUG XLSX] linha com PRODUZIR na linha', rowNumber, 'aba', sheetName || '(sem nome)', ':', JSON.stringify(stringValue));
+            // console.log('[DEBUG XLSX] linha com PRODUZIR na linha', rowNumber, 'aba', sheetName || '(sem nome)', ':', JSON.stringify(stringValue));
         }
     }
 };
@@ -1131,6 +1174,15 @@ export const flattenSnapshotsToVariations = (snapshots = []) => {
     return flattened;
 };
 
+const parsePdfLines = (lines = []) => {
+    const tabularBlocks = parseTabularLayout(lines);
+    if (tabularBlocks.length) {
+        return tabularBlocks;
+    }
+    const rows = lines.map(line => [line]);
+    return parseRowsIntoBlocks(rows);
+};
+
 export const importStockFile = async ({ file, arrayBuffer, type }) => {
     const normalizedType = typeof type === 'string' ? type.toLowerCase() : '';
     let buffer = arrayBuffer;
@@ -1145,19 +1197,30 @@ export const importStockFile = async ({ file, arrayBuffer, type }) => {
         throw new Error('Nenhum arquivo válido foi fornecido para importação.');
     }
 
-    if (normalizedType === 'pdf' || (file?.type || '').includes('pdf')) {
+    const isPdf = normalizedType === 'pdf' || (file?.type || '').includes('pdf');
+    const isXlsx = normalizedType === 'xlsx' || (file?.type || '').includes('sheet');
+
+    let blocks = [];
+
+    if (isPdf) {
         const lines = await extractPdfLines(buffer);
-        const blocks = ensureBlocksFound(parseLinesIntoBlocks(lines));
-        return aggregateBlocksIntoSnapshots(blocks);
-    }
-
-    if (normalizedType === 'xlsx' || (file?.type || '').includes('sheet')) {
+        blocks = parsePdfLines(lines);
+    } else if (isXlsx) {
         const rows = extractXlsxRows(buffer);
-        const blocks = ensureBlocksFound(parseXlsxRowsIntoBlocks(rows));
-        return aggregateBlocksIntoSnapshots(blocks);
+        const lines = rows.map(row => row.join(' '));
+        if (isBlockLayout(rows)) {
+            blocks = parseXlsxRowsIntoBlocks(rows);
+        } else if (isTabularLayout(rows)) {
+            blocks = parseTabularLayout(lines);
+        } else {
+            blocks = parseRowsIntoBlocks(rows);
+        }
+    } else {
+        throw new Error('Tipo de arquivo não suportado para importação.');
     }
 
-    throw new Error('Tipo de arquivo não suportado para importação.');
+    blocks = ensureBlocksFound(blocks);
+    return aggregateBlocksIntoSnapshots(blocks);
 };
 
 export default importStockFile;
