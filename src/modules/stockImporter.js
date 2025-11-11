@@ -430,21 +430,6 @@ const extractGradeTokensFromRow = (row = [], { startCellIndex = 0, skipRefToken 
     return tokens;
 };
 
-const findGradeForVariation = (lines, produceIndex) => {
-    for (let i = produceIndex - 1; i >= 0 && i >= produceIndex - 8; i--) {
-        const line = lines[i];
-        if (!line) continue;
-        const tokens = line.trim().split(/\s+/);
-        if (tokens.length && isRefToken(tokens[0])) {
-            break;
-        }
-        if (isPdfGradeRow(tokens)) {
-            return tokens.map(cleanToken);
-        }
-    }
-    return undefined;
-};
-
 const collectQuantitiesFromProduceRow = (row = []) => {
     const labelIndex = row.findIndex((cell) => typeof cell === 'string' && PRODUCE_LABEL_REGEX.test(cell));
     if (labelIndex === -1) {
