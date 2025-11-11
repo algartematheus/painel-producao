@@ -1,8 +1,9 @@
-import importStockFile from './stockImporter';
+import * as XLSX from 'xlsx';
+import * as pdfjsLib from 'pdfjs-dist';
 
 const STORAGE_KEYS = {
-    portfolio: 'relatorioEstoquePortfolio',
-    historico: 'relatorioEstoqueHistorico',
+    portfolio: 'portfolioProdutos',
+    historico: 'historicoEstoque',
 };
 
 const memoryStorage = (() => {
@@ -24,7 +25,7 @@ const getStorage = () => {
             return window.localStorage;
         }
     } catch (error) {
-        // Ignorado: fallback para memória
+        return memoryStorage;
     }
     return memoryStorage;
 };
@@ -77,8 +78,6 @@ const sanitizePortfolioItem = (item) => {
     return {
         codigo,
         grade: cloneGrade(item.grade),
-        variations: sanitizeVariations(item.variations),
-        agruparVariacoes: item.agruparVariacoes !== false,
     };
 };
 
@@ -108,9 +107,9 @@ export const salvarPortfolio = (portfolioArray = []) => {
     return sanitized;
 };
 
-export const adicionarProdutoAoPortfolio = ({ codigo, grade, variations, agruparVariacoes }) => {
+export const adicionarProdutoAoPortfolio = ({ codigo, grade }) => {
     const portfolio = carregarPortfolio();
-    const sanitized = sanitizePortfolioItem({ codigo, grade, variations, agruparVariacoes });
+    const sanitized = sanitizePortfolioItem({ codigo, grade });
     if (!sanitized) {
         throw new Error('Dados inválidos ao adicionar produto ao portfólio.');
     }
@@ -133,22 +132,7 @@ export const removerProdutoDoPortfolio = (codigo) => {
 };
 
 export const reordenarPortfolio = (novaOrdemArray = []) => {
-    const portfolio = carregarPortfolio();
-    if (!Array.isArray(novaOrdemArray) || novaOrdemArray.length === 0) {
-        return portfolio;
-    }
-    const orderCodes = novaOrdemArray.map((item) => (typeof item === 'string' ? item : item?.codigo)).filter(Boolean);
-    if (!orderCodes.length) {
-        return portfolio;
-    }
-    const orderMap = new Map(orderCodes.map((code, index) => [code, index]));
-    const sorted = [...portfolio].sort((a, b) => {
-        const indexA = orderMap.has(a.codigo) ? orderMap.get(a.codigo) : Number.MAX_SAFE_INTEGER;
-        const indexB = orderMap.has(b.codigo) ? orderMap.get(b.codigo) : Number.MAX_SAFE_INTEGER;
-        return indexA - indexB;
-    });
-    salvarPortfolio(sorted);
-    return sorted;
+    return salvarPortfolio(novaOrdemArray);
 };
 
 const inferGradeFromVariations = (variations = [], fallbackGrade = []) => {
@@ -164,68 +148,20 @@ const inferGradeFromVariations = (variations = [], fallbackGrade = []) => {
     return [];
 };
 
-const calcularTotaisPorTamanhoComDetalhes = (variations = [], grade = []) => {
+export const calcularTotalPorTamanho = (variations = [], grade = []) => {
     const sanitizedVariations = sanitizeVariations(variations);
-    const gradeBase = cloneGrade(grade);
-    const gradeToUse = gradeBase.length ? gradeBase : inferGradeFromVariations(sanitizedVariations);
+    const sanitizedGrade = cloneGrade(grade);
+    const gradeToUse = sanitizedGrade.length ? sanitizedGrade : inferGradeFromVariations(sanitizedVariations);
+
     const totals = {};
-    const detalhes = {};
     gradeToUse.forEach((size) => {
         totals[size] = 0;
-        detalhes[size] = { positivo: 0, negativo: 0, liquido: 0 };
     });
 
     sanitizedVariations.forEach((variation) => {
         gradeToUse.forEach((size) => {
             const value = normalizeNumber(variation.tamanhos[size]);
             totals[size] = (totals[size] || 0) + value;
-            const detalhe = detalhes[size];
-            detalhe.liquido += value;
-            if (value > 0) {
-                detalhe.positivo += value;
-            } else if (value < 0) {
-                detalhe.negativo += value;
-            }
-        });
-    });
-
-    return { grade: gradeToUse, totalPorTamanho: totals, detalhesPorTamanho: detalhes };
-};
-
-export const calcularTotalPorTamanho = (variations = [], grade = []) => {
-    const sanitizedVariations = sanitizeVariations(variations);
-    const sanitizedGrade = cloneGrade(grade);
-    const { grade: gradeUtilizada, totalPorTamanho } = calcularTotaisPorTamanhoComDetalhes(
-        sanitizedVariations,
-        sanitizedGrade,
-    );
-    const gradeFinal = sanitizedGrade.length ? sanitizedGrade : gradeUtilizada;
-
-    return gradeFinal.reduce((acc, size) => {
-        acc[size] = normalizeNumber(totalPorTamanho[size]);
-        return acc;
-    }, {});
-};
-
-export const calcularTotalDetalhadoPorTamanho = (variations = [], grade = []) => {
-    const sanitizedVariations = sanitizeVariations(variations);
-    const gradeBase = cloneGrade(grade);
-    const gradeToUse = gradeBase.length ? gradeBase : inferGradeFromVariations(sanitizedVariations);
-    const totals = {};
-
-    gradeToUse.forEach((size) => {
-        totals[size] = { positivo: 0, negativo: 0, liquido: 0 };
-    });
-
-    sanitizedVariations.forEach((variation) => {
-        gradeToUse.forEach((size) => {
-            const value = normalizeNumber(variation.tamanhos[size]);
-            if (value > 0) {
-                totals[size].positivo += value;
-            } else if (value < 0) {
-                totals[size].negativo += value;
-            }
-            totals[size].liquido += value;
         });
     });
 
@@ -263,10 +199,8 @@ export const criarSnapshotProduto = ({
     }
     const sanitizedGrade = cloneGrade(grade);
     const sanitizedVariations = sanitizeVariations(variations);
-    const { grade: gradeCalculada, totalPorTamanho, detalhesPorTamanho } = calcularTotaisPorTamanhoComDetalhes(
-        sanitizedVariations,
-        sanitizedGrade,
-    );
+    const gradeCalculada = sanitizedGrade.length ? sanitizedGrade : inferGradeFromVariations(sanitizedVariations);
+    const totalPorTamanho = calcularTotalPorTamanho(sanitizedVariations, gradeCalculada);
     const resumo = resumoPositivoNegativo(totalPorTamanho);
     const gradeFinal = sanitizedGrade.length ? sanitizedGrade : gradeCalculada;
     return {
@@ -274,7 +208,6 @@ export const criarSnapshotProduto = ({
         grade: gradeFinal,
         variations: sanitizedVariations,
         totalPorTamanho,
-        totalPorTamanhoDetalhado: detalhesPorTamanho,
         resumoPositivoNegativo: resumo,
         metadata: {
             dataLancamentoISO: dataLancamentoISO || null,
@@ -335,14 +268,13 @@ export const renderizarBlocoProdutoHTML = (produtoSnapshot) => {
     }
     const grade = cloneGrade(produtoSnapshot.grade);
     const variations = Array.isArray(produtoSnapshot.variations) ? produtoSnapshot.variations : [];
-    const totalDetalhado = calcularTotalDetalhadoPorTamanho(variations, grade);
+    const totalPorTamanho = produtoSnapshot.totalPorTamanho || calcularTotalPorTamanho(variations, grade);
     const resumo = produtoSnapshot.resumoPositivoNegativo || { positivoTotal: 0, negativoTotal: 0, formatoHumano: '0 0' };
 
     const headerCells = grade.map((size) => `<th>${size}</th>`).join('');
 
     const bodyRows = variations
         .map((variation) => {
-            const totalVariation = grade.reduce((acc, size) => acc + normalizeNumber(variation.tamanhos?.[size]), 0);
             const cells = grade
                 .map((size) => {
                     const value = normalizeNumber(variation.tamanhos?.[size]);
@@ -354,7 +286,6 @@ export const renderizarBlocoProdutoHTML = (produtoSnapshot) => {
                 <tr>
                     <td class="ref">${variation.ref}</td>
                     ${cells}
-                    <td class="${getValueClass(totalVariation)}">${formatNumber(totalVariation)}</td>
                 </tr>
             `;
         })
@@ -362,22 +293,11 @@ export const renderizarBlocoProdutoHTML = (produtoSnapshot) => {
 
     const totalCells = grade
         .map((size) => {
-            const detalhe = totalDetalhado[size] || { positivo: 0, negativo: 0, liquido: 0 };
-            const { positivo, negativo, liquido } = detalhe;
-            let textoCelula;
-            let className = '';
-
-            if (positivo > 0 && negativo < 0) {
-                textoCelula = `${positivo}-${Math.abs(negativo)}`;
-            } else {
-                textoCelula = formatNumber(liquido);
-                className = getValueClass(liquido);
-            }
-            return `<td class="${className}">${textoCelula}</td>`;
+            const value = normalizeNumber(totalPorTamanho[size]);
+            const className = getValueClass(value);
+            return `<td class="${className}">${formatNumber(value)}</td>`;
         })
         .join('');
-
-    const totalGeral = Object.values(totalDetalhado).reduce((acc, detalhe) => acc + (detalhe?.liquido || 0), 0);
 
     return `
         <section class="produto-bloco">
@@ -385,9 +305,8 @@ export const renderizarBlocoProdutoHTML = (produtoSnapshot) => {
             <table class="tabela-produto">
                 <thead>
                     <tr>
-                        <th>Variação</th>
+                        <th>REF/TAM</th>
                         ${headerCells}
-                        <th>Total</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -397,14 +316,13 @@ export const renderizarBlocoProdutoHTML = (produtoSnapshot) => {
                     <tr class="total-geral">
                         <td>${produtoSnapshot.produtoBase}.</td>
                         ${totalCells}
-                        <td class="${getValueClass(totalGeral)}">${formatNumber(totalGeral)}</td>
                     </tr>
                 </tfoot>
             </table>
             <div class="resumo-produto">
-                <p><strong>Necessário produzir:</strong> <span class="falta">${formatNumber(resumo.positivoTotal)}</span></p>
-                <p><strong>Sobra consolidada:</strong> <span class="sobra">${formatNumber(resumo.negativoTotal)}</span></p>
-                <p><strong>Resumo rápido:</strong> ${resumo.formatoHumano}</p>
+                <p>Necessário produzir (falta total): <strong class="falta">${formatNumber(resumo.positivoTotal)}</strong></p>
+                <p>Sobra consolidada: <strong class="sobra">${formatNumber(resumo.negativoTotal)}</strong></p>
+                <p>Formato rápido: <code>${resumo.formatoHumano}</code></p>
             </div>
         </section>
     `;
@@ -415,11 +333,12 @@ const createMeasurementContainer = () => {
         return null;
     }
     const container = document.createElement('div');
-    container.style.visibility = 'hidden';
     container.style.position = 'absolute';
-    container.style.top = '-9999px';
-    container.style.left = '-9999px';
+    container.style.left = '-99999px';
+    container.style.top = '0';
     container.style.width = '210mm';
+    container.style.padding = '16px';
+    container.style.boxSizing = 'border-box';
     document.body.appendChild(container);
     return container;
 };
@@ -444,11 +363,24 @@ export const paginarRelatorioEmPaginasA4 = (dailyRecord, pageHeightPx = 1122) =>
     let currentHeight = 0;
 
     const appendBlock = (block) => {
-        if (currentHeight + block.altura > pageHeightPx && currentPage.length) {
-            pages.push(currentPage);
-            currentPage = [];
-            currentHeight = 0;
+        if (block.altura > pageHeightPx) {
+            if (currentPage.length) {
+                pages.push(currentPage);
+                currentPage = [];
+                currentHeight = 0;
+            }
+            pages.push([block]);
+            return;
         }
+
+        if (currentHeight + block.altura > pageHeightPx) {
+            if (currentPage.length) {
+                pages.push(currentPage);
+                currentPage = [];
+                currentHeight = 0;
+            }
+        }
+
         currentPage.push(block);
         currentHeight += block.altura;
     };
@@ -458,6 +390,7 @@ export const paginarRelatorioEmPaginasA4 = (dailyRecord, pageHeightPx = 1122) =>
         let altura = estimateBlockHeight(produtoSnapshot);
         if (container) {
             const wrapper = document.createElement('div');
+            wrapper.className = 'produto-wrapper-medida';
             wrapper.innerHTML = html;
             const element = wrapper.firstElementChild;
             if (element) {
@@ -505,23 +438,27 @@ export const gerarHTMLImpressaoPaginado = (dailyRecord, paginas) => {
     const pagesHtml = (Array.isArray(paginas) ? paginas : [])
         .map((pageBlocks, pageIndex) => `
             <div class="page">
-                <div class="page-header">
-                    <div><strong>Relatório de Estoque / Produção</strong></div>
-                    <div>Data/Hora: ${dataLancamento || '-'}</div>
-                    <div>Responsável: ${responsavel || '-'}</div>
-                    <div>Página ${pageIndex + 1} / ${totalPages}</div>
-                </div>
+                <header class="page-header">
+                    <div>
+                        <strong>Relatório de Estoque / Produção</strong><br/>
+                        Data/Hora: ${dataLancamento || '-'}<br/>
+                        Responsável: ${responsavel || '-'}<br/>
+                        Página ${pageIndex + 1} / ${totalPages}
+                    </div>
+                </header>
                 ${pageBlocks.map((block) => block.html).join('')}
             </div>
         `)
         .join('');
 
     const styles = `
+        * {
+            box-sizing: border-box;
+        }
         body {
-            font-family: 'Helvetica Neue', Arial, sans-serif;
-            background: #f0f0f0;
+            font-family: Arial, sans-serif;
             margin: 0;
-            padding: 16px;
+            background: #ccc;
         }
         .page {
             width: 210mm;
@@ -534,7 +471,6 @@ export const gerarHTMLImpressaoPaginado = (dailyRecord, paginas) => {
             flex-direction: column;
             page-break-after: always;
             border: 1px solid #000;
-            box-sizing: border-box;
         }
         .page:last-child {
             page-break-after: auto;
@@ -544,9 +480,6 @@ export const gerarHTMLImpressaoPaginado = (dailyRecord, paginas) => {
             border-bottom: 1px solid #000;
             margin-bottom: 8px;
             padding-bottom: 4px;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 4px;
         }
         h2 {
             font-size: 14px;
@@ -583,9 +516,8 @@ export const gerarHTMLImpressaoPaginado = (dailyRecord, paginas) => {
         }
         .resumo-produto {
             font-size: 11px;
-            display: flex;
-            gap: 16px;
-            flex-wrap: wrap;
+            margin-top: 4px;
+            margin-bottom: 12px;
         }
         @media print {
             body {
@@ -606,7 +538,7 @@ export const gerarHTMLImpressaoPaginado = (dailyRecord, paginas) => {
 <html lang="pt-BR">
 <head>
     <meta charset="utf-8" />
-    <title>Relatório de Estoque / Produção</title>
+    <title>Relatório de Estoque - ${dataLancamento || 'Relatório'}</title>
     <style>${styles}</style>
 </head>
 <body>
@@ -627,130 +559,210 @@ const abrirJanelaRelatorio = (html) => {
     return novaJanela;
 };
 
-export const normalizarProdutosImportados = (produtos = []) => {
-    const configuracoesPortfolio = new Map(carregarPortfolio().map((item) => [item.codigo, item]));
-    const agrupado = {};
-    produtos.forEach((produto) => {
-        if (!produto || typeof produto !== 'object') {
-            return;
-        }
-        const base = produto.productCode || produto.produtoBase;
-        if (!base) {
-            return;
-        }
-        const configItem = configuracoesPortfolio.get(base);
-        const gradePrincipal = cloneGrade(produto.grade);
-        const gradeFallback = gradePrincipal.length ? gradePrincipal : cloneGrade(configItem?.grade);
-        const variationsImportadas = Array.isArray(produto.variations) ? produto.variations : [];
-        const variationsConfiguradas = Array.isArray(configItem?.variations) ? configItem.variations : [];
-        const variationsMap = new Map();
+const REF_REGEX = /^(\d{3,4}\.[A-Z0-9]{2,})/i;
 
-        variationsImportadas.forEach((variation) => {
-            if (!variation || typeof variation !== 'object') {
-                return;
-            }
-            const ref = typeof variation.ref === 'string' ? variation.ref.trim() : '';
-            if (!ref) {
-                return;
-            }
-            variationsMap.set(ref, variation);
-        });
+const parseXlsxFileToProducts = async (file) => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const parsedProducts = {};
 
-        variationsConfiguradas.forEach((variation) => {
-            if (!variation || typeof variation !== 'object') {
-                return;
-            }
-            const ref = typeof variation.ref === 'string' ? variation.ref.trim() : '';
-            if (!ref || variationsMap.has(ref)) {
-                return;
-            }
-            variationsMap.set(ref, variation);
-        });
+                workbook.SheetNames.forEach((sheetName) => {
+                    const sheet = workbook.Sheets[sheetName];
+                    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-        const variationsParaProcessar = Array.from(variationsMap.values());
-        const deveAgrupar = configItem ? configItem.agruparVariacoes !== false : true;
+                    let currentRef = null;
+                    let currentGrade = null;
 
-        if (!deveAgrupar && variationsParaProcessar.length) {
-            variationsParaProcessar.forEach((variation) => {
-                if (!variation || typeof variation !== 'object') {
-                    return;
-                }
-                const ref = typeof variation.ref === 'string' ? variation.ref.trim() : '';
-                if (!ref) {
-                    return;
-                }
-                const chave = `${base}:${ref}`;
-                if (!agrupado[chave]) {
-                    const gradeVar = cloneGrade(variation.grade);
-                    agrupado[chave] = {
-                        produtoBase: ref,
-                        grade: gradeVar.length ? gradeVar : gradeFallback,
-                        variations: [],
-                    };
-                }
-                agrupado[chave].variations.push({
-                    ref,
-                    tamanhos: variation.tamanhos || {},
-                });
-            });
-            return;
-        }
+                    rows.forEach((row, rowIndex) => {
+                        const firstCell = String(row[0] || '').trim().toUpperCase();
 
-        const chaveBase = base;
-        if (!agrupado[chaveBase]) {
-            agrupado[chaveBase] = {
-                produtoBase: base,
-                grade: gradeFallback,
-                variations: [],
-            };
-        }
-        const destino = agrupado[chaveBase];
-        if (!destino.grade.length) {
-            destino.grade = gradeFallback;
-        }
+                        if (REF_REGEX.test(firstCell)) {
+                            const match = firstCell.match(REF_REGEX);
+                            currentRef = match[1];
+                            const [prefix] = currentRef.split('.');
+                            if (!parsedProducts[prefix]) {
+                                parsedProducts[prefix] = {
+                                    grade: [],
+                                    variations: [],
+                                };
+                            }
+                        }
 
-        variationsParaProcessar.forEach((variation) => {
-            if (!variation || typeof variation !== 'object') {
-                return;
-            }
-            const ref = typeof variation.ref === 'string' ? variation.ref.trim() : '';
-            if (!ref) {
-                return;
-            }
-            const gradeVar = cloneGrade(variation.grade);
-            if (!destino.grade.length && gradeVar.length) {
-                destino.grade = gradeVar;
-            }
-            if (destino.grade.length && gradeVar.length) {
-                const mismatch = destino.grade.length !== gradeVar.length
-                    || destino.grade.some((value, index) => value !== gradeVar[index]);
-                if (mismatch && typeof console !== 'undefined') {
-                    console.warn(`Grade divergente detectada para ${ref}.`, {
-                        esperado: destino.grade,
-                        encontrado: gradeVar,
+                        if (firstCell.startsWith('QTDE') || (rowIndex > 0 && /^(PP|P|M|G|GG|XG|EG|[0-9]{1,3})$/.test(String(row[1] || '').trim()))) {
+                            const gradeValues = row.slice(1).map(c => String(c || '').trim()).filter(Boolean);
+                            if (gradeValues.length > 0 && gradeValues.every(v => /^(PP|P|M|G|GG|XG|EG|[0-9]{1,3})$/.test(v))) {
+                                currentGrade = gradeValues;
+                            }
+                        }
+
+                        if (firstCell.includes('PRODUZIR') && currentRef && currentGrade) {
+                            const numbers = row.slice(1).map(cell => {
+                                const num = Number(cell);
+                                return isNaN(num) ? null : Math.round(num);
+                            }).filter(n => n !== null);
+
+                            let valores = numbers;
+                            if (valores.length === currentGrade.length + 1) {
+                                valores = valores.slice(0, currentGrade.length);
+                            }
+
+                            if (valores.length === currentGrade.length) {
+                                const tamanhos = {};
+                                currentGrade.forEach((size, idx) => {
+                                    tamanhos[size] = valores[idx];
+                                });
+
+                                const [prefix] = currentRef.split('.');
+                                if (!parsedProducts[prefix].grade.length) {
+                                    parsedProducts[prefix].grade = currentGrade.slice();
+                                }
+
+                                parsedProducts[prefix].variations.push({
+                                    ref: currentRef,
+                                    tamanhos,
+                                });
+
+                                currentRef = null;
+                                currentGrade = null;
+                            }
+                        }
                     });
-                }
+                });
+
+                resolve(parsedProducts);
+            } catch (error) {
+                reject(error);
             }
-            destino.variations.push({
-                ref,
-                tamanhos: variation.tamanhos || {},
-            });
+        };
+        reader.onerror = () => reject(new Error('Erro ao ler arquivo XLSX'));
+        reader.readAsArrayBuffer(file);
+    });
+};
+
+const parsePdfFileToProducts = async (file) => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                if (typeof pdfjsLib.GlobalWorkerOptions !== 'undefined') {
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
+                }
+
+                const typedArray = new Uint8Array(e.target.result);
+                const loadingTask = pdfjsLib.getDocument({ data: typedArray });
+                const pdf = await loadingTask.promise;
+                const parsedProducts = {};
+                let allText = '';
+
+                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                    const page = await pdf.getPage(pageNum);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items.map(item => item.str).join(' ');
+                    allText += pageText + '\n';
+                }
+
+                const lines = allText.split('\n');
+                let currentRef = null;
+                let currentGrade = null;
+
+                lines.forEach((line) => {
+                    const trimmed = line.trim();
+                    const upperLine = trimmed.toUpperCase();
+
+                    const refMatch = upperLine.match(/(\d{3,4}\.[A-Z0-9]{2,})/);
+                    if (refMatch) {
+                        currentRef = refMatch[1];
+
+                        const gradeMatch = line.match(/(\d{2}(?:\s+\d{2})+)\s*(?:QTDE|QTD)?/i);
+                        if (gradeMatch) {
+                            const gradeStr = gradeMatch[1];
+                            currentGrade = gradeStr.split(/\s+/).filter(Boolean);
+                        }
+                    }
+
+                    if (upperLine.includes('A PRODUZIR') && currentRef && currentGrade) {
+                        const numberMatch = line.match(/A\s+PRODUZIR[:\s]*([0-9\s-]+)/i);
+                        if (numberMatch) {
+                            const numbersStr = numberMatch[1];
+                            const numbers = numbersStr.split(/\s+/).map(n => {
+                                const num = parseInt(n, 10);
+                                return isNaN(num) ? null : num;
+                            }).filter(n => n !== null);
+
+                            let valores = numbers;
+                            if (valores.length === currentGrade.length + 1) {
+                                valores = valores.slice(0, currentGrade.length);
+                            }
+
+                            if (valores.length === currentGrade.length) {
+                                const tamanhos = {};
+                                currentGrade.forEach((size, idx) => {
+                                    tamanhos[size] = valores[idx];
+                                });
+
+                                const [prefix] = currentRef.split('.');
+                                if (!parsedProducts[prefix]) {
+                                    parsedProducts[prefix] = {
+                                        grade: [],
+                                        variations: [],
+                                    };
+                                }
+
+                                if (!parsedProducts[prefix].grade.length) {
+                                    parsedProducts[prefix].grade = currentGrade.slice();
+                                }
+
+                                parsedProducts[prefix].variations.push({
+                                    ref: currentRef,
+                                    tamanhos,
+                                });
+
+                                currentRef = null;
+                                currentGrade = null;
+                            }
+                        }
+                    }
+                });
+
+                resolve(parsedProducts);
+            } catch (error) {
+                reject(error);
+            }
+        };
+        reader.onerror = () => reject(new Error('Erro ao ler arquivo PDF'));
+        reader.readAsArrayBuffer(file);
+    });
+};
+
+const normalizeParsedProductsToSnapshots = (parsed, dataLancamentoISO, responsavel) => {
+    return Object.entries(parsed).map(([produtoBase, data]) => {
+        return criarSnapshotProduto({
+            produtoBase,
+            grade: data.grade,
+            variations: data.variations,
+            dataLancamentoISO,
+            responsavel,
         });
     });
-    return agrupado;
 };
 
 export const importarArquivoDeProducao = async (file, tipoArquivo, responsavelLogado) => {
-    const parsed = await importStockFile({ file, type: tipoArquivo });
-    const produtosNormalizados = normalizarProdutosImportados(parsed);
+    let parsed;
+
+    if (tipoArquivo === 'xlsx') {
+        parsed = await parseXlsxFileToProducts(file);
+    } else if (tipoArquivo === 'pdf') {
+        parsed = await parsePdfFileToProducts(file);
+    } else {
+        throw new Error('Tipo de arquivo não suportado. Use "xlsx" ou "pdf".');
+    }
+
     const dataLancamentoISO = new Date().toISOString();
-    const snapshotsProdutos = Object.entries(produtosNormalizados).map(([chave, info]) => criarSnapshotProduto({
-        produtoBase: info?.produtoBase || chave,
-        grade: info.grade,
-        variations: info.variations,
-        dataLancamentoISO,
-        responsavel: responsavelLogado,
-    }));
+    const snapshotsProdutos = normalizeParsedProductsToSnapshots(parsed, dataLancamentoISO, responsavelLogado);
 
     const dailyRecord = montarDailyRecord({
         dataLancamentoISO,
@@ -760,51 +772,41 @@ export const importarArquivoDeProducao = async (file, tipoArquivo, responsavelLo
 
     salvarNoHistorico(dailyRecord);
     const paginas = paginarRelatorioEmPaginasA4(dailyRecord);
-    const html = gerarHTMLImpressaoPaginado(dailyRecord, paginas);
-    abrirJanelaRelatorio(html);
+    const htmlFinal = gerarHTMLImpressaoPaginado(dailyRecord, paginas);
+
+    if (typeof window !== 'undefined') {
+        abrirJanelaRelatorio(htmlFinal);
+    }
 
     return {
         dailyRecord,
-        paginas,
-        html,
+        htmlRelatorio: htmlFinal,
     };
 };
 
 export const exemploFluxoCompleto = () => {
     const dataLancamentoISO = new Date().toISOString();
-    const responsavel = 'Usuário Demo';
+    const responsavel = 'Matheus';
     const grade016 = ['06', '08', '10', '12', '14', '16', '02', '04'];
-    const snapshot016 = criarSnapshotProduto({
+    const variations016 = [
+        {
+            ref: '016.AZ',
+            tamanhos: { '06': -7, '08': -4, '10': -16, '12': -6, '14': 11, '16': 4, '02': -9, '04': -49 },
+        },
+        {
+            ref: '016.DV',
+            tamanhos: { '06': -5, '08': -8, '10': -5, '12': -6, '14': 3, '16': 5, '02': -8, '04': -33 },
+        },
+        {
+            ref: '016.ST',
+            tamanhos: { '06': -9, '08': -9, '10': -18, '12': -8, '14': 11, '16': 4, '02': -23, '04': -66 },
+        },
+    ];
+
+    const snap016 = criarSnapshotProduto({
         produtoBase: '016',
         grade: grade016,
-        variations: [
-            {
-                ref: '016.AZ',
-                tamanhos: {
-                    '06': -57,
-                    '08': -5,
-                    '10': -2,
-                    '12': -14,
-                    '14': -4,
-                    '16': 13,
-                    '02': 6,
-                    '04': -5,
-                },
-            },
-            {
-                ref: '016.DV',
-                tamanhos: {
-                    '06': 10,
-                    '08': 12,
-                    '10': 5,
-                    '12': 0,
-                    '14': -2,
-                    '16': -4,
-                    '02': 3,
-                    '04': -1,
-                },
-            },
-        ],
+        variations: variations016,
         dataLancamentoISO,
         responsavel,
     });
@@ -812,22 +814,25 @@ export const exemploFluxoCompleto = () => {
     const dailyRecord = montarDailyRecord({
         dataLancamentoISO,
         responsavel,
-        snapshotsProdutos: [snapshot016],
+        snapshotsProdutos: [snap016],
     });
 
     salvarNoHistorico(dailyRecord);
     const paginas = paginarRelatorioEmPaginasA4(dailyRecord);
-    const html = gerarHTMLImpressaoPaginado(dailyRecord, paginas);
-    abrirJanelaRelatorio(html);
+    const htmlFinal = gerarHTMLImpressaoPaginado(dailyRecord, paginas);
+
+    if (typeof window !== 'undefined') {
+        abrirJanelaRelatorio(htmlFinal);
+    }
 
     return {
         dailyRecord,
         paginas,
-        html,
+        html: htmlFinal,
     };
 };
 
-const relatorioEstoque = {
+const ProductionStockApp = {
     carregarPortfolio,
     salvarPortfolio,
     adicionarProdutoAoPortfolio,
@@ -846,4 +851,12 @@ const relatorioEstoque = {
     exemploFluxoCompleto,
 };
 
-export default relatorioEstoque;
+if (typeof window !== 'undefined') {
+    window.ProductionStockApp = ProductionStockApp;
+}
+
+export {
+    ProductionStockApp,
+};
+
+export default ProductionStockApp;
