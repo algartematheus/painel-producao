@@ -559,7 +559,48 @@ const abrirJanelaRelatorio = (html) => {
     return novaJanela;
 };
 
-const REF_REGEX = /^(\d{3,4}\.[A-Z0-9]{2,})/i;
+const stripAccentsAndUpper = (value = '') => {
+    return String(value)
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase()
+        .trim();
+};
+
+const normalizeLabel = (label) => {
+    if (label == null) {
+        return '';
+    }
+    return stripAccentsAndUpper(label);
+};
+
+const REF_REGEX = /^\d{3,4}\.[A-Z0-9]{2,}$/;
+
+const isVariationCode = (text = '') => {
+    return REF_REGEX.test(normalizeLabel(text));
+};
+
+const parseNumberCell = (value) => {
+    if (value == null || value === '') {
+        return null;
+    }
+
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : null;
+    }
+
+    const numeric = String(value)
+        .replace(/\./g, '')
+        .replace(',', '.')
+        .trim();
+
+    if (!numeric) {
+        return null;
+    }
+
+    const parsed = Number(numeric);
+    return Number.isFinite(parsed) ? parsed : null;
+};
 
 const parseXlsxFileToProducts = async (file) => {
     return new Promise((resolve, reject) => {
@@ -578,84 +619,140 @@ const parseXlsxFileToProducts = async (file) => {
                     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
                     console.log(`[XLSX DEBUG] Total de linhas: ${rows.length}`);
 
-                    let currentRef = null;
-                    let currentGrade = null;
+                    const COL_LABEL = 0;
 
-                    rows.forEach((row, rowIndex) => {
-                        const firstCell = String(row[0] || '').trim().toUpperCase();
+                    rows.forEach((row = [], rowIndex) => {
+                        const rawLabel = row[COL_LABEL];
+                        const label = rawLabel == null ? '' : String(rawLabel).trim();
 
-                        // Debug: Log todas as linhas com conteúdo
-                        if (firstCell) {
-                            console.log(`[XLSX DEBUG] Row ${rowIndex}: "${firstCell}" | Resto:`, row.slice(1, 5));
+                        if (label) {
+                            console.log(`[XLSX DEBUG] Row ${rowIndex}: "${label}" | Resto:`, row.slice(1, 6));
                         }
 
-                        // Detectar REF (ex: 016.AZ)
-                        if (REF_REGEX.test(firstCell)) {
-                            const match = firstCell.match(REF_REGEX);
-                            currentRef = match[1];
-                            console.log(`[XLSX DEBUG] ✓ REF detectado: ${currentRef}`);
-                            const [prefix] = currentRef.split('.');
-                            if (!parsedProducts[prefix]) {
-                                parsedProducts[prefix] = {
-                                    grade: [],
-                                    variations: [],
-                                };
+                        if (!isVariationCode(label)) {
+                            return;
+                        }
+
+                        const code = label.toUpperCase();
+                        console.log(`[XLSX DEBUG] variation code at row ${rowIndex}: ${code}`);
+
+                        const [prefix] = code.split('.');
+                        if (!parsedProducts[prefix]) {
+                            parsedProducts[prefix] = {
+                                grade: [],
+                                variations: [],
+                            };
+                        }
+
+                        let rowProduce = -1;
+                        for (let r = rowIndex + 1; r < rows.length; r++) {
+                            const candidateRow = rows[r] || [];
+                            const candidateRawLabel = candidateRow[COL_LABEL];
+                            const candidateLabel = candidateRawLabel == null ? '' : String(candidateRawLabel).trim();
+
+                            if (isVariationCode(candidateLabel)) {
+                                break;
+                            }
+
+                            const candidateNormalized = normalizeLabel(candidateLabel);
+                            if (!candidateNormalized) {
+                                continue;
+                            }
+
+                            if (candidateNormalized.includes('PRODUZIR')) {
+                                rowProduce = r;
+                                console.log(`[XLSX DEBUG] A PRODUZIR for ${code} at row ${r}`);
+                                break;
                             }
                         }
 
-                        // Detectar GRADE (linha com tamanhos)
-                        if (firstCell.startsWith('QTDE') || firstCell.startsWith('TAM')) {
-                            const gradeValues = row.slice(1).map(c => String(c || '').trim()).filter(Boolean);
-                            console.log(`[XLSX DEBUG] Possível grade detectada em "${firstCell}":`, gradeValues);
-                            if (gradeValues.length > 0 && gradeValues.every(v => /^(PP|P|M|G|GG|XG|EG|[0-9]{1,3})$/.test(v))) {
-                                currentGrade = gradeValues;
-                                console.log(`[XLSX DEBUG] ✓ GRADE confirmada:`, currentGrade);
+                        if (rowProduce === -1) {
+                            console.warn(`[XLSX DEBUG] ✗ A PRODUZIR não encontrada para ${code}`);
+                            return;
+                        }
+
+                        let rowQtde = -1;
+                        for (let r = rowProduce + 1; r < rows.length; r++) {
+                            const candidateRow = rows[r] || [];
+                            const candidateRawLabel = candidateRow[COL_LABEL];
+                            const candidateLabel = candidateRawLabel == null ? '' : String(candidateRawLabel).trim();
+
+                            if (isVariationCode(candidateLabel)) {
+                                break;
+                            }
+
+                            const candidateNormalized = normalizeLabel(candidateLabel);
+                            if (!candidateNormalized) {
+                                continue;
+                            }
+
+                            if (candidateNormalized.startsWith('QTDE')) {
+                                rowQtde = r;
+                                console.log(`[XLSX DEBUG] QTDE for ${code} at row ${r}`);
+                                break;
                             }
                         }
 
-                        // Detectar linha "A PRODUZIR"
-                        if ((firstCell.includes('PRODUZIR') || firstCell.includes('A PRODUZIR')) && currentRef && currentGrade) {
-                            console.log(`[XLSX DEBUG] Linha "A PRODUZIR" encontrada para ${currentRef}`);
-                            console.log(`[XLSX DEBUG] Grade atual:`, currentGrade);
-                            console.log(`[XLSX DEBUG] Row completa:`, row);
+                        if (rowQtde === -1) {
+                            console.warn(`[XLSX DEBUG] ✗ QTDE não encontrada para ${code}`);
+                            return;
+                        }
 
-                            const numbers = row.slice(1).map(cell => {
-                                const num = Number(cell);
-                                return isNaN(num) ? null : Math.round(num);
-                            }).filter(n => n !== null);
+                        const gradeRow = rows[rowQtde] || [];
+                        const grade = gradeRow
+                            .slice(1)
+                            .map((cell) => (cell == null ? '' : String(cell).trim()))
+                            .filter(Boolean);
 
-                            console.log(`[XLSX DEBUG] Números extraídos:`, numbers);
+                        if (!grade.length) {
+                            console.warn(`[XLSX DEBUG] ✗ Grade vazia para ${code}`);
+                            return;
+                        }
 
-                            let valores = numbers;
-                            if (valores.length === currentGrade.length + 1) {
-                                valores = valores.slice(0, currentGrade.length);
-                                console.log(`[XLSX DEBUG] Ajustado para remover total:`, valores);
-                            }
+                        const produceRow = rows[rowProduce] || [];
+                        let values = produceRow
+                            .slice(1)
+                            .map((cell) => parseNumberCell(cell))
+                            .filter((value) => value !== null);
 
-                            if (valores.length === currentGrade.length) {
-                                const tamanhos = {};
-                                currentGrade.forEach((size, idx) => {
-                                    tamanhos[size] = valores[idx];
-                                });
-
-                                const [prefix] = currentRef.split('.');
-                                if (!parsedProducts[prefix].grade.length) {
-                                    parsedProducts[prefix].grade = currentGrade.slice();
-                                }
-
-                                parsedProducts[prefix].variations.push({
-                                    ref: currentRef,
-                                    tamanhos,
-                                });
-
-                                console.log(`[XLSX DEBUG] ✓ Variação salva: ${currentRef}`, tamanhos);
-
-                                currentRef = null;
-                                currentGrade = null;
-                            } else {
-                                console.warn(`[XLSX DEBUG] ✗ Valores não coincidem com grade (esperado: ${currentGrade.length}, recebido: ${valores.length})`);
+                        if (!values.length && rows[rowProduce + 1]) {
+                            const fallbackRow = rows[rowProduce + 1];
+                            values = fallbackRow
+                                .slice(1)
+                                .map((cell) => parseNumberCell(cell))
+                                .filter((value) => value !== null);
+                            if (values.length) {
+                                console.log(`[XLSX DEBUG] Valores "A PRODUZIR" lidos da próxima linha para ${code}:`, values);
                             }
                         }
+
+                        if (!values.length) {
+                            console.warn(`[XLSX DEBUG] ✗ Valores "A PRODUZIR" vazios para ${code}`);
+                            return;
+                        }
+
+                        if (values.length === grade.length + 1) {
+                            values = values.slice(0, grade.length);
+                            console.log(`[XLSX DEBUG] Ajustado para remover total para ${code}:`, values);
+                        } else if (values.length !== grade.length) {
+                            console.warn(`[XLSX DEBUG] ⚠️ Quantidade de valores (${values.length}) diferente da grade (${grade.length}) para ${code}. Complementando com zeros.`);
+                        }
+
+                        const tamanhos = {};
+                        grade.forEach((size, idx) => {
+                            tamanhos[size] = values[idx] ?? 0;
+                        });
+
+                        if (!parsedProducts[prefix].grade.length) {
+                            parsedProducts[prefix].grade = grade.slice();
+                        }
+
+                        parsedProducts[prefix].variations.push({
+                            ref: code,
+                            tamanhos,
+                        });
+
+                        console.log(`[XLSX DEBUG] ✓ Variação salva: ${code}`, tamanhos);
                     });
                 });
 
@@ -669,6 +766,32 @@ const parseXlsxFileToProducts = async (file) => {
         reader.onerror = () => reject(new Error('Erro ao ler arquivo XLSX'));
         reader.readAsArrayBuffer(file);
     });
+};
+
+const isProduceLine = (text = '') => {
+    if (!text) {
+        return false;
+    }
+    const normalized = stripAccentsAndUpper(text);
+    return normalized.includes('PRODUZIR');
+};
+
+const extractNumbersFromLine = (text = '') => {
+    const matches = String(text).match(/-?\d[\d.]*/g) || [];
+    return matches.map((value) => {
+        const sanitized = value.replace(/\./g, '');
+        const parsed = Number(sanitized);
+        return Number.isFinite(parsed) ? parsed : 0;
+    });
+};
+
+const extractGradeFromLine = (text = '') => {
+    const normalized = stripAccentsAndUpper(text);
+    if (!normalized.includes('GRADE')) {
+        return [];
+    }
+    const matches = String(text).match(/\b\d{1,3}\b/g);
+    return matches ? matches.map((item) => String(item)) : [];
 };
 
 const parsePdfFileToProducts = async (file) => {
@@ -691,111 +814,189 @@ const parsePdfFileToProducts = async (file) => {
                 for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                     const page = await pdf.getPage(pageNum);
                     const textContent = await page.getTextContent();
-                    const pageText = textContent.items.map(item => item.str).join(' ');
+                    const pageText = textContent.items.map((item) => item.str).join(' ');
                     allText += pageText + '\n';
                     console.log(`[PDF DEBUG] Página ${pageNum} texto extraído (primeiros 200 chars):`, pageText.substring(0, 200));
                 }
 
                 const lines = allText.split('\n');
                 console.log(`[PDF DEBUG] Total de linhas extraídas: ${lines.length}`);
-                
+
+                const gradeByPrefix = {};
                 let currentRef = null;
-                let currentGrade = null;
+                let currentPrefix = null;
+                let lastKnownGrade = [];
+                let pendingGrade = [];
 
-                lines.forEach((line, lineIndex) => {
+                for (let i = 0; i < lines.length; i++) {
+                    const raw = lines[i];
+                    const line = raw == null ? '' : String(raw);
                     const trimmed = line.trim();
-                    const upperLine = trimmed.toUpperCase();
+                    const normalized = stripAccentsAndUpper(trimmed);
 
-                    // Debug: Log linhas relevantes
-                    if (trimmed.length > 0 && (trimmed.match(/\d{3,4}\./i) || upperLine.includes('PRODUZIR'))) {
-                        console.log(`[PDF DEBUG] Linha ${lineIndex}: "${trimmed}"`);
+                    if (trimmed.length > 0 && (trimmed.match(/\d{3,4}\./i) || normalized.includes('PRODUZIR'))) {
+                        console.log(`[PDF DEBUG] Linha ${i}: "${trimmed}"`);
                     }
 
-                    // Detectar REF (ex: 016.AZ)
-                    const refMatch = upperLine.match(/(\d{3,4}\.[A-Z0-9]{2,})/);
+                    if (normalized.includes('PRODUZIR')) {
+                        console.log('[PDF DEBUG] A PRODUZIR candidate at line', i, ':', JSON.stringify(line));
+                        console.log('[PDF DEBUG] Next line:', JSON.stringify(lines[i + 1] || ''));
+                    }
+
+                    const productMatch = normalized.match(/PRODUTO\s+(\d{3,4})/);
+                    if (productMatch) {
+                        currentPrefix = productMatch[1];
+                        console.log(`[PDF DEBUG] Produto detectado: ${currentPrefix} (linha ${i})`);
+
+                        if (!parsedProducts[currentPrefix]) {
+                            parsedProducts[currentPrefix] = {
+                                grade: [],
+                                variations: [],
+                            };
+                        }
+
+                        if (pendingGrade.length && !gradeByPrefix[currentPrefix]) {
+                            gradeByPrefix[currentPrefix] = pendingGrade.slice();
+                            if (!parsedProducts[currentPrefix].grade.length) {
+                                parsedProducts[currentPrefix].grade = pendingGrade.slice();
+                            }
+                            lastKnownGrade = pendingGrade.slice();
+                            pendingGrade = [];
+                            console.log(`[PDF DEBUG] ✓ Grade pendente associada ao produto ${currentPrefix}:`, lastKnownGrade);
+                        } else if (gradeByPrefix[currentPrefix]) {
+                            lastKnownGrade = gradeByPrefix[currentPrefix].slice();
+                        }
+                    }
+
+                    const refMatch = trimmed.match(/(\d{3,4}\.[A-Z0-9]{2,})/i);
                     if (refMatch) {
-                        currentRef = refMatch[1];
+                        currentRef = refMatch[1].toUpperCase();
+                        [currentPrefix] = currentRef.split('.');
                         console.log(`[PDF DEBUG] ✓ REF detectado: ${currentRef}`);
 
-                        // Tentar detectar grade na mesma linha ou próxima
-                        const gradeMatch = line.match(/(\d{2}(?:\s+\d{2})+)\s*(?:QTDE|QTD)?/i);
-                        if (gradeMatch) {
-                            const gradeStr = gradeMatch[1];
-                            currentGrade = gradeStr.split(/\s+/).filter(Boolean);
-                            console.log(`[PDF DEBUG] ✓ GRADE detectada na mesma linha:`, currentGrade);
+                        if (!parsedProducts[currentPrefix]) {
+                            parsedProducts[currentPrefix] = {
+                                grade: [],
+                                variations: [],
+                            };
+                        }
+
+                        if (pendingGrade.length && !gradeByPrefix[currentPrefix]) {
+                            gradeByPrefix[currentPrefix] = pendingGrade.slice();
+                            if (!parsedProducts[currentPrefix].grade.length) {
+                                parsedProducts[currentPrefix].grade = pendingGrade.slice();
+                            }
+                            lastKnownGrade = pendingGrade.slice();
+                            pendingGrade = [];
+                            console.log(`[PDF DEBUG] ✓ Grade pendente associada à variação ${currentRef}:`, lastKnownGrade);
+                        } else if (gradeByPrefix[currentPrefix]) {
+                            lastKnownGrade = gradeByPrefix[currentPrefix].slice();
                         }
                     }
 
-                    // Detectar linha "A PRODUZIR"
-                    if (upperLine.includes('A PRODUZIR') || upperLine.includes('PRODUZIR')) {
-                        console.log(`[PDF DEBUG] Linha "A PRODUZIR" detectada`);
-                        console.log(`[PDF DEBUG] currentRef: ${currentRef}, currentGrade:`, currentGrade);
-                        console.log(`[PDF DEBUG] Linha completa: "${line}"`);
+                    if (normalized.includes('GRADE')) {
+                        let extractedGrade = extractGradeFromLine(line);
 
-                        if (currentRef && currentGrade) {
-                            // Tentar vários padrões de match
-                            let numberMatch = line.match(/A\s+PRODUZIR[:\s]*([0-9\s-]+)/i);
-                            if (!numberMatch) {
-                                numberMatch = line.match(/PRODUZIR[:\s]*([0-9\s-]+)/i);
+                        if (!extractedGrade.length && lines[i + 1]) {
+                            const nextLine = String(lines[i + 1] || '');
+                            const nextMatches = nextLine.match(/\b\d{1,3}\b/g);
+                            if (nextMatches) {
+                                extractedGrade = nextMatches.map((item) => String(item));
+                                console.log('[PDF DEBUG] Grade extraída da linha seguinte:', extractedGrade);
                             }
-                            
-                            console.log(`[PDF DEBUG] numberMatch:`, numberMatch);
+                        }
 
-                            if (numberMatch) {
-                                const numbersStr = numberMatch[1];
-                                console.log(`[PDF DEBUG] String de números capturada: "${numbersStr}"`);
-
-                                const numbers = numbersStr.split(/\s+/).map(n => {
-                                    const num = parseInt(n, 10);
-                                    return isNaN(num) ? null : num;
-                                }).filter(n => n !== null);
-
-                                console.log(`[PDF DEBUG] Números extraídos:`, numbers);
-
-                                let valores = numbers;
-                                if (valores.length === currentGrade.length + 1) {
-                                    valores = valores.slice(0, currentGrade.length);
-                                    console.log(`[PDF DEBUG] Ajustado para remover total:`, valores);
+                        if (extractedGrade.length) {
+                            if (currentPrefix) {
+                                gradeByPrefix[currentPrefix] = extractedGrade.slice();
+                                if (!parsedProducts[currentPrefix]) {
+                                    parsedProducts[currentPrefix] = {
+                                        grade: extractedGrade.slice(),
+                                        variations: [],
+                                    };
+                                } else if (!parsedProducts[currentPrefix].grade.length) {
+                                    parsedProducts[currentPrefix].grade = extractedGrade.slice();
                                 }
-
-                                if (valores.length === currentGrade.length) {
-                                    const tamanhos = {};
-                                    currentGrade.forEach((size, idx) => {
-                                        tamanhos[size] = valores[idx];
-                                    });
-
-                                    const [prefix] = currentRef.split('.');
-                                    if (!parsedProducts[prefix]) {
-                                        parsedProducts[prefix] = {
-                                            grade: [],
-                                            variations: [],
-                                        };
-                                    }
-
-                                    if (!parsedProducts[prefix].grade.length) {
-                                        parsedProducts[prefix].grade = currentGrade.slice();
-                                    }
-
-                                    parsedProducts[prefix].variations.push({
-                                        ref: currentRef,
-                                        tamanhos,
-                                    });
-
-                                    console.log(`[PDF DEBUG] ✓ Variação salva: ${currentRef}`, tamanhos);
-
-                                    currentRef = null;
-                                    currentGrade = null;
-                                } else {
-                                    console.warn(`[PDF DEBUG] ✗ Valores não coincidem com grade (esperado: ${currentGrade.length}, recebido: ${valores.length})`);
-                                }
+                                lastKnownGrade = extractedGrade.slice();
+                                console.log(`[PDF DEBUG] ✓ Grade detectada para ${currentPrefix}:`, extractedGrade);
                             } else {
-                                console.warn(`[PDF DEBUG] ✗ Não foi possível capturar números da linha "A PRODUZIR"`);
+                                pendingGrade = extractedGrade.slice();
+                                console.log('[PDF DEBUG] Grade detectada, aguardando associação a um produto:', pendingGrade);
                             }
                         } else {
-                            console.warn(`[PDF DEBUG] ✗ Linha "A PRODUZIR" sem REF ou GRADE definidos`);
+                            console.warn(`[PDF DEBUG] ✗ Não foi possível extrair números da linha de grade: "${line}"`);
                         }
                     }
-                });
+
+                    if (!isProduceLine(line)) {
+                        continue;
+                    }
+
+                    const prefix = currentPrefix || (currentRef ? currentRef.split('.')[0] : null);
+                    const grade = (prefix && gradeByPrefix[prefix])
+                        ? gradeByPrefix[prefix].slice()
+                        : lastKnownGrade.slice();
+
+                    console.log(`[PDF DEBUG] Tentando mapear valores "A PRODUZIR" para ${currentRef || prefix || 'desconhecido'} com grade:`, grade);
+
+                    if (!prefix) {
+                        console.warn('[PDF DEBUG] ✗ Linha "A PRODUZIR" sem produto associado.');
+                        continue;
+                    }
+
+                    if (!grade.length) {
+                        console.warn(`[PDF DEBUG] ✗ Grade não definida para ${currentRef || prefix} ao processar "A PRODUZIR".`);
+                        continue;
+                    }
+
+                    let values = extractNumbersFromLine(line);
+
+                    if ((!values.length || values.length < grade.length) && lines[i + 1]) {
+                        values = extractNumbersFromLine(String(lines[i + 1]));
+                        if (values.length) {
+                            console.log(`[PDF DEBUG] Valores "A PRODUZIR" extraídos da linha seguinte:`, values);
+                        }
+                    }
+
+                    if (!values.length) {
+                        console.warn(`[PDF DEBUG] ✗ Valores "A PRODUZIR" não encontrados para ${currentRef || prefix}.`);
+                        continue;
+                    }
+
+                    if (values.length === grade.length + 1) {
+                        values = values.slice(0, grade.length);
+                        console.log(`[PDF DEBUG] Ajustado para remover total para ${currentRef || prefix}:`, values);
+                    } else if (values.length !== grade.length) {
+                        console.warn(`[PDF DEBUG] ⚠️ Quantidade de valores (${values.length}) diferente da grade (${grade.length}) para ${currentRef || prefix}. Complementando com zeros.`);
+                    }
+
+                    const tamanhos = {};
+                    grade.forEach((size, idx) => {
+                        tamanhos[size] = values[idx] ?? 0;
+                    });
+
+                    if (!parsedProducts[prefix]) {
+                        parsedProducts[prefix] = {
+                            grade: grade.slice(),
+                            variations: [],
+                        };
+                    }
+
+                    if (!parsedProducts[prefix].grade.length) {
+                        parsedProducts[prefix].grade = grade.slice();
+                    }
+
+                    if (currentRef) {
+                        parsedProducts[prefix].variations.push({
+                            ref: currentRef,
+                            tamanhos,
+                        });
+                        console.log(`[PDF DEBUG] ✓ Variação salva: ${currentRef}`, tamanhos);
+                        currentRef = null;
+                    } else {
+                        console.warn(`[PDF DEBUG] ✗ Linha "A PRODUZIR" sem REF associado para o produto ${prefix}. Valores foram ignorados.`, tamanhos);
+                    }
+                }
 
                 console.log('[PDF DEBUG] Produtos parseados:', parsedProducts);
                 resolve(parsedProducts);
@@ -808,6 +1009,7 @@ const parsePdfFileToProducts = async (file) => {
         reader.readAsArrayBuffer(file);
     });
 };
+
 
 const normalizeParsedProductsToSnapshots = (parsed, dataLancamentoISO, responsavel) => {
     return Object.entries(parsed).map(([produtoBase, data]) => {
