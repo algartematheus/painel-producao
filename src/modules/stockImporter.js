@@ -381,7 +381,7 @@ const findRefInRow = (row = []) => {
             if (!match) {
                 continue;
             }
-            const normalizedRef = match[1].toUpperCase();
+            const normalizedRef = toTrimmedUppercase(match[1]);
             const [, suffix = ''] = normalizedRef.split('.');
             if (isTotalLabel(suffix)) {
                 continue;
@@ -483,7 +483,7 @@ const collectQuantitiesFromTabularRow = (row = [], refToken = '') => {
         }
         const match = typeof cell === 'string' ? cell.match(REF_REGEX) : null;
         if (!collecting && match) {
-            const normalizedRef = match[1].toUpperCase();
+            const normalizedRef = toTrimmedUppercase(match[1]);
             const [, suffix = ''] = normalizedRef.split('.');
             if (isTotalLabel(suffix)) {
                 return [];
@@ -889,7 +889,8 @@ const parseXlsxRowsIntoBlocks = (rows = []) => {
             continue;
         }
 
-        const code = normalizeForComparison(label).toUpperCase();
+        // Use toTrimmedUppercase since we already validated with isVariationCode which uses normalizeForComparison
+        const code = toTrimmedUppercase(label);
         // eslint-disable-next-line no-console
         console.log('[XLSX DEBUG] variation code at row', rowIndex, ':', label);
 
@@ -1167,7 +1168,7 @@ const logSheetColumnADebugInfo = (sheet, sheetName) => {
         const cell = sheet[cellRef];
         const raw = getRawCellValue(cell);
         const stringValue = raw == null ? '' : String(raw);
-        const upper = stringValue.toUpperCase().trim();
+        const upper = toTrimmedUppercase(stringValue);
         if (/^\d{3}\./.test(upper)) {
             // console.log('[DEBUG XLSX] possivel codigo na linha', rowIndex + 1, 'aba', sheetName || '(sem nome)', ':', JSON.stringify(stringValue));
         }
