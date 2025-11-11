@@ -282,12 +282,18 @@ const extractNumbersFromLine = (text) => {
     if (typeof text !== 'string') {
         return [];
     }
-    // Accept things like "-57", "13", "0", "1.234"
-    const matches = text.match(/-?\d+/g) || [];
-    return matches.map((n) => {
-        const parsed = Number(n);
-        return Number.isFinite(parsed) ? parsed : 0;
+    // Accept things like "-57", "13", "0", "1.234", "1,234"
+    // First try to match numbers with optional decimal separators
+    const matches = text.match(/-?\d+(?:[.,]\d+)?/g) || [];
+    const numbers = matches.map((n) => {
+        // Replace comma with dot for parsing
+        const normalized = n.replace(',', '.');
+        const parsed = Number(normalized);
+        return Number.isFinite(parsed) ? Math.round(parsed) : 0;
     });
+    // eslint-disable-next-line no-console
+    console.log('[PDF DEBUG] extractNumbersFromLine input:', JSON.stringify(text), 'output:', numbers);
+    return numbers;
 };
 
 const extractQuantitiesFromLine = (line, grades = []) => {
@@ -644,16 +650,33 @@ const parseRowsIntoBlocks = (rows = []) => {
                 // Extract values from "A PRODUZIR" line
                 const produceRow = sanitizedRows[produceIdx];
                 const produceText = produceRow && produceRow.length > 0 ? String(produceRow[0] || '') : '';
+                // eslint-disable-next-line no-console
+                console.log(`[PDF DEBUG] Extraindo valores da linha "A PRODUZIR" para ${refInfo.ref}:`, JSON.stringify(produceText));
                 values = extractNumbersFromLine(produceText);
+                // eslint-disable-next-line no-console
+                console.log(`[PDF DEBUG] Valores extraídos da linha "A PRODUZIR" para ${refInfo.ref}:`, values);
 
-                // If we extracted zero or obviously too few numbers, try the next line instead
-                if (!values.length && sanitizedRows[produceIdx + 1]) {
-                    const nextRow = sanitizedRows[produceIdx + 1];
-                    const nextText = nextRow && nextRow.length > 0 ? String(nextRow[0] || '') : '';
-                    values = extractNumbersFromLine(nextText);
-                    if (values.length) {
+                // If we extracted zero or obviously too few numbers, try the next few lines
+                if (!values.length || (productGrade.length > 0 && values.length < productGrade.length)) {
+                    for (let nextIdx = produceIdx + 1; nextIdx < Math.min(sanitizedRows.length, produceIdx + 5); nextIdx++) {
+                        const nextRow = sanitizedRows[nextIdx];
+                        const nextText = nextRow && nextRow.length > 0 ? String(nextRow[0] || '') : '';
+                        // Skip if this looks like another label (contains "PRODUZIR", "TOTAL", etc.)
+                        const nextNormalized = nextText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+                        if (nextNormalized.includes('PRODUZIR') || nextNormalized.includes('TOTAL') || nextNormalized.includes('SALDO')) {
+                            break;
+                        }
                         // eslint-disable-next-line no-console
-                        console.log(`[PDF DEBUG] Valores extraídos da linha seguinte para ${refInfo.ref}:`, values);
+                        console.log(`[PDF DEBUG] Tentando linha ${nextIdx} para ${refInfo.ref}:`, JSON.stringify(nextText));
+                        const nextValues = extractNumbersFromLine(nextText);
+                        if (nextValues.length > values.length) {
+                            values = nextValues;
+                            // eslint-disable-next-line no-console
+                            console.log(`[PDF DEBUG] Valores extraídos da linha ${nextIdx} para ${refInfo.ref}:`, values);
+                            if (productGrade.length > 0 && values.length >= productGrade.length) {
+                                break; // We have enough values
+                            }
+                        }
                     }
                 }
                 break;
