@@ -995,14 +995,12 @@ const logSheetColumnADebugInfo = (sheet, sheetName) => {
         const raw = getRawCellValue(cell);
         const stringValue = raw == null ? '' : String(raw);
         const upper = stringValue.toUpperCase().trim();
-        const rowNumber = rowIndex + 1;
-
         if (/^\d{3}\./.test(upper)) {
-            // console.log('[DEBUG XLSX] possivel codigo na linha', rowNumber, 'aba', sheetName || '(sem nome)', ':', JSON.stringify(stringValue));
+            // console.log('[DEBUG XLSX] possivel codigo na linha', rowIndex + 1, 'aba', sheetName || '(sem nome)', ':', JSON.stringify(stringValue));
         }
 
         if (upper.includes('PRODUZIR')) {
-            // console.log('[DEBUG XLSX] linha com PRODUZIR na linha', rowNumber, 'aba', sheetName || '(sem nome)', ':', JSON.stringify(stringValue));
+            // console.log('[DEBUG XLSX] linha com PRODUZIR na linha', rowIndex + 1, 'aba', sheetName || '(sem nome)', ':', JSON.stringify(stringValue));
         }
     }
 };
