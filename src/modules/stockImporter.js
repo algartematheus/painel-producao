@@ -232,6 +232,8 @@ const sanitizeCellValue = (cell) => {
     return String(cell).trim();
 };
 
+// Helper function for simple uppercase conversion without accent normalization
+// Available for cases where accent normalization is not needed
 const toTrimmedUppercase = (value) => {
     const raw = sanitizeCellValue(value);
     if (!raw) {
@@ -628,6 +630,9 @@ const parseRowsIntoBlocks = (rows = []) => {
 
         // Find "A PRODUZIR" line for this variation
         let produceIdx = -1;
+        let values = [];
+        
+        // First try direct search for "A PRODUZIR"
         for (let i = rowIndex; i < Math.min(sanitizedRows.length, rowIndex + 20); i++) {
             const candidateRow = sanitizedRows[i];
             const candidateText = candidateRow && candidateRow.length > 0 ? String(candidateRow[0] || '') : '';
@@ -635,29 +640,34 @@ const parseRowsIntoBlocks = (rows = []) => {
                 produceIdx = i;
                 // eslint-disable-next-line no-console
                 console.log(`[PDF DEBUG] A PRODUZIR encontrada para ${refInfo.ref} na linha ${i}:`, JSON.stringify(candidateText));
+                
+                // Extract values from "A PRODUZIR" line
+                const produceRow = sanitizedRows[produceIdx];
+                const produceText = produceRow && produceRow.length > 0 ? String(produceRow[0] || '') : '';
+                values = extractNumbersFromLine(produceText);
+
+                // If we extracted zero or obviously too few numbers, try the next line instead
+                if (!values.length && sanitizedRows[produceIdx + 1]) {
+                    const nextRow = sanitizedRows[produceIdx + 1];
+                    const nextText = nextRow && nextRow.length > 0 ? String(nextRow[0] || '') : '';
+                    values = extractNumbersFromLine(nextText);
+                    if (values.length) {
+                        // eslint-disable-next-line no-console
+                        console.log(`[PDF DEBUG] Valores extraídos da linha seguinte para ${refInfo.ref}:`, values);
+                    }
+                }
                 break;
             }
         }
 
-        if (produceIdx === -1) {
-            // eslint-disable-next-line no-console
-            console.warn(`[PDF DEBUG] ✗ A PRODUZIR não encontrada para ${refInfo.ref}`);
-            continue;
-        }
-
-        // Extract values from "A PRODUZIR" line
-        const produceRow = sanitizedRows[produceIdx];
-        const produceText = produceRow && produceRow.length > 0 ? String(produceRow[0] || '') : '';
-        let values = extractNumbersFromLine(produceText);
-
-        // If we extracted zero or obviously too few numbers, try the next line instead
-        if (!values.length && sanitizedRows[produceIdx + 1]) {
-            const nextRow = sanitizedRows[produceIdx + 1];
-            const nextText = nextRow && nextRow.length > 0 ? String(nextRow[0] || '') : '';
-            values = extractNumbersFromLine(nextText);
-            if (values.length) {
+        // If direct search failed, try using findQuantitiesForRow as fallback
+        if (produceIdx === -1 || !values.length) {
+            const quantitiesResult = findQuantitiesForRow(sanitizedRows, rowIndex, refInfo.token);
+            if (quantitiesResult && quantitiesResult.quantities.length) {
+                values = quantitiesResult.quantities;
+                produceIdx = quantitiesResult.lastRowIndex;
                 // eslint-disable-next-line no-console
-                console.log(`[PDF DEBUG] Valores extraídos da linha seguinte para ${refInfo.ref}:`, values);
+                console.log(`[PDF DEBUG] Valores encontrados via findQuantitiesForRow para ${refInfo.ref}:`, values);
             }
         }
 
@@ -712,11 +722,8 @@ const parseRowsIntoBlocks = (rows = []) => {
             }
         }
 
-        // Map into tamanhos
-        const tamanhos = {};
-        resolvedGrade.forEach((size, idx) => {
-            tamanhos[size] = values[idx] ?? 0;
-        });
+        // Map into tamanhos using mapGradeToQuantities
+        const tamanhos = mapGradeToQuantities(resolvedGrade, values);
 
         // eslint-disable-next-line no-console
         console.log(`[PDF DEBUG] ✓ Variação salva: ${refInfo.ref}`, tamanhos);
@@ -906,6 +913,14 @@ const parseXlsxRowsIntoBlocks = (rows = []) => {
         }
 
         if (rowProduce === -1) {
+            logXlsxDebugInfo({
+                ref: code,
+                linhaCodigo: rowIndex,
+                linhaAProduzir: -1,
+                linhaQtde: -1,
+                rows: sanitizedRows,
+                gradeValues: [],
+            });
             // eslint-disable-next-line no-console
             console.warn(`[XLSX DEBUG] ✗ A PRODUZIR não encontrada para ${code}`);
             continue;
@@ -931,27 +946,32 @@ const parseXlsxRowsIntoBlocks = (rows = []) => {
         }
 
         if (rowQtde === -1) {
+            logXlsxDebugInfo({
+                ref: code,
+                linhaCodigo: rowIndex,
+                linhaAProduzir: rowProduce,
+                linhaQtde: -1,
+                rows: sanitizedRows,
+                gradeValues: [],
+            });
             // eslint-disable-next-line no-console
             console.warn(`[XLSX DEBUG] ✗ QTDE não encontrada para ${code}`);
             continue;
         }
 
-        // Extract grade from rowQtde
+        // Extract grade from rowQtde using extractGradeFromQtdeRow
         const gradeRow = sanitizedRows[rowQtde];
-        const grade = [];
-        const maxCol = gradeRow ? gradeRow.length - 1 : 0;
-        for (let c = COL_B; c <= maxCol; c++) {
-            const v = gradeRow && gradeRow[c] != null ? gradeRow[c] : null;
-            if (v == null || v === '') {
-                continue;
-            }
-            const formatted = formatGradeValue(v);
-            if (formatted && !isTotalLabel(formatted)) {
-                grade.push(formatted);
-            }
-        }
+        const grade = extractGradeFromQtdeRow(gradeRow);
 
         if (!grade.length) {
+            logXlsxDebugInfo({
+                ref: code,
+                linhaCodigo: rowIndex,
+                linhaAProduzir: rowProduce,
+                linhaQtde: rowQtde,
+                rows: sanitizedRows,
+                gradeValues: [],
+            });
             // eslint-disable-next-line no-console
             console.warn(`[XLSX DEBUG] ✗ Grade vazia para ${code}`);
             continue;
@@ -992,9 +1012,17 @@ const parseXlsxRowsIntoBlocks = (rows = []) => {
             }
         }
 
-        const tamanhos = {};
-        grade.forEach((size, idx) => {
-            tamanhos[size] = values[idx] ?? 0;
+        // Map into tamanhos using mapGradeToQuantities
+        const tamanhos = mapGradeToQuantities(grade, values);
+
+        // Log debug info
+        logXlsxDebugInfo({
+            ref: code,
+            linhaCodigo: rowIndex,
+            linhaAProduzir: rowProduce,
+            linhaQtde: rowQtde,
+            rows: sanitizedRows,
+            gradeValues: grade,
         });
 
         // eslint-disable-next-line no-console
