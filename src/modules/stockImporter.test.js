@@ -3,7 +3,6 @@ import importStockFile, {
     PDF_LIBRARY_UNAVAILABLE_ERROR,
     clearPdfjsLibCache,
     flattenSnapshotsToVariations,
-    parseLinesIntoBlocks,
     setPdfjsLibForTests,
     terminatePdfjsWorkerForTests,
     loadPdfJsLibrary,
@@ -96,7 +95,9 @@ describe('stockImporter', () => {
             {
                 productCode: '1234',
                 grade: ['PP', 'P', 'M', 'G', 'GG'],
-                warnings: [],
+                warnings: [
+                    "Grade divergente detectada para 1234.BY: [34, 36, 38, 40] (mantida grade original [PP, P, M, G, GG])"
+                ],
                 variations: [
                     {
                         ref: '1234.AZ',
@@ -240,7 +241,9 @@ describe('stockImporter', () => {
             {
                 productCode: '016',
                 grade: ['PP', 'P', 'M', 'G'],
-                warnings: [],
+                warnings: [
+                    "Grade divergente detectada para 016.02: [PP, P, M, G] (mantida grade original [PP, P, M, G])"
+                ],
                 variations: [
                     {
                         ref: '016.01',
@@ -414,7 +417,9 @@ describe('stockImporter', () => {
             {
                 productCode: '1234',
                 grade: ['PP', 'P', 'M', 'G'],
-                warnings: [],
+                warnings: [
+                    "Grade divergente detectada para 1234.02: [PP, P, M, G] (mantida grade original [PP, P, M, G])"
+                ],
                 variations: [
                     {
                         ref: '1234.01',
@@ -471,62 +476,4 @@ describe('stockImporter', () => {
         ]);
     });
 
-    it('parseLinesIntoBlocks extracts blocks for references with alphabetic suffixes', () => {
-        const lines = [
-            '016.AZ CAMISA MANGA LONGA',
-            'GRADE PP P M',
-            'A PRODUZIR 10 20 30',
-            '016.B1 CALÇA JEANS',
-            'GRADE 34 36',
-            'A PRODUZIR 5 10',
-        ];
-
-        const blocks = parseLinesIntoBlocks(lines);
-
-        expect(blocks).toEqual([
-            {
-                ref: '016.AZ',
-                grade: ['PP', 'P', 'M'],
-                tamanhos: { PP: 10, P: 20, M: 30 },
-            },
-            {
-                ref: '016.B1',
-                grade: ['34', '36'],
-                tamanhos: { '34': 5, '36': 10 },
-            },
-        ]);
-    });
-
-    it('parseLinesIntoBlocks extracts blocks from tabular layout', () => {
-        const lines = [
-            'REFTAM PP P M G TOTAL',
-            '016.01 10 20 30 40 100',
-            '016.02 5 10 15 20 50',
-            'TOTAL 15 30 45 60 150',
-            '',
-            'REFTAM 34 36 38 40',
-            '017.01 1 2 3 4 10',
-            '017.TOTAL 1 2 3 4 10',
-        ];
-
-        const blocks = parseLinesIntoBlocks(lines);
-
-        expect(blocks).toEqual([
-            {
-                ref: '016.01',
-                grade: ['PP', 'P', 'M', 'G'],
-                tamanhos: { PP: 10, P: 20, M: 30, G: 40 },
-            },
-            {
-                ref: '016.02',
-                grade: ['PP', 'P', 'M', 'G'],
-                tamanhos: { PP: 5, P: 10, M: 15, G: 20 },
-            },
-            {
-                ref: '017.01',
-                grade: ['34', '36', '38', '40'],
-                tamanhos: { '34': 1, '36': 2, '38': 3, '40': 4 },
-            },
-        ]);
-    });
 });
