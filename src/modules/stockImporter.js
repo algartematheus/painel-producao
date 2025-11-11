@@ -95,16 +95,43 @@ const isRefToken = (token) => {
 };
 
 const isPdfGradeRow = (tokens) => {
+    if (!Array.isArray(tokens) || tokens.length === 0) return false;
+    
     const cleaned = tokens.map(cleanToken).filter(Boolean);
     if (!cleaned.length) return false;
+    
     const joined = cleaned.join(' ');
-    if (/(PRODUZIR|TOTAL|ESTOQUE|LOTE|SALDO|SOBRAS|PARCIAL)/.test(joined)) {
+    // Exclude rows that contain labels we don't want
+    if (/(PRODUZIR|TOTAL|ESTOQUE|LOTE|SALDO|SOBRAS|PARCIAL|GRADE|REF)/.test(joined)) {
         return false;
     }
+    
+    // Must have at least 2 tokens to be a grade row
     if (cleaned.length < 2) return false;
-    const hasLetter = cleaned.some(t => /[A-Z]/.test(t));
-    if (!hasLetter) return false;
-    return cleaned.every(t => SIZE_TOKEN_REGEX.test(t));
+    
+    // Check if tokens are potential size tokens (numbers or size codes)
+    // Allow pure numeric grades (like "3", "06", "08", "10", "12", "14", "16", "02", "04")
+    // Allow size codes with letters (like "P", "M", "G", "GG")
+    // Allow mixed grades
+    
+    // Count how many tokens are valid size tokens
+    const sizeTokenCount = cleaned.filter(t => SIZE_TOKEN_REGEX.test(t)).length;
+    
+    // At least 80% of tokens must be size tokens
+    const mostlySizeTokens = sizeTokenCount >= Math.ceil(cleaned.length * 0.8);
+    
+    // If most tokens are size tokens, it's likely a grade row
+    // This works for:
+    // - Pure numeric grades: "3", "06", "08", "10", "12", "14", "16", "02", "04"
+    // - Letter-based grades: "P", "M", "G", "GG"
+    // - Mixed grades
+    if (mostlySizeTokens) {
+        // eslint-disable-next-line no-console
+        console.log('[PDF DEBUG] isPdfGradeRow: detected grade row:', cleaned, `(${sizeTokenCount}/${cleaned.length} are size tokens)`);
+        return true;
+    }
+    
+    return false;
 };
 
 const isTabularGradeRow = (tokens) => {
@@ -1316,16 +1343,35 @@ const extractXlsxRows = (arrayBuffer) => {
             return;
         }
         logSheetColumnADebugInfo(sheet, sheetName);
-        const sheetRows = utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+        // Use sheet_to_json with raw: true to preserve number types, and defval: null to preserve empty cells
+        // Then convert to array format preserving all cells
+        const sheetRows = utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
         sheetRows.forEach((row) => {
             if (Array.isArray(row)) {
-                rows.push(row);
+                // Convert null to empty string for consistency, but preserve numbers
+                const normalizedRow = row.map((cell) => {
+                    if (cell === null || cell === undefined) {
+                        return '';
+                    }
+                    // Preserve numbers as numbers, convert everything else to string
+                    if (typeof cell === 'number') {
+                        return cell;
+                    }
+                    return String(cell);
+                });
+                rows.push(normalizedRow);
             } else {
-                rows.push([row]);
+                // Single cell row
+                const cell = row === null || row === undefined ? '' : String(row);
+                rows.push([cell]);
             }
         });
+        // eslint-disable-next-line no-console
+        console.log(`[XLSX DEBUG] extractXlsxRows: extracted ${rows.length} rows from sheet "${sheetName}"`);
     });
 
+    // eslint-disable-next-line no-console
+    console.log(`[XLSX DEBUG] extractXlsxRows: total rows extracted: ${rows.length}`);
     return rows;
 };
 
