@@ -316,6 +316,41 @@ const extractQuantitiesFromLine = (line, grades = []) => {
     return quantities;
 };
 
+const collectPdfProduceVector = (lines = [], startIndex = 0, expectedLen = 0) => {
+    if (!Array.isArray(lines) || startIndex < 0 || startIndex >= lines.length) {
+        return [];
+    }
+
+    const collected = [];
+
+    for (let offset = 0; offset < 3; offset++) {
+        const index = startIndex + offset;
+        if (index >= lines.length) {
+            break;
+        }
+
+        const line = lines[index];
+        if (typeof line !== 'string' || !line.trim()) {
+            continue;
+        }
+
+        let numbers = extractQuantitiesFromLine(line);
+        if (!numbers.length) {
+            numbers = extractNumbersFromCell(line);
+        }
+
+        if (numbers.length) {
+            collected.push(...numbers);
+        }
+
+        if (expectedLen && collected.length >= expectedLen) {
+            break;
+        }
+    }
+
+    return collected;
+};
+
 const extractNumbersFromCell = (cell) => {
     if (!cell) {
         return [];
@@ -584,6 +619,129 @@ const parseTabularLayout = (lines = []) => {
             continue;
         }
     }
+    return blocks;
+};
+
+const parsePdfFreeLayout = (lines = []) => {
+    if (!Array.isArray(lines) || !lines.length) {
+        return [];
+    }
+
+    const blocks = [];
+    let currentGrade = null;
+
+    const normalizeGradeTokens = (tokens = []) => {
+        const result = [];
+        const seen = new Set();
+        tokens.forEach((token) => {
+            if (!token) {
+                return;
+            }
+            const cleaned = cleanToken(token);
+            if (!cleaned || !SIZE_TOKEN_REGEX.test(cleaned)) {
+                return;
+            }
+            const formatted = cleanToken(formatGradeValue(cleaned));
+            if (!formatted || seen.has(formatted)) {
+                return;
+            }
+            result.push(formatted);
+            seen.add(formatted);
+        });
+        return result;
+    };
+
+    const GRADE_LINE = /grade\s*:\s*\d+\s*-\s*([0-9A-Z/ ]+)/i;
+
+    for (let i = 0; i < lines.length; i++) {
+        const raw = typeof lines[i] === 'string' ? lines[i] : '';
+        if (!raw) {
+            continue;
+        }
+
+        const gradeMatch = raw.match(GRADE_LINE);
+        if (gradeMatch) {
+            const gradeTokens = gradeMatch[1]
+                .split(/[^\w]+/)
+                .map((token) => token.trim())
+                .filter(Boolean);
+            const normalizedGrade = normalizeGradeTokens(gradeTokens);
+            if (normalizedGrade.length) {
+                currentGrade = normalizedGrade;
+            }
+            continue;
+        }
+
+        const tokens = tokenizeLine(raw);
+        if (!tokens.length || !isRefToken(tokens[0])) {
+            continue;
+        }
+
+        const ref = cleanToken(tokens[0]);
+
+        let localGrade = currentGrade ? [...currentGrade] : [];
+        if (!localGrade.length) {
+            const sameLineGrade = normalizeGradeTokens(tokens.slice(1));
+            if (sameLineGrade.length >= 2) {
+                localGrade = sameLineGrade;
+            }
+        }
+
+        if (!localGrade.length) {
+            continue;
+        }
+
+        let produceIndex = -1;
+        const lookAheadLimit = Math.min(i + 30, lines.length);
+
+        for (let j = i; j < lookAheadLimit; j++) {
+            const candidate = typeof lines[j] === 'string' ? lines[j] : '';
+            if (!candidate) {
+                continue;
+            }
+            const normalizedCandidate = candidate
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toUpperCase();
+            if (normalizedCandidate.includes('PRODUZIR')) {
+                produceIndex = j;
+                break;
+            }
+            if (j > i) {
+                const candidateTokens = tokenizeLine(candidate);
+                if (candidateTokens.length && isRefToken(candidateTokens[0])) {
+                    break;
+                }
+            }
+        }
+
+        if (produceIndex === -1) {
+            continue;
+        }
+
+        let values = collectPdfProduceVector(lines, produceIndex, localGrade.length);
+
+        if (values.length === localGrade.length + 1) {
+            values = values.slice(0, localGrade.length);
+        }
+
+        if (values.length !== localGrade.length) {
+            if (values.length > localGrade.length) {
+                values = values.slice(0, localGrade.length);
+            } else {
+                const padding = new Array(localGrade.length - values.length).fill(0);
+                values = [...values, ...padding];
+            }
+        }
+
+        const tamanhos = mapGradeToQuantities(localGrade, values);
+        blocks.push({
+            ref,
+            grade: localGrade.slice(),
+            tamanhos,
+        });
+    }
+
     return blocks;
 };
 
@@ -1203,6 +1361,12 @@ const parsePdfLines = (lines = []) => {
     if (tabularBlocks.length) {
         return tabularBlocks;
     }
+
+    const freeLayoutBlocks = parsePdfFreeLayout(lines);
+    if (freeLayoutBlocks.length) {
+        return freeLayoutBlocks;
+    }
+
     const rows = lines.map(line => [line]);
     return parseRowsIntoBlocks(rows);
 };
