@@ -34,6 +34,8 @@ import {
     removerProdutoDoPortfolio,
     reordenarPortfolio,
     criarSnapshotProduto,
+    montarDailyRecord,
+    salvarNoHistorico,
     carregarHistorico,
     paginarRelatorioEmPaginasA4,
     gerarHTMLImpressaoPaginado,
@@ -385,6 +387,125 @@ const sumSnapshotsResumo = (snapshots = []) => {
     }, { positivo: 0, negativo: 0 });
 };
 
+const parseManualGradeText = (gradeText) => normalizarGradeLista(parseGradeString(gradeText));
+
+const reconciliarVariacoesManuais = (variacoes = [], gradeLista = []) => {
+    const alinhadas = prepararVariacoesComGrade(variacoes, gradeLista);
+    if (!alinhadas.length) {
+        return [criarVariacaoVazia(gradeLista)];
+    }
+    return alinhadas;
+};
+
+const extrairTamanhosDeVariacoes = (variacoes = []) =>
+    normalizarGradeLista(
+        (Array.isArray(variacoes) ? variacoes : []).flatMap((variacao) =>
+            Object.keys(isPlainObject(variacao?.tamanhos) ? variacao.tamanhos : {}),
+        ),
+    );
+
+const validarFormularioManual = ({
+    codigo,
+    gradeTexto,
+    gradeLista,
+    variacoes,
+    agrupamento,
+}) => {
+    const codigoTrim = typeof codigo === 'string' ? codigo.trim().toUpperCase() : '';
+    if (!codigoTrim) {
+        throw new Error('Informe o código do produto base.');
+    }
+
+    let gradeNormalizada = normalizarGradeLista(
+        Array.isArray(gradeLista) && gradeLista.length ? gradeLista : parseGradeString(gradeTexto),
+    );
+
+    const variacoesProcessadas = (Array.isArray(variacoes) ? variacoes : [])
+        .map((variacao) => {
+            const ref = typeof variacao?.ref === 'string' ? variacao.ref.trim().toUpperCase() : '';
+            const tamanhos = preencherTamanhosComGrade(gradeNormalizada, variacao?.tamanhos);
+            if (!ref || !temQuantidadeInformada(tamanhos)) {
+                return null;
+            }
+            return {
+                ref,
+                tamanhos,
+            };
+        })
+        .filter(Boolean);
+
+    if (!gradeNormalizada.length) {
+        const tamanhosExtras = extrairTamanhosDeVariacoes(variacoesProcessadas);
+        gradeNormalizada = tamanhosExtras;
+    }
+
+    if (!gradeNormalizada.length) {
+        throw new Error('Informe ao menos um tamanho na grade.');
+    }
+
+    const gradeFinal = normalizarGradeLista([
+        ...gradeNormalizada,
+        ...extrairTamanhosDeVariacoes(variacoesProcessadas),
+    ]);
+
+    if (!variacoesProcessadas.length) {
+        throw new Error('Cadastre pelo menos uma variação com tamanhos válidos.');
+    }
+
+    const variacoesAlinhadas = variacoesProcessadas.map((variacao) => ({
+        ref: variacao.ref,
+        tamanhos: preencherTamanhosComGrade(gradeFinal, variacao.tamanhos),
+    }));
+
+    return {
+        codigo: codigoTrim,
+        grade: gradeFinal,
+        variacoes: variacoesAlinhadas,
+        agrupamento: agrupamento === 'separadas' ? 'separadas' : 'juntas',
+    };
+};
+
+const tentarValidarFormularioManual = (dados) => {
+    try {
+        return validarFormularioManual(dados);
+    } catch (error) {
+        return null;
+    }
+};
+
+const construirSnapshotsManuais = ({
+    codigo,
+    grade,
+    variacoes,
+    agrupamento,
+    responsavel,
+    dataLancamentoISO = null,
+}) => {
+    const snapshotConfig = {
+        grade,
+        responsavel,
+        dataLancamentoISO,
+    };
+
+    if (agrupamento === 'separadas') {
+        return variacoes.map((variacao) =>
+            criarSnapshotProduto({
+                ...snapshotConfig,
+                produtoBase: variacao.ref || codigo,
+                variations: [variacao],
+            }),
+        );
+    }
+
+    return [
+        criarSnapshotProduto({
+            ...snapshotConfig,
+            produtoBase: codigo,
+            variations: variacoes,
+        }),
+    ];
+};
+
 const GestaoProducaoEstoqueModule = ({
     onNavigateToCrono,
     onNavigateToStock,
@@ -407,13 +528,22 @@ const GestaoProducaoEstoqueModule = ({
     const [arquivoSelecionado, setArquivoSelecionado] = useState(null);
     const [arquivoNome, setArquivoNome] = useState('');
     const [previewSnapshots, setPreviewSnapshots] = useState([]);
+    const [manualPreviewSnapshots, setManualPreviewSnapshots] = useState([]);
+    const [manualPreviewData, setManualPreviewData] = useState(null);
+    const [previewSource, setPreviewSource] = useState(null);
     const [processing, setProcessing] = useState(false);
     const [status, setStatus] = useState({ type: 'idle', message: '' });
 
-    const gradeListaAtual = useMemo(
-        () => normalizarGradeLista(parseGradeString(novoProdutoGrade)),
-        [novoProdutoGrade],
-    );
+    const gradeListaAtual = useMemo(() => parseManualGradeText(novoProdutoGrade), [novoProdutoGrade]);
+
+    const clearManualPreview = useCallback(() => {
+        setManualPreviewSnapshots([]);
+        setManualPreviewData(null);
+        if (previewSource === 'manual') {
+            setPreviewSnapshots([]);
+            setPreviewSource(null);
+        }
+    }, [previewSource]);
 
     const formatarTamanhos = useCallback((tamanhos = {}) => {
         const entries = Object.entries(tamanhos || {});
@@ -434,7 +564,7 @@ const GestaoProducaoEstoqueModule = ({
 
     useEffect(() => {
         setNovoProdutoVariacoes((prev) => {
-            const alinhadas = prepararVariacoesComGrade(prev, gradeListaAtual);
+            const alinhadas = reconciliarVariacoesManuais(prev, gradeListaAtual);
             if (!alinhadas.length) {
                 return [criarVariacaoVazia(gradeListaAtual)];
             }
@@ -503,6 +633,9 @@ const GestaoProducaoEstoqueModule = ({
 
     const resetPreview = useCallback(() => {
         setPreviewSnapshots([]);
+        setManualPreviewSnapshots([]);
+        setManualPreviewData(null);
+        setPreviewSource(null);
     }, []);
 
     const handleTipoArquivo = useCallback((novoTipo) => {
@@ -538,6 +671,9 @@ const GestaoProducaoEstoqueModule = ({
                 responsavel: responsavelAtual,
             }));
             setPreviewSnapshots(snapshots);
+            setManualPreviewSnapshots([]);
+            setManualPreviewData(null);
+            setPreviewSource('auto');
             if (snapshots.length) {
                 setStatus({ type: 'success', message: `Prévia montada com ${snapshots.length} produto(s). Revise e confirme o lançamento.` });
             } else {
@@ -584,11 +720,13 @@ const GestaoProducaoEstoqueModule = ({
 
     const handleAdicionarLinhaVariacao = useCallback(() => {
         setNovoProdutoVariacoes((prev) => [...prev, criarVariacaoVazia(gradeListaAtual)]);
-    }, [gradeListaAtual]);
+        clearManualPreview();
+    }, [gradeListaAtual, clearManualPreview]);
 
     const handleAtualizarVariacao = useCallback((index, campo, valor, tamanhoAlvo = null) => {
-        setNovoProdutoVariacoes((prev) => {
-            return prev.map((variacao, idx) => {
+        let houveAlteracao = false;
+        setNovoProdutoVariacoes((prev) =>
+            prev.map((variacao, idx) => {
                 if (idx !== index) {
                     return variacao;
                 }
@@ -597,6 +735,7 @@ const GestaoProducaoEstoqueModule = ({
                     if (variacao.ref === valorNormalizado) {
                         return variacao;
                     }
+                    houveAlteracao = true;
                     return { ...variacao, ref: valorNormalizado };
                 }
                 if (campo === 'tamanhos' && tamanhoAlvo) {
@@ -606,6 +745,7 @@ const GestaoProducaoEstoqueModule = ({
                         if (tamanhosAtuais[tamanhoAlvo] === valorBruto) {
                             return variacao;
                         }
+                        houveAlteracao = true;
                         return {
                             ...variacao,
                             tamanhos: {
@@ -618,6 +758,7 @@ const GestaoProducaoEstoqueModule = ({
                     if (tamanhosAtuais[tamanhoAlvo] === quantidadeNormalizada) {
                         return variacao;
                     }
+                    houveAlteracao = true;
                     return {
                         ...variacao,
                         tamanhos: {
@@ -627,9 +768,12 @@ const GestaoProducaoEstoqueModule = ({
                     };
                 }
                 return variacao;
-            });
-        });
-    }, []);
+            }),
+        );
+        if (houveAlteracao) {
+            clearManualPreview();
+        }
+    }, [clearManualPreview]);
 
     const handleAplicarValoresColados = useCallback(
         (index, tamanhoInicial, textoBruto) => {
@@ -674,6 +818,7 @@ const GestaoProducaoEstoqueModule = ({
                 return;
             }
 
+            let houveAlteracao = false;
             setNovoProdutoVariacoes((prev) =>
                 prev.map((variacao, idx) => {
                     if (idx !== index) {
@@ -691,12 +836,18 @@ const GestaoProducaoEstoqueModule = ({
 
                     gradeSegmento.forEach((tamanho) => {
                         if (Object.prototype.hasOwnProperty.call(mapaValores, tamanho)) {
+                            const valorAtual = tamanhosAtualizados[tamanho];
+                            const valorNovo = normalizarQuantidade(mapaValores[tamanho]);
+                            if (!Object.is(valorAtual, valorNovo)) {
+                                houveAlteracao = true;
+                            }
                             aplicarValor(tamanho, mapaValores[tamanho]);
                         }
                     });
 
                     Object.entries(mapaValores).forEach(([tamanho, valor]) => {
                         if (!Object.prototype.hasOwnProperty.call(tamanhosAtualizados, tamanho)) {
+                            houveAlteracao = true;
                             aplicarValor(tamanho, valor);
                         }
                     });
@@ -705,14 +856,18 @@ const GestaoProducaoEstoqueModule = ({
                         return variacao;
                     }
 
+                    houveAlteracao = true;
                     return {
                         ...variacao,
                         tamanhos: tamanhosAtualizados,
                     };
                 }),
             );
+            if (houveAlteracao) {
+                clearManualPreview();
+            }
         },
-        [gradeListaAtual],
+        [gradeListaAtual, clearManualPreview],
     );
 
     const handleColarNaVariacao = useCallback(
@@ -733,15 +888,23 @@ const GestaoProducaoEstoqueModule = ({
 
     const handleRemoverVariacao = useCallback(
         (index) => {
+            let houveAlteracao = false;
             setNovoProdutoVariacoes((prev) => {
+                if (index < 0 || index >= prev.length) {
+                    return prev;
+                }
+                houveAlteracao = true;
                 const restante = prev.filter((_, idx) => idx !== index);
                 if (!restante.length) {
                     return [criarVariacaoVazia(gradeListaAtual)];
                 }
                 return restante;
             });
+            if (houveAlteracao) {
+                clearManualPreview();
+            }
         },
-        [gradeListaAtual],
+        [gradeListaAtual, clearManualPreview],
     );
 
     const resetFormularioNovoProduto = useCallback(() => {
@@ -749,7 +912,8 @@ const GestaoProducaoEstoqueModule = ({
         setNovoProdutoGrade('');
         setNovoProdutoVariacoes([criarVariacaoVazia()]);
         setNovoProdutoAgrupamento('juntas');
-    }, []);
+        clearManualPreview();
+    }, [clearManualPreview]);
 
     const temRascunho = useMemo(() => {
         if (novoProdutoCodigo.trim() || novoProdutoGrade.trim()) {
@@ -760,6 +924,20 @@ const GestaoProducaoEstoqueModule = ({
             return Boolean(refPreenchido || temQuantidadeInformada(variacao?.tamanhos));
         });
     }, [novoProdutoCodigo, novoProdutoGrade, novoProdutoVariacoes]);
+
+    const manualFormularioNormalizado = useMemo(
+        () =>
+            tentarValidarFormularioManual({
+                codigo: novoProdutoCodigo,
+                gradeTexto: novoProdutoGrade,
+                gradeLista: gradeListaAtual,
+                variacoes: novoProdutoVariacoes,
+                agrupamento: novoProdutoAgrupamento,
+            }),
+        [novoProdutoCodigo, novoProdutoGrade, gradeListaAtual, novoProdutoVariacoes, novoProdutoAgrupamento],
+    );
+
+    const manualFormularioValido = Boolean(manualFormularioNormalizado);
 
     const handleAdicionarProduto = useCallback(() => {
         try {
@@ -820,6 +998,131 @@ const GestaoProducaoEstoqueModule = ({
         gradeListaAtual,
         resetFormularioNovoProduto,
     ]);
+
+    const handleNovoProdutoCodigoChange = useCallback(
+        (event) => {
+            setNovoProdutoCodigo(event.target.value.toUpperCase());
+            clearManualPreview();
+        },
+        [clearManualPreview],
+    );
+
+    const handleNovoProdutoGradeChange = useCallback(
+        (event) => {
+            setNovoProdutoGrade(event.target.value);
+            clearManualPreview();
+        },
+        [clearManualPreview],
+    );
+
+    const handleNovoProdutoAgrupamentoChange = useCallback(
+        (event) => {
+            setNovoProdutoAgrupamento(event.target.value);
+            clearManualPreview();
+        },
+        [clearManualPreview],
+    );
+
+    const handleGerarPreviaManual = useCallback(() => {
+        if (!manualFormularioNormalizado) {
+            setStatus({
+                type: 'error',
+                message: 'Preencha o formulário manual corretamente antes de gerar a prévia.',
+            });
+            return;
+        }
+
+        const dadosConfirmacao = {
+            codigo: manualFormularioNormalizado.codigo,
+            grade: [...manualFormularioNormalizado.grade],
+            agrupamento: manualFormularioNormalizado.agrupamento,
+            variacoes: manualFormularioNormalizado.variacoes.map((variacao) => ({
+                ref: variacao.ref,
+                tamanhos: { ...variacao.tamanhos },
+            })),
+        };
+
+        const snapshots = construirSnapshotsManuais({
+            ...dadosConfirmacao,
+            responsavel: responsavelAtual,
+        });
+
+        setManualPreviewData(dadosConfirmacao);
+        setManualPreviewSnapshots(snapshots);
+        setPreviewSnapshots(snapshots);
+        setPreviewSource('manual');
+        setStatus({
+            type: 'success',
+            message: `Prévia manual montada com ${snapshots.length} snapshot(s). Revise e confirme o lançamento.`,
+        });
+    }, [manualFormularioNormalizado, responsavelAtual]);
+
+    const handleConfirmarLancamentoManual = useCallback(async () => {
+        if (!manualPreviewData || !manualPreviewSnapshots.length) {
+            setStatus({
+                type: 'error',
+                message: 'Gere uma prévia manual antes de confirmar o lançamento.',
+            });
+            return;
+        }
+
+        setProcessing(true);
+        setStatus({
+            type: 'info',
+            message: 'Registrando lançamento manual e gerando relatório...',
+        });
+
+        try {
+            const dataLancamentoISO = new Date().toISOString();
+            const snapshotsConfirmados = construirSnapshotsManuais({
+                ...manualPreviewData,
+                responsavel: responsavelAtual,
+                dataLancamentoISO,
+            });
+
+            let dailyRecord = null;
+            try {
+                const resultado = await importarArquivoDeProducao(snapshotsConfirmados, 'manual', responsavelAtual);
+                if (resultado?.dailyRecord) {
+                    dailyRecord = resultado.dailyRecord;
+                }
+            } catch (error) {
+                console.warn('[GestaoProducaoEstoque] Falha ao importar manualmente, aplicando fallback local.', error);
+            }
+
+            if (!dailyRecord) {
+                dailyRecord = montarDailyRecord({
+                    dataLancamentoISO,
+                    responsavel: responsavelAtual,
+                    snapshotsProdutos: snapshotsConfirmados,
+                });
+                salvarNoHistorico(dailyRecord);
+                const paginas = paginarRelatorioEmPaginasA4(dailyRecord);
+                const html = gerarHTMLImpressaoPaginado(dailyRecord, paginas);
+                if (typeof window !== 'undefined') {
+                    const novaJanela = window.open('', '_blank');
+                    if (novaJanela) {
+                        novaJanela.document.write(html);
+                        novaJanela.document.close();
+                    }
+                }
+            }
+
+            setHistorico(carregarHistorico());
+            setStatus({
+                type: 'success',
+                message: 'Lançamento manual registrado com sucesso! O relatório foi aberto em uma nova aba.',
+            });
+            resetPreview();
+        } catch (error) {
+            setStatus({
+                type: 'error',
+                message: error?.message || 'Não foi possível concluir o lançamento manual.',
+            });
+        } finally {
+            setProcessing(false);
+        }
+    }, [manualPreviewData, manualPreviewSnapshots, responsavelAtual, resetPreview]);
 
     const handleRemoverProduto = useCallback((codigo) => {
         const atualizado = removerProdutoDoPortfolio(codigo);
@@ -1081,7 +1384,7 @@ const GestaoProducaoEstoqueModule = ({
                                         <input
                                             type="text"
                                             value={novoProdutoCodigo}
-                                            onChange={(event) => setNovoProdutoCodigo(event.target.value.toUpperCase())}
+                                            onChange={handleNovoProdutoCodigoChange}
                                             className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
                                             placeholder="Ex: 016"
                                         />
@@ -1090,7 +1393,7 @@ const GestaoProducaoEstoqueModule = ({
                                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Grade (tamanhos separados por espaço, vírgula ou quebra de linha)</label>
                                         <textarea
                                             value={novoProdutoGrade}
-                                            onChange={(event) => setNovoProdutoGrade(event.target.value)}
+                                            onChange={handleNovoProdutoGradeChange}
                                             className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
                                             rows={2}
                                             placeholder="06 08 10 12 14 16 02 04"
@@ -1219,7 +1522,7 @@ const GestaoProducaoEstoqueModule = ({
                                                     name="agrupamentoVariacoes"
                                                     value="juntas"
                                                     checked={novoProdutoAgrupamento === 'juntas'}
-                                                    onChange={(event) => setNovoProdutoAgrupamento(event.target.value)}
+                                                    onChange={handleNovoProdutoAgrupamentoChange}
                                                     className="mt-1"
                                                 />
                                                 <div>
@@ -1233,7 +1536,7 @@ const GestaoProducaoEstoqueModule = ({
                                                     name="agrupamentoVariacoes"
                                                     value="separadas"
                                                     checked={novoProdutoAgrupamento === 'separadas'}
-                                                    onChange={(event) => setNovoProdutoAgrupamento(event.target.value)}
+                                                    onChange={handleNovoProdutoAgrupamentoChange}
                                                     className="mt-1"
                                                 />
                                                 <div>
@@ -1245,6 +1548,32 @@ const GestaoProducaoEstoqueModule = ({
                                     </div>
                                 </div>
                                 <div className="flex flex-wrap gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={handleGerarPreviaManual}
+                                        disabled={processing || !manualFormularioValido}
+                                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
+                                            processing || !manualFormularioValido
+                                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed dark:bg-gray-700 dark:text-gray-400'
+                                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                                        }`}
+                                    >
+                                        <Eye size={16} />
+                                        Gerar prévia
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleConfirmarLancamentoManual}
+                                        disabled={processing || !manualPreviewSnapshots.length}
+                                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
+                                            processing || !manualPreviewSnapshots.length
+                                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed dark:bg-gray-700 dark:text-gray-400'
+                                                : 'bg-green-600 text-white hover:bg-green-700'
+                                        }`}
+                                    >
+                                        <CheckCircle2 size={16} />
+                                        Confirmar lançamento
+                                    </button>
                                     <button
                                         type="button"
                                         onClick={handleAdicionarProduto}
