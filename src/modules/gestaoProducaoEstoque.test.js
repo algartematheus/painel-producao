@@ -3,10 +3,11 @@ import '@testing-library/jest-dom';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import GestaoProducaoEstoqueModule, { validarEAdicionarProdutoAoPortfolio } from './gestaoProducaoEstoque';
 import {
-    adicionarProdutoAoPortfolio,
+    upsertPortfolio,
     carregarHistorico,
-    carregarPortfolio,
-    salvarPortfolio,
+    listPortfolio,
+    deletePortfolio,
+    reordenarPortfolio,
 } from './relatorioEstoque';
 
 jest.mock('./auth', () => ({
@@ -41,10 +42,9 @@ jest.mock('./stockImporter', () => ({
 
 jest.mock('./relatorioEstoque', () => ({
     __esModule: true,
-    carregarPortfolio: jest.fn(),
-    salvarPortfolio: jest.fn(),
-    adicionarProdutoAoPortfolio: jest.fn(),
-    removerProdutoDoPortfolio: jest.fn(),
+    listPortfolio: jest.fn(),
+    upsertPortfolio: jest.fn(),
+    deletePortfolio: jest.fn(),
     reordenarPortfolio: jest.fn(),
     criarSnapshotProduto: jest.fn(),
     carregarHistorico: jest.fn(),
@@ -74,7 +74,7 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
             },
         ];
 
-        adicionarProdutoAoPortfolio.mockReturnValue(portfolioEsperado);
+        upsertPortfolio.mockReturnValue(portfolioEsperado);
 
         const resultado = validarEAdicionarProdutoAoPortfolio({
             codigo: '123 ',
@@ -88,23 +88,27 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
             agrupamento: 'juntas',
         });
 
-        expect(adicionarProdutoAoPortfolio).toHaveBeenCalledWith({
-            codigo: '123',
-            grade: ['PP', 'P'],
-            variations: [
-                {
-                    ref: '123-A',
-                    tamanhos: { PP: 10, P: -2 },
-                },
-            ],
-            agruparVariacoes: true,
-        });
+        expect(upsertPortfolio).toHaveBeenCalledWith(
+            {
+                codigo: '123',
+                grade: ['PP', 'P'],
+                variations: [
+                    {
+                        ref: '123-A',
+                        tamanhos: { PP: 10, P: -2 },
+                    },
+                ],
+                grouping: 'juntas',
+                createdBy: undefined,
+            },
+            undefined,
+        );
         expect(resultado.portfolioAtualizado).toEqual(portfolioEsperado);
         expect(resultado.mensagemSucesso).toBe('Produto 123 salvo com variações agrupadas.');
     });
 
     it('infere grade quando necessário e lança erros apropriados', () => {
-        adicionarProdutoAoPortfolio.mockReturnValue([]);
+        upsertPortfolio.mockReturnValue([]);
 
         const resultado = validarEAdicionarProdutoAoPortfolio({
             codigo: '456',
@@ -118,17 +122,21 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
             agrupamento: 'separadas',
         });
 
-        expect(adicionarProdutoAoPortfolio).toHaveBeenCalledWith({
-            codigo: '456',
-            grade: ['06', '08'],
-            variations: [
-                {
-                    ref: '456-B',
-                    tamanhos: { '06': 1, '08': 2 },
-                },
-            ],
-            agruparVariacoes: false,
-        });
+        expect(upsertPortfolio).toHaveBeenCalledWith(
+            {
+                codigo: '456',
+                grade: ['06', '08'],
+                variations: [
+                    {
+                        ref: '456-B',
+                        tamanhos: { '06': 1, '08': 2 },
+                    },
+                ],
+                grouping: 'separadas',
+                createdBy: undefined,
+            },
+            undefined,
+        );
         expect(resultado.mensagemSucesso).toBe('Produto 456 salvo com variações separadas.');
 
         expect(() =>
@@ -170,7 +178,7 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
     });
 
     it('interpreta sequências alinhadas à grade com espaços e tabulações', () => {
-        adicionarProdutoAoPortfolio.mockReturnValue([]);
+        upsertPortfolio.mockReturnValue([]);
 
         const resultado = validarEAdicionarProdutoAoPortfolio({
             codigo: '999',
@@ -192,16 +200,20 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
             agrupamento: 'juntas',
         });
 
-        expect(adicionarProdutoAoPortfolio).toHaveBeenCalledWith({
-            codigo: '999',
-            grade: ['PP', 'P', 'M', 'G'],
-            variations: [
-                { ref: '999-A', tamanhos: { PP: 10, P: 20, M: 30, G: 40 } },
-                { ref: '999-B', tamanhos: { PP: 5, P: 0, M: 15, G: 0 } },
-                { ref: '999-C', tamanhos: { PP: 7, P: 8, M: 0, G: 0 } },
-            ],
-            agruparVariacoes: true,
-        });
+        expect(upsertPortfolio).toHaveBeenCalledWith(
+            {
+                codigo: '999',
+                grade: ['PP', 'P', 'M', 'G'],
+                variations: [
+                    { ref: '999-A', tamanhos: { PP: 10, P: 20, M: 30, G: 40 } },
+                    { ref: '999-B', tamanhos: { PP: 5, P: 0, M: 15, G: 0 } },
+                    { ref: '999-C', tamanhos: { PP: 7, P: 8, M: 0, G: 0 } },
+                ],
+                grouping: 'juntas',
+                createdBy: undefined,
+            },
+            undefined,
+        );
         expect(resultado.mensagemSucesso).toBe('Produto 999 salvo com variações agrupadas.');
     });
 });
@@ -209,9 +221,9 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
 describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
     beforeEach(() => {
         jest.clearAllMocks();
-        carregarPortfolio.mockReturnValue([]);
+        listPortfolio.mockReturnValue([]);
         carregarHistorico.mockReturnValue([]);
-        salvarPortfolio.mockImplementation((portfolio) => portfolio);
+        upsertPortfolio.mockImplementation((portfolio) => portfolio);
     });
 
     it('desabilita salvar sem rascunho e persiste dados quando o formulário está preenchido', async () => {
@@ -229,7 +241,7 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
             },
         ];
 
-        adicionarProdutoAoPortfolio.mockReturnValue(portfolioAtualizado);
+        upsertPortfolio.mockReturnValue(portfolioAtualizado);
 
         render(
             <GestaoProducaoEstoqueModule
@@ -265,20 +277,22 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
         fireEvent.click(salvarButton);
 
         await waitFor(() => {
-            expect(adicionarProdutoAoPortfolio).toHaveBeenCalledWith({
-                codigo: '016',
-                grade: ['06', '08'],
-                variations: [
-                    {
-                        ref: '016.AZ',
-                        tamanhos: { '06': 10, '08': -5 },
-                    },
-                ],
-                agruparVariacoes: true,
-            });
+            expect(upsertPortfolio).toHaveBeenCalledWith(
+                {
+                    codigo: '016',
+                    grade: ['06', '08'],
+                    variations: [
+                        {
+                            ref: '016.AZ',
+                            tamanhos: { '06': 10, '08': -5 },
+                        },
+                    ],
+                    grouping: 'juntas',
+                    createdBy: 'Usuário Teste',
+                },
+                { actor: 'Usuário Teste' },
+            );
         });
-
-        expect(salvarPortfolio).toHaveBeenCalledWith(portfolioAtualizado);
 
         expect(
             await screen.findByText('Rascunho salvo: Produto 016 salvo com variações agrupadas.'),
@@ -292,7 +306,7 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
     });
 
     it('permite colar sequências alinhadas à grade para preencher rapidamente os tamanhos', async () => {
-        adicionarProdutoAoPortfolio.mockReturnValue([]);
+        upsertPortfolio.mockReturnValue([]);
 
         render(
             <GestaoProducaoEstoqueModule
@@ -358,11 +372,12 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
                     { ref: '099.AZ', tamanhos: { '06': 10, '08': 5 } },
                     { ref: '099.PT', tamanhos: { '06': 4, '08': -1 } },
                 ],
+                grouping: 'separadas',
                 agruparVariacoes: false,
             },
         ];
 
-        adicionarProdutoAoPortfolio.mockReturnValue(portfolioAtualizado);
+        upsertPortfolio.mockReturnValue(portfolioAtualizado);
 
         render(
             <GestaoProducaoEstoqueModule
@@ -404,18 +419,20 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
         fireEvent.click(screen.getByRole('button', { name: /Salvar alterações/i }));
 
         await waitFor(() => {
-            expect(adicionarProdutoAoPortfolio).toHaveBeenCalledWith({
-                codigo: '099',
-                grade: ['06', '08'],
-                variations: [
-                    { ref: '099.AZ', tamanhos: { '06': 10, '08': 5 } },
-                    { ref: '099.PT', tamanhos: { '06': 4, '08': -1 } },
-                ],
-                agruparVariacoes: false,
-            });
+            expect(upsertPortfolio).toHaveBeenCalledWith(
+                {
+                    codigo: '099',
+                    grade: ['06', '08'],
+                    variations: [
+                        { ref: '099.AZ', tamanhos: { '06': 10, '08': 5 } },
+                        { ref: '099.PT', tamanhos: { '06': 4, '08': -1 } },
+                    ],
+                    grouping: 'separadas',
+                    createdBy: 'Usuário Teste',
+                },
+                { actor: 'Usuário Teste' },
+            );
         });
-
-        expect(salvarPortfolio).toHaveBeenCalledWith(portfolioAtualizado);
 
         expect(
             await screen.findByText('Rascunho salvo: Produto 099 salvo com variações separadas.'),

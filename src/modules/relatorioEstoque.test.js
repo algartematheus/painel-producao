@@ -7,8 +7,9 @@ import {
     paginarRelatorioEmPaginasA4,
     gerarHTMLImpressaoPaginado,
     importarArquivoDeProducao,
-    carregarPortfolio,
-    salvarPortfolio,
+    listPortfolio,
+    upsertPortfolio,
+    deletePortfolio,
     adicionarProdutoAoPortfolio,
     normalizarProdutosImportados,
 } from './relatorioEstoque';
@@ -23,38 +24,42 @@ describe('relatorioEstoque module', () => {
         }
     });
 
-    it('salva e carrega portfólio preservando variações e agrupamento', () => {
-        const salvo = salvarPortfolio([
-            {
-                codigo: '020',
-                grade: ['P', 'M'],
-                agruparVariacoes: false,
-                variations: [
-                    { ref: '020.AZ', tamanhos: { P: '5', M: '-2' } },
-                ],
-            },
-        ]);
+    it('salva, lista e remove itens do portfólio preservando metadados', () => {
+        const salvo = upsertPortfolio({
+            codigo: '020',
+            grade: ['P', 'M'],
+            grouping: 'separadas',
+            variations: [
+                { ref: '020.AZ', tamanhos: { P: '5', M: '-2' } },
+            ],
+        });
 
-        expect(salvo).toEqual([
-            {
-                codigo: '020',
-                grade: ['P', 'M'],
-                agruparVariacoes: false,
-                variations: [
-                    { ref: '020.AZ', tamanhos: { P: 5, M: -2 } },
-                ],
-            },
-        ]);
+        expect(salvo).toHaveLength(1);
+        expect(salvo[0]).toMatchObject({
+            codigo: '020',
+            grade: ['P', 'M'],
+            grouping: 'separadas',
+            agruparVariacoes: false,
+            variations: [
+                { ref: '020.AZ', tamanhos: { P: 5, M: -2 } },
+            ],
+        });
+        expect(salvo[0].updatedAt).toEqual(expect.any(String));
+        expect(salvo[0].createdAt).toEqual(expect.any(String));
 
-        const carregado = carregarPortfolio();
+        const carregado = listPortfolio();
         expect(carregado).toEqual(salvo);
+
+        const removido = deletePortfolio('020');
+        expect(removido).toEqual([]);
+        expect(listPortfolio()).toEqual([]);
     });
 
     it('permite cadastrar manualmente produtos com variações agrupadas e separadas', () => {
         const portfolioInicial = adicionarProdutoAoPortfolio({
             codigo: '016',
             grade: ['06', '08'],
-            agruparVariacoes: true,
+            grouping: 'juntas',
             variations: [
                 { ref: '016.AZ', tamanhos: { '06': 10, '08': -5 } },
             ],
@@ -63,6 +68,7 @@ describe('relatorioEstoque module', () => {
         expect(portfolioInicial).toHaveLength(1);
         expect(portfolioInicial[0]).toMatchObject({
             codigo: '016',
+            grouping: 'juntas',
             agruparVariacoes: true,
             variations: [
                 { ref: '016.AZ', tamanhos: { '06': 10, '08': -5 } },
@@ -72,35 +78,35 @@ describe('relatorioEstoque module', () => {
         const portfolioAtualizado = adicionarProdutoAoPortfolio({
             codigo: '017',
             grade: ['P', 'M'],
-            agruparVariacoes: false,
+            grouping: 'separadas',
             variations: [
                 { ref: '017.ST', tamanhos: { P: 3, M: -1 } },
             ],
         });
 
         expect(portfolioAtualizado).toHaveLength(2);
-        const carregado = carregarPortfolio();
+        const carregado = listPortfolio();
         const itemAgrupado = carregado.find((item) => item.codigo === '016');
         const itemSeparado = carregado.find((item) => item.codigo === '017');
 
         expect(itemAgrupado?.agruparVariacoes).toBe(true);
+        expect(itemAgrupado?.grouping).toBe('juntas');
         expect(itemAgrupado?.variations).toEqual([
             { ref: '016.AZ', tamanhos: { '06': 10, '08': -5 } },
         ]);
         expect(itemSeparado?.agruparVariacoes).toBe(false);
+        expect(itemSeparado?.grouping).toBe('separadas');
         expect(itemSeparado?.variations).toEqual([
             { ref: '017.ST', tamanhos: { P: 3, M: -1 } },
         ]);
     });
 
     it('normaliza produtos importados respeitando configuração de agrupamento do portfólio', () => {
-        salvarPortfolio([
-            {
-                codigo: '016',
-                grade: ['06', '08'],
-                agruparVariacoes: true,
-            },
-        ]);
+        upsertPortfolio({
+            codigo: '016',
+            grade: ['06', '08'],
+            grouping: 'juntas',
+        });
 
         const dadosImportados = [
             {
@@ -119,13 +125,11 @@ describe('relatorioEstoque module', () => {
         expect(normalizado['016'].variations).toHaveLength(2);
         expect(normalizado['016'].grade).toEqual(['06', '08']);
 
-        salvarPortfolio([
-            {
-                codigo: '016',
-                grade: ['06', '08'],
-                agruparVariacoes: false,
-            },
-        ]);
+        upsertPortfolio({
+            codigo: '016',
+            grade: ['06', '08'],
+            grouping: 'separadas',
+        });
 
         normalizado = normalizarProdutosImportados(dadosImportados);
         expect(Object.keys(normalizado).sort()).toEqual(['016:016.AZ', '016:016.DV']);

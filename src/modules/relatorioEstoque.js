@@ -55,9 +55,9 @@ const sanitizeVariations = (variations = []) => {
             }
             const tamanhos = variation.tamanhos && typeof variation.tamanhos === 'object'
                 ? Object.entries(variation.tamanhos).reduce((acc, [size, numberValue]) => {
-                    acc[String(size)] = normalizeNumber(numberValue);
-                    return acc;
-                }, {})
+                      acc[String(size)] = normalizeNumber(numberValue);
+                      return acc;
+                  }, {})
                 : {};
             return {
                 ref,
@@ -67,7 +67,52 @@ const sanitizeVariations = (variations = []) => {
         .filter(Boolean);
 };
 
-const sanitizePortfolioItem = (item) => {
+const normalizeGrouping = (value) => {
+    if (value === 'separadas') {
+        return 'separadas';
+    }
+    if (value === 'juntas') {
+        return 'juntas';
+    }
+    return value === false ? 'separadas' : 'juntas';
+};
+
+const sanitizeActor = (value) => {
+    if (!value) {
+        return null;
+    }
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        return trimmed ? trimmed : null;
+    }
+    if (typeof value === 'object') {
+        const actor = {};
+        if (typeof value.uid === 'string' && value.uid.trim()) {
+            actor.uid = value.uid.trim();
+        }
+        if (typeof value.email === 'string' && value.email.trim()) {
+            actor.email = value.email.trim();
+        }
+        if (typeof value.name === 'string' && value.name.trim()) {
+            actor.name = value.name.trim();
+        }
+        return Object.keys(actor).length ? actor : null;
+    }
+    return null;
+};
+
+const sanitizeTimestamp = (value) => {
+    if (!value || typeof value !== 'string') {
+        return null;
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return null;
+    }
+    return date.toISOString();
+};
+
+const sanitizePortfolioProduct = (item) => {
     if (!item || typeof item !== 'object') {
         return null;
     }
@@ -75,13 +120,28 @@ const sanitizePortfolioItem = (item) => {
     if (!codigo) {
         return null;
     }
+    const grade = cloneGrade(item.grade);
+    const variations = sanitizeVariations(item.variations);
+    const grouping = normalizeGrouping(item.grouping ?? item.agruparVariacoes);
+    const createdAt = sanitizeTimestamp(item.createdAt);
+    const updatedAt = sanitizeTimestamp(item.updatedAt);
+    const createdBy = sanitizeActor(item.createdBy);
+    const updatedBy = sanitizeActor(item.updatedBy);
+
     return {
         codigo,
-        grade: cloneGrade(item.grade),
+        grade,
+        variations,
+        grouping,
+        agruparVariacoes: grouping !== 'separadas',
+        createdAt,
+        updatedAt,
+        createdBy,
+        updatedBy,
     };
 };
 
-export const carregarPortfolio = () => {
+const readPortfolioFromStorage = () => {
     const storage = getStorage();
     try {
         const raw = storage.getItem(STORAGE_KEYS.portfolio);
@@ -89,50 +149,122 @@ export const carregarPortfolio = () => {
             return [];
         }
         const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) {
-            return [];
-        }
-        return parsed.map(sanitizePortfolioItem).filter(Boolean);
+        return Array.isArray(parsed) ? parsed : [];
     } catch (error) {
         return [];
     }
 };
 
-export const salvarPortfolio = (portfolioArray = []) => {
+const persistPortfolio = (portfolioArray = []) => {
     const storage = getStorage();
     const sanitized = Array.isArray(portfolioArray)
-        ? portfolioArray.map(sanitizePortfolioItem).filter(Boolean)
+        ? portfolioArray.map(sanitizePortfolioProduct).filter(Boolean)
         : [];
     storage.setItem(STORAGE_KEYS.portfolio, JSON.stringify(sanitized));
     return sanitized;
 };
 
-export const adicionarProdutoAoPortfolio = ({ codigo, grade }) => {
-    const portfolio = carregarPortfolio();
-    const sanitized = sanitizePortfolioItem({ codigo, grade });
-    if (!sanitized) {
-        throw new Error('Dados inválidos ao adicionar produto ao portfólio.');
-    }
-    const existingIndex = portfolio.findIndex((item) => item.codigo === sanitized.codigo);
-    const updated = [...portfolio];
-    if (existingIndex >= 0) {
-        updated[existingIndex] = sanitized;
-    } else {
-        updated.push(sanitized);
-    }
-    salvarPortfolio(updated);
-    return updated;
+export const listPortfolio = () => {
+    const stored = readPortfolioFromStorage();
+    return stored.map(sanitizePortfolioProduct).filter(Boolean);
 };
 
-export const removerProdutoDoPortfolio = (codigo) => {
-    const portfolio = carregarPortfolio();
-    const updated = portfolio.filter((item) => item.codigo !== codigo);
-    salvarPortfolio(updated);
-    return updated;
+export const upsertPortfolio = (produto, options = {}) => {
+    const sanitizedInput = sanitizePortfolioProduct(produto);
+    if (!sanitizedInput) {
+        throw new Error('Dados inválidos ao salvar produto no portfólio.');
+    }
+
+    const actor = sanitizeActor(options.actor ?? produto?.updatedBy ?? produto?.createdBy);
+    const currentPortfolio = listPortfolio();
+    const nowIso = new Date().toISOString();
+    const existingIndex = currentPortfolio.findIndex((item) => item.codigo === sanitizedInput.codigo);
+
+    if (existingIndex >= 0) {
+        const previous = currentPortfolio[existingIndex];
+        const merged = {
+            ...previous,
+            ...sanitizedInput,
+            grade: sanitizedInput.grade.length ? sanitizedInput.grade : previous.grade,
+            variations: sanitizedInput.variations.length ? sanitizedInput.variations : previous.variations,
+            grouping: sanitizedInput.grouping || previous.grouping || 'juntas',
+            agruparVariacoes:
+                sanitizedInput.grouping
+                    ? sanitizedInput.grouping !== 'separadas'
+                    : previous.agruparVariacoes ?? true,
+            createdAt: previous.createdAt || sanitizedInput.createdAt || nowIso,
+            updatedAt: nowIso,
+            createdBy: previous.createdBy || sanitizedInput.createdBy || actor || null,
+            updatedBy: actor || sanitizedInput.updatedBy || previous.updatedBy || null,
+        };
+        currentPortfolio[existingIndex] = merged;
+    } else {
+        currentPortfolio.push({
+            ...sanitizedInput,
+            createdAt: sanitizedInput.createdAt || nowIso,
+            updatedAt: sanitizedInput.updatedAt || nowIso,
+            createdBy: sanitizedInput.createdBy || actor || null,
+            updatedBy: actor || sanitizedInput.updatedBy || sanitizedInput.createdBy || null,
+        });
+    }
+
+    return persistPortfolio(currentPortfolio);
+};
+
+export const deletePortfolio = (codigo) => {
+    const code = typeof codigo === 'string' ? codigo.trim() : '';
+    if (!code) {
+        return listPortfolio();
+    }
+    const updated = listPortfolio().filter((item) => item.codigo !== code);
+    return persistPortfolio(updated);
 };
 
 export const reordenarPortfolio = (novaOrdemArray = []) => {
-    return salvarPortfolio(novaOrdemArray);
+    const current = listPortfolio();
+    if (!Array.isArray(novaOrdemArray) || !novaOrdemArray.length) {
+        return persistPortfolio(current);
+    }
+
+    const codigoOrder = novaOrdemArray
+        .map((item) => {
+            if (typeof item === 'string') {
+                return item.trim();
+            }
+            if (item && typeof item === 'object' && typeof item.codigo === 'string') {
+                return item.codigo.trim();
+            }
+            return null;
+        })
+        .filter((codigoItem) => Boolean(codigoItem));
+
+    if (!codigoOrder.length) {
+        return persistPortfolio(current);
+    }
+
+    const portfolioMap = new Map(current.map((item) => [item.codigo, item]));
+    const ordered = [];
+
+    codigoOrder.forEach((codigoItem) => {
+        if (portfolioMap.has(codigoItem)) {
+            ordered.push(portfolioMap.get(codigoItem));
+            portfolioMap.delete(codigoItem);
+        }
+    });
+
+    portfolioMap.forEach((value) => {
+        ordered.push(value);
+    });
+
+    return persistPortfolio(ordered);
+};
+
+export const adicionarProdutoAoPortfolio = (produto, options) => {
+    return upsertPortfolio(produto, options);
+};
+
+export const removerProdutoDoPortfolio = (codigo) => {
+    return deletePortfolio(codigo);
 };
 
 const inferGradeFromVariations = (variations = [], fallbackGrade = []) => {
@@ -1106,8 +1238,9 @@ export const exemploFluxoCompleto = () => {
 };
 
 const ProductionStockApp = {
-    carregarPortfolio,
-    salvarPortfolio,
+    listPortfolio,
+    upsertPortfolio,
+    deletePortfolio,
     adicionarProdutoAoPortfolio,
     removerProdutoDoPortfolio,
     reordenarPortfolio,
