@@ -46,10 +46,26 @@ import importStockFile, { PDF_LIBRARY_UNAVAILABLE_ERROR } from './stockImporter'
 const MODULE_TITLE = 'Gestão de Produção x Estoque';
 const MODULE_SUBTITLE = 'Integre produção e estoque em um relatório consolidado pronto para impressão.';
 
-const parseGradeString = (value = '') => value
-    .split(/[,;\s]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+const normalizarRotuloGrade = (valor) => {
+    if (valor === null || valor === undefined) {
+        return '';
+    }
+    const token = String(valor).trim();
+    if (!token) {
+        return '';
+    }
+    const upperToken = token.toUpperCase();
+    if (/^\d+$/.test(upperToken)) {
+        return upperToken.padStart(2, '0');
+    }
+    return upperToken;
+};
+
+const parseGradeString = (value = '') =>
+    value
+        .split(/[,;\s]+/)
+        .map((item) => normalizarRotuloGrade(item))
+        .filter(Boolean);
 
 const parseTamanhosString = (value = '', options = {}) => {
     const resultados = {};
@@ -62,9 +78,7 @@ const parseTamanhosString = (value = '', options = {}) => {
         return resultados;
     }
 
-    const gradeLista = Array.isArray(options?.grade)
-        ? options.grade.map((item) => String(item).trim()).filter(Boolean)
-        : [];
+    const gradeLista = normalizarGradeLista(options?.grade);
 
     if (gradeLista.length && !/[=:]/.test(value)) {
         const sanitized = value.replace(/\r/g, '').replace(/\n/g, '\t');
@@ -98,7 +112,7 @@ const parseTamanhosString = (value = '', options = {}) => {
     const regex = /([^\s=:,;]+)\s*(?:[:=]\s*|\s+)(-?\d+(?:[.,]\d+)?)/g;
     let match;
     while ((match = regex.exec(value)) !== null) {
-        const tamanho = String(match[1]).trim();
+        const tamanho = normalizarRotuloGrade(match[1]);
         const quantidadeBruta = String(match[2]).replace(',', '.');
         const quantidade = Number(quantidadeBruta);
         if (!tamanho) {
@@ -114,7 +128,7 @@ const normalizarGradeLista = (gradeLista = []) =>
     Array.from(
         new Set(
             (Array.isArray(gradeLista) ? gradeLista : [])
-                .map((item) => String(item).trim())
+                .map((item) => normalizarRotuloGrade(item))
                 .filter(Boolean),
         ),
     );
@@ -142,64 +156,82 @@ const normalizarQuantidade = (valor) => {
 };
 
 const preencherTamanhosComGrade = (gradeLista = [], tamanhos = {}) => {
+    const listaNormalizada = normalizarGradeLista(gradeLista);
     const resultado = {};
-    const mapa = isPlainObject(tamanhos) ? tamanhos : {};
+    const mapaEntrada = isPlainObject(tamanhos) ? tamanhos : {};
+    const mapaNormalizado = Object.entries(mapaEntrada).reduce((acc, [chave, valor]) => {
+        const chaveNormalizada = normalizarRotuloGrade(chave);
+        if (!chaveNormalizada) {
+            return acc;
+        }
+        acc[chaveNormalizada] = valor;
+        return acc;
+    }, {});
+
     const adicionarTamanho = (tamanho, valor) => {
-        if (!tamanho) {
+        const chaveNormalizada = normalizarRotuloGrade(tamanho);
+        if (!chaveNormalizada) {
             return;
         }
-        resultado[tamanho] = normalizarQuantidade(valor);
+        resultado[chaveNormalizada] = normalizarQuantidade(valor);
     };
 
-    if (Array.isArray(gradeLista) && gradeLista.length) {
-        gradeLista.forEach((tamanho) => {
-            if (!tamanho) {
-                return;
-            }
-            if (Object.prototype.hasOwnProperty.call(mapa, tamanho)) {
-                adicionarTamanho(tamanho, mapa[tamanho]);
+    if (listaNormalizada.length) {
+        listaNormalizada.forEach((tamanho) => {
+            if (Object.prototype.hasOwnProperty.call(mapaNormalizado, tamanho)) {
+                adicionarTamanho(tamanho, mapaNormalizado[tamanho]);
             } else {
                 resultado[tamanho] = 0;
             }
         });
 
-        Object.keys(mapa).forEach((tamanho) => {
-            if (!gradeLista.includes(tamanho)) {
-                adicionarTamanho(tamanho, mapa[tamanho]);
+        Object.keys(mapaNormalizado).forEach((tamanho) => {
+            if (!listaNormalizada.includes(tamanho)) {
+                adicionarTamanho(tamanho, mapaNormalizado[tamanho]);
             }
         });
 
         return resultado;
     }
 
-    Object.keys(mapa).forEach((tamanho) => {
-        adicionarTamanho(tamanho, mapa[tamanho]);
+    Object.entries(mapaNormalizado).forEach(([tamanho, valor]) => {
+        adicionarTamanho(tamanho, valor);
     });
 
     return resultado;
 };
 
 const normalizarMapaDeTamanhos = (tamanhosEntrada, gradeLista = []) => {
-    const mapa = isPlainObject(tamanhosEntrada)
+    const mapaEntrada = isPlainObject(tamanhosEntrada)
         ? tamanhosEntrada
         : parseTamanhosString(tamanhosEntrada, { grade: gradeLista });
     const listaNormalizada = normalizarGradeLista(gradeLista);
     const resultado = {};
 
+    const mapaNormalizado = Object.entries(mapaEntrada || {}).reduce((acc, [chave, valor]) => {
+        const chaveNormalizada = normalizarRotuloGrade(chave);
+        if (!chaveNormalizada) {
+            return acc;
+        }
+        acc[chaveNormalizada] = valor;
+        return acc;
+    }, {});
+
     listaNormalizada.forEach((tamanho) => {
         if (!tamanho) {
             return;
         }
-        const valor = Object.prototype.hasOwnProperty.call(mapa, tamanho) ? mapa[tamanho] : 0;
+        const valor = Object.prototype.hasOwnProperty.call(mapaNormalizado, tamanho)
+            ? mapaNormalizado[tamanho]
+            : 0;
         resultado[tamanho] = normalizarQuantidade(valor);
     });
 
-    Object.entries(mapa || {}).forEach(([tamanho, valor]) => {
-        const chave = String(tamanho).trim();
-        if (!chave || listaNormalizada.includes(chave)) {
+    Object.entries(mapaNormalizado).forEach(([tamanho, valor]) => {
+        if (!tamanho || listaNormalizada.includes(tamanho)) {
             return;
         }
-        resultado[chave] = normalizarQuantidade(valor);
+        resultado[tamanho] = normalizarQuantidade(valor);
     });
 
     return resultado;

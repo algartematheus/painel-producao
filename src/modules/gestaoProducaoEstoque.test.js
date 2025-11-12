@@ -116,7 +116,7 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
             variacoes: [
                 {
                     ref: '456-B',
-                    tamanhos: { '06': 1, '08': 2 },
+                    tamanhos: { '6': 1, '8': 2 },
                 },
             ],
             agrupamento: 'separadas',
@@ -175,6 +175,38 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
                 agrupamento: 'juntas',
             }),
         ).toThrow('Cadastre pelo menos uma variação com tamanhos válidos.');
+    });
+
+    it('normaliza tokens da grade aplicando caixa alta e preenchimento numérico', () => {
+        upsertPortfolio.mockReturnValue([]);
+
+        validarEAdicionarProdutoAoPortfolio({
+            codigo: '321',
+            grade: 'pp, 6, 07, m1',
+            variacoes: [
+                {
+                    ref: '321-b',
+                    tamanhos: { pp: 5, '6': 2, '07': 3, m1: 4 },
+                },
+            ],
+            agrupamento: 'juntas',
+        });
+
+        expect(upsertPortfolio).toHaveBeenCalledWith(
+            {
+                codigo: '321',
+                grade: ['PP', '06', '07', 'M1'],
+                variations: [
+                    {
+                        ref: '321-b',
+                        tamanhos: { PP: 5, '06': 2, '07': 3, M1: 4 },
+                    },
+                ],
+                grouping: 'juntas',
+                createdBy: undefined,
+            },
+            undefined,
+        );
     });
 
     it('interpreta sequências alinhadas à grade com espaços e tabulações', () => {
@@ -261,7 +293,7 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
         fireEvent.change(screen.getByLabelText('Código do produto base'), { target: { value: '016' } });
         fireEvent.change(
             screen.getByLabelText('Grade (tamanhos separados por espaço, vírgula ou quebra de linha)'),
-            { target: { value: '06 08' } },
+            { target: { value: '6 8' } },
         );
 
         fireEvent.change(screen.getByLabelText('Referência da variação 1'), { target: { value: '016.az' } });
@@ -323,7 +355,7 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
         fireEvent.change(screen.getByLabelText('Código do produto base'), { target: { value: '016' } });
         fireEvent.change(
             screen.getByLabelText('Grade (tamanhos separados por espaço, vírgula ou quebra de linha)'),
-            { target: { value: '06 08 10 12 14 16 02 04' } },
+            { target: { value: '6 8 10 12 14 16 2 4' } },
         );
 
         fireEvent.change(screen.getByLabelText('Referência da variação 1'), { target: { value: '016.AZ' } });
