@@ -210,6 +210,54 @@ describe('stockImporter', () => {
         ]);
     });
 
+    it('prefers the latest produce vector when PDF output contains noisy prefixes', async () => {
+        const mockPage = {
+            getTextContent: jest.fn().mockResolvedValue({
+                items: [
+                    { str: '016.AZ CALÇA MASC.INFANT JUVENIL' },
+                    { str: 'GRADE 06 08 10 12 14 16 02 04' },
+                    { str: 'A PRODUZIR 0 0 0 0 0 0 0 0' },
+                    { str: 'A PRODUZIR -5 10 0 4 -3 2 1 20 29' },
+                ],
+            }),
+        };
+
+        mockGetDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 1,
+                getPage: jest.fn().mockResolvedValue(mockPage),
+            }),
+        });
+
+        const buffer = new ArrayBuffer(8);
+        const snapshots = await importStockFile({ arrayBuffer: buffer, type: 'pdf' });
+
+        expect(mockGetDocument).toHaveBeenCalledTimes(1);
+        expect(snapshots).toEqual([
+            {
+                productCode: '016',
+                grade: ['06', '08', '10', '12', '14', '16', '02', '04'],
+                warnings: [],
+                variations: [
+                    {
+                        ref: '016.AZ',
+                        grade: ['06', '08', '10', '12', '14', '16', '02', '04'],
+                        tamanhos: {
+                            '06': -5,
+                            '08': 10,
+                            '10': 0,
+                            '12': 4,
+                            '14': -3,
+                            '16': 2,
+                            '02': 1,
+                            '04': 20,
+                        },
+                    },
+                ],
+            },
+        ]);
+    });
+
     it('parses PDF content exported in tabular layout', async () => {
         const mockPage = {
             getTextContent: jest.fn().mockResolvedValue({

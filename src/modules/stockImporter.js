@@ -342,13 +342,38 @@ const collectPdfProduceVector = (lines = [], startIndex = 0, expectedLen = 0) =>
         if (numbers.length) {
             collected.push(...numbers);
         }
+    }
 
-        if (expectedLen && collected.length >= expectedLen) {
-            break;
+    if (!expectedLen) {
+        return collected;
+    }
+
+    let trimmed = collected.slice();
+
+    if (trimmed.length >= expectedLen + 1) {
+        const potentialTotal = trimmed[trimmed.length - 1];
+        if (typeof potentialTotal === 'number' && Number.isFinite(potentialTotal)) {
+            const preceding = trimmed.slice(trimmed.length - 1 - expectedLen, trimmed.length - 1);
+            if (preceding.length === expectedLen) {
+                const sum = preceding.reduce((acc, value) => {
+                    if (typeof value === 'number' && Number.isFinite(value)) {
+                        return acc + value;
+                    }
+                    return acc;
+                }, 0);
+                const tolerance = Math.max(0.5, Math.abs(sum) * 0.001);
+                if (Number.isFinite(sum) && Math.abs(sum - potentialTotal) <= tolerance) {
+                    trimmed = trimmed.slice(0, -1);
+                }
+            }
         }
     }
 
-    return collected;
+    if (trimmed.length > expectedLen) {
+        trimmed = trimmed.slice(-expectedLen);
+    }
+
+    return trimmed;
 };
 
 const extractNumbersFromCell = (cell) => {
@@ -721,17 +746,13 @@ const parsePdfFreeLayout = (lines = []) => {
 
         let values = collectPdfProduceVector(lines, produceIndex, localGrade.length);
 
-        if (values.length === localGrade.length + 1) {
-            values = values.slice(0, localGrade.length);
+        if (values.length > localGrade.length) {
+            values = values.slice(-localGrade.length);
         }
 
-        if (values.length !== localGrade.length) {
-            if (values.length > localGrade.length) {
-                values = values.slice(0, localGrade.length);
-            } else {
-                const padding = new Array(localGrade.length - values.length).fill(0);
-                values = [...values, ...padding];
-            }
+        if (values.length < localGrade.length) {
+            const padding = new Array(localGrade.length - values.length).fill(0);
+            values = [...values, ...padding];
         }
 
         const tamanhos = mapGradeToQuantities(localGrade, values);
