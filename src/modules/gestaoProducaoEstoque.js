@@ -28,10 +28,9 @@ import {
     usePersistedTheme,
 } from './shared';
 import {
-    carregarPortfolio,
-    salvarPortfolio,
-    adicionarProdutoAoPortfolio,
-    removerProdutoDoPortfolio,
+    listPortfolio,
+    upsertPortfolio,
+    deletePortfolio,
     reordenarPortfolio,
     criarSnapshotProduto,
     montarDailyRecord,
@@ -280,7 +279,8 @@ export const validarEAdicionarProdutoAoPortfolio = ({
     grade,
     variacoes,
     agrupamento,
-    adicionarProduto = adicionarProdutoAoPortfolio,
+    responsavel,
+    adicionarProduto = upsertPortfolio,
 }) => {
     const codigoTrim = typeof codigo === 'string' ? codigo.trim() : '';
     if (!codigoTrim) {
@@ -329,15 +329,20 @@ export const validarEAdicionarProdutoAoPortfolio = ({
         tamanhos: preencherTamanhosComGrade(gradeFinal, variacao.tamanhos),
     }));
 
-    const portfolioAtualizado = adicionarProduto({
+    const grouping = agrupamento === 'separadas' ? 'separadas' : 'juntas';
+    const payload = {
         codigo: codigoTrim,
         grade: gradeFinal,
         variations: variacoesNormalizadas,
-        agruparVariacoes: agrupamento === 'juntas',
-    });
+        grouping,
+        createdBy: responsavel,
+    };
+
+    const options = responsavel ? { actor: responsavel } : undefined;
+    const portfolioAtualizado = adicionarProduto(payload, options);
 
     const mensagemSucesso = `Produto ${codigoTrim} salvo com variações ${
-        agrupamento === 'juntas' ? 'agrupadas' : 'separadas'
+        grouping === 'juntas' ? 'agrupadas' : 'separadas'
     }.`;
 
     return {
@@ -558,7 +563,7 @@ const GestaoProducaoEstoqueModule = ({
     }, [user]);
 
     useEffect(() => {
-        setPortfolio(carregarPortfolio());
+        setPortfolio(listPortfolio());
         setHistorico(carregarHistorico());
     }, []);
 
@@ -947,6 +952,7 @@ const GestaoProducaoEstoqueModule = ({
                 grade: novoProdutoGrade,
                 variacoes: variacoesPreparadas,
                 agrupamento: novoProdutoAgrupamento,
+                responsavel: responsavelAtual,
             });
             setPortfolio(portfolioAtualizado);
             resetFormularioNovoProduto();
@@ -964,6 +970,7 @@ const GestaoProducaoEstoqueModule = ({
         novoProdutoAgrupamento,
         gradeListaAtual,
         resetFormularioNovoProduto,
+        responsavelAtual,
     ]);
 
     const handleSalvarPortfolio = useCallback(() => {
@@ -978,9 +985,9 @@ const GestaoProducaoEstoqueModule = ({
                 grade: novoProdutoGrade,
                 variacoes: variacoesPreparadas,
                 agrupamento: novoProdutoAgrupamento,
+                responsavel: responsavelAtual,
             });
-            const atualizadoPersistido = salvarPortfolio(portfolioAtualizado);
-            setPortfolio(atualizadoPersistido);
+            setPortfolio(portfolioAtualizado);
             resetFormularioNovoProduto();
             setStatus({
                 type: 'success',
@@ -997,7 +1004,31 @@ const GestaoProducaoEstoqueModule = ({
         novoProdutoAgrupamento,
         gradeListaAtual,
         resetFormularioNovoProduto,
+        responsavelAtual,
     ]);
+
+    const handleCarregarProduto = useCallback(
+        (produto) => {
+            if (!produto) {
+                return;
+            }
+            const agrupamentoSalvo = produto.grouping || (produto.agruparVariacoes ? 'juntas' : 'separadas');
+            setNovoProdutoCodigo(produto.codigo || '');
+            setNovoProdutoGrade(Array.isArray(produto.grade) && produto.grade.length ? produto.grade.join(', ') : '');
+            setNovoProdutoAgrupamento(agrupamentoSalvo === 'separadas' ? 'separadas' : 'juntas');
+            setNovoProdutoVariacoes(() => {
+                if (Array.isArray(produto.variations) && produto.variations.length) {
+                    return produto.variations.map((variacao) => ({
+                        ref: variacao?.ref || '',
+                        tamanhos: preencherTamanhosComGrade(produto.grade || [], variacao?.tamanhos || {}),
+                    }));
+                }
+                return [criarVariacaoVazia(produto.grade || [])];
+            });
+            clearManualPreview();
+        },
+        [clearManualPreview],
+    );
 
     const handleNovoProdutoCodigoChange = useCallback(
         (event) => {
@@ -1125,7 +1156,7 @@ const GestaoProducaoEstoqueModule = ({
     }, [manualPreviewData, manualPreviewSnapshots, responsavelAtual, resetPreview]);
 
     const handleRemoverProduto = useCallback((codigo) => {
-        const atualizado = removerProdutoDoPortfolio(codigo);
+        const atualizado = deletePortfolio(codigo);
         setPortfolio(atualizado);
         setStatus({ type: 'success', message: `Produto ${codigo} removido do portfólio.` });
     }, []);
@@ -1138,7 +1169,7 @@ const GestaoProducaoEstoqueModule = ({
         const novaOrdem = [...portfolio];
         const [item] = novaOrdem.splice(index, 1);
         novaOrdem.splice(alvo, 0, item);
-        const atualizado = reordenarPortfolio(novaOrdem.map((produto) => produto.codigo));
+        const atualizado = reordenarPortfolio(novaOrdem);
         setPortfolio(atualizado);
     }, [portfolio]);
 
@@ -1610,7 +1641,12 @@ const GestaoProducaoEstoqueModule = ({
                                                         Grade: {item.grade && item.grade.length ? item.grade.join(' / ') : 'Sem grade definida'}
                                                     </p>
                                                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                                                        Agrupamento: {item.agruparVariacoes ? 'variações juntas (snapshot único)' : 'variações separadas (snapshots individuais)'}
+                                                        {(() => {
+                                                            const grouping = item.grouping || (item.agruparVariacoes ? 'juntas' : 'separadas');
+                                                            return grouping === 'juntas'
+                                                                ? 'Agrupamento: variações juntas (snapshot único)'
+                                                                : 'Agrupamento: variações separadas (snapshots individuais)';
+                                                        })()}
                                                     </p>
                                                 </div>
                                                 <div className="space-y-1">
@@ -1626,6 +1662,14 @@ const GestaoProducaoEstoqueModule = ({
                                                 </div>
                                             </div>
                                             <div className="flex flex-wrap gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleCarregarProduto(item)}
+                                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600"
+                                                >
+                                                    <RefreshCcw size={16} />
+                                                    Carregar
+                                                </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => handleMoverProduto(index, -1)}
