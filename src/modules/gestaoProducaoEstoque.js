@@ -1086,6 +1086,19 @@ const GestaoProducaoEstoqueModule = ({
         [clearManualPreview, trazerFormularioManualParaView],
     );
 
+    useEffect(() => {
+        if (autoCarregamentoInicialAplicado || !portfolio.length) {
+            return;
+        }
+        const codigoPreferido = recuperarUltimoProdutoManual();
+        const produtoInicial =
+            portfolio.find((produto) => produto?.codigo === codigoPreferido) || portfolio[0];
+        if (produtoInicial) {
+            handleCarregarProduto(produtoInicial, { scrollBehavior: 'auto' });
+        }
+        setAutoCarregamentoInicialAplicado(true);
+    }, [portfolio, autoCarregamentoInicialAplicado, handleCarregarProduto]);
+
     const sincronizarFormularioComProduto = useCallback(
         (portfolioFonte, codigoBase) => {
             if (!Array.isArray(portfolioFonte) || !portfolioFonte.length) {
