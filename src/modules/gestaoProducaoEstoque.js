@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
     Upload,
-    FileSpreadsheet,
+    FileType2,
     FileText,
     CheckCircle2,
     History,
@@ -41,7 +41,7 @@ import {
     importarArquivoDeProducao,
     exemploFluxoCompleto,
 } from './relatorioEstoque';
-import importStockFile, { PDF_LIBRARY_UNAVAILABLE_ERROR } from './stockImporter';
+import importStockFile from './importStockFile';
 
 const MODULE_TITLE = 'Gestão de Produção x Estoque';
 const MODULE_SUBTITLE = 'Integre produção e estoque em um relatório consolidado pronto para impressão.';
@@ -610,7 +610,7 @@ const GestaoProducaoEstoqueModule = ({
     const [novoProdutoGrade, setNovoProdutoGrade] = useState('');
     const [novoProdutoVariacoes, setNovoProdutoVariacoes] = useState([criarVariacaoVazia()]);
     const [novoProdutoAgrupamento, setNovoProdutoAgrupamento] = useState('juntas');
-    const [tipoArquivo, setTipoArquivo] = useState('xlsx');
+    const [tipoArquivo, setTipoArquivo] = useState('docx');
     const [arquivoSelecionado, setArquivoSelecionado] = useState(null);
     const [arquivoNome, setArquivoNome] = useState('');
     const [previewSnapshots, setPreviewSnapshots] = useState([]);
@@ -750,7 +750,7 @@ const GestaoProducaoEstoqueModule = ({
         setProcessing(true);
         setStatus({ type: 'info', message: 'Lendo arquivo e montando prévia das variações...' });
         try {
-            const produtosImportados = await importStockFile({ file: arquivoSelecionado, type: tipoArquivo });
+            const produtosImportados = await importStockFile(arquivoSelecionado);
             const snapshots = produtosImportados.map((produto) => criarSnapshotProduto({
                 produtoBase: produto.productCode || produto.produtoBase,
                 grade: produto.grade,
@@ -768,14 +768,7 @@ const GestaoProducaoEstoqueModule = ({
                 setStatus({ type: 'warning', message: 'Nenhum produto foi encontrado neste arquivo.' });
             }
         } catch (error) {
-            if (error?.code === PDF_LIBRARY_UNAVAILABLE_ERROR) {
-                setStatus({
-                    type: 'error',
-                    message: 'Não foi possível ler o PDF porque a biblioteca pdf.js não está disponível. Recarregue a página ou reinstale as dependências e tente novamente.',
-                });
-            } else {
-                setStatus({ type: 'error', message: error?.message || 'Falha ao processar o arquivo. Tente novamente.' });
-            }
+            setStatus({ type: 'error', message: error?.message || 'Falha ao processar o arquivo. Tente novamente.' });
         } finally {
             setProcessing(false);
         }
@@ -1362,7 +1355,7 @@ const GestaoProducaoEstoqueModule = ({
                             <div>
                                 <h2 className="text-xl font-semibold">Importação automatizada</h2>
                                 <p className="text-sm text-gray-600 dark:text-gray-300">
-                                    Selecione o relatório recebido (XLSX ou PDF), gere uma prévia e confirme o lançamento para salvar o snapshot diário com histórico e relatório paginado.
+                                    Selecione o relatório recebido (DOCX ou TXT), gere uma prévia e confirme o lançamento para salvar o snapshot diário com histórico e relatório paginado.
                                 </p>
                             </div>
                             <button
@@ -1381,17 +1374,17 @@ const GestaoProducaoEstoqueModule = ({
                                 <div className="flex gap-2">
                                     <button
                                         type="button"
-                                        onClick={() => handleTipoArquivo('xlsx')}
-                                        className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border ${tipoArquivo === 'xlsx' ? 'border-green-500 bg-green-100 text-green-700 dark:bg-green-900/60 dark:text-green-200' : 'border-gray-300 bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200'}`}
+                                        onClick={() => handleTipoArquivo('docx')}
+                                        className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border ${tipoArquivo === 'docx' ? 'border-indigo-500 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-200' : 'border-gray-300 bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200'}`}
                                     >
-                                        <FileSpreadsheet size={18} /> XLSX
+                                        <FileType2 size={18} /> DOCX
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => handleTipoArquivo('pdf')}
-                                        className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border ${tipoArquivo === 'pdf' ? 'border-blue-500 bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-200' : 'border-gray-300 bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200'}`}
+                                        onClick={() => handleTipoArquivo('txt')}
+                                        className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border ${tipoArquivo === 'txt' ? 'border-blue-500 bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-200' : 'border-gray-300 bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200'}`}
                                     >
-                                        <FileText size={18} /> PDF
+                                        <FileText size={18} /> TXT
                                     </button>
                                 </div>
                             </div>
@@ -1409,7 +1402,7 @@ const GestaoProducaoEstoqueModule = ({
                                     </div>
                                     <input
                                         type="file"
-                                        accept={tipoArquivo === 'xlsx' ? '.xlsx,.xls' : '.pdf'}
+                                        accept={tipoArquivo === 'docx' ? '.docx' : '.txt'}
                                         className="hidden"
                                         onChange={handleArquivoChange}
                                     />
