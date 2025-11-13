@@ -1,4 +1,4 @@
-import importStockFile from './stockImporter';
+import importStockFile from './importStockFile';
 import {
     calcularTotalPorTamanho,
     resumoPositivoNegativo,
@@ -14,7 +14,7 @@ import {
     normalizarProdutosImportados,
 } from './relatorioEstoque';
 
-jest.mock('./stockImporter');
+jest.mock('./importStockFile');
 
 describe('relatorioEstoque module', () => {
     beforeEach(() => {
@@ -253,9 +253,10 @@ describe('relatorioEstoque module', () => {
             },
         }));
 
-        const resultado = await importarArquivoDeProducao(null, 'pdf', 'Supervisor');
+        const fakeFile = { name: 'relatorio.docx' };
+        const resultado = await importarArquivoDeProducao(fakeFile, 'docx', 'Supervisor');
 
-        expect(importStockFile).toHaveBeenCalledWith({ file: null, type: 'pdf' });
+        expect(importStockFile).toHaveBeenCalledWith(fakeFile);
         expect(resultado.dailyRecord.produtos.length).toBe(2);
         expect(resultado.html).toContain('Relatório de Estoque / Produção');
 
