@@ -1,7 +1,10 @@
 import React from 'react';
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import GestaoProducaoEstoqueModule, { validarEAdicionarProdutoAoPortfolio } from './gestaoProducaoEstoque';
+import GestaoProducaoEstoqueModule, {
+    LAST_MANUAL_PRODUCT_KEY,
+    validarEAdicionarProdutoAoPortfolio,
+} from './gestaoProducaoEstoque';
 import {
     upsertPortfolio,
     carregarHistorico,
@@ -53,6 +56,46 @@ jest.mock('./relatorioEstoque', () => ({
     importarArquivoDeProducao: jest.fn(),
     exemploFluxoCompleto: jest.fn(),
 }));
+
+const createLocalStorageMock = () => {
+    let store = {};
+    return {
+        getItem: jest.fn((key) => (Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null)),
+        setItem: jest.fn((key, value) => {
+            store[key] = String(value);
+        }),
+        removeItem: jest.fn((key) => {
+            delete store[key];
+        }),
+        clear: jest.fn(() => {
+            store = {};
+        }),
+    };
+};
+
+const localStorageMock = createLocalStorageMock();
+
+Object.defineProperty(window, 'localStorage', {
+    value: localStorageMock,
+    configurable: true,
+});
+
+const resetLocalStorageMock = () => {
+    localStorageMock.clear();
+    localStorageMock.getItem.mockClear();
+    localStorageMock.setItem.mockClear();
+    localStorageMock.removeItem.mockClear();
+};
+
+const abrirSecaoPortfolioSeNecessario = () => {
+    if (!screen.queryByLabelText('Código do produto base')) {
+        fireEvent.click(screen.getByText('Portfólio de produtos'));
+    }
+};
+
+beforeEach(() => {
+    resetLocalStorageMock();
+});
 
 describe('validarEAdicionarProdutoAoPortfolio', () => {
     beforeEach(() => {
@@ -382,7 +425,7 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
             />,
         );
 
-        fireEvent.click(screen.getByText('Portfólio de produtos'));
+        abrirSecaoPortfolioSeNecessario();
 
         const salvarButton = screen.getByRole('button', { name: /Salvar alterações/i });
         expect(salvarButton).toBeDisabled();
@@ -428,10 +471,14 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
         ).toBeInTheDocument();
 
         await waitFor(() => {
-            expect(screen.getByLabelText('Código do produto base')).toHaveValue('');
+            expect(screen.getByLabelText('Código do produto base')).toHaveValue('016');
         });
-
-        expect(salvarButton).toBeDisabled();
+        expect(
+            screen.getByLabelText('Grade (tamanhos separados por espaço, vírgula ou quebra de linha)'),
+        ).toHaveValue('06, 08');
+        expect(screen.getByLabelText('Referência da variação 1')).toHaveValue('016.AZ');
+        expect(localStorageMock.setItem).toHaveBeenCalledWith(LAST_MANUAL_PRODUCT_KEY, '016');
+        expect(salvarButton).toBeEnabled();
     });
 
     it('permite colar sequências alinhadas à grade para preencher rapidamente os tamanhos', async () => {
@@ -447,7 +494,7 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
             />,
         );
 
-        fireEvent.click(screen.getByText('Portfólio de produtos'));
+        abrirSecaoPortfolioSeNecessario();
 
         fireEvent.change(screen.getByLabelText('Código do produto base'), { target: { value: '016' } });
         fireEvent.change(
@@ -566,6 +613,92 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
         expect(
             await screen.findByText('Rascunho salvo: Produto 099 salvo com variações separadas.'),
         ).toBeInTheDocument();
+    });
+});
+
+describe('GestaoProducaoEstoqueModule - carregamento automático do formulário manual', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+        carregarHistorico.mockReturnValue([]);
+        localStorageMock.clear();
+    });
+
+    const criarPortfolioBase = () => [
+        {
+            codigo: '001',
+            grade: ['06', '08'],
+            variations: [
+                {
+                    ref: '001.AZ',
+                    tamanhos: { '06': 0, '08': 0 },
+                },
+            ],
+            grouping: 'juntas',
+        },
+        {
+            codigo: '002',
+            grade: ['04', '06', '08'],
+            variations: [
+                {
+                    ref: '002.BR',
+                    tamanhos: { '04': 1, '06': 2, '08': 3 },
+                },
+            ],
+            grouping: 'separadas',
+        },
+    ];
+
+    it('mantém o último produto carregado disponível sem exigir clique em “Carregar”', async () => {
+        const portfolioMock = criarPortfolioBase();
+        listPortfolio.mockReturnValue(portfolioMock);
+        localStorageMock.setItem(LAST_MANUAL_PRODUCT_KEY, '002');
+        localStorageMock.setItem.mockClear();
+
+        render(
+            <GestaoProducaoEstoqueModule
+                onNavigateToCrono={null}
+                onNavigateToStock={null}
+                onNavigateToFichaTecnica={null}
+                onNavigateToOperationalSequence={null}
+                onNavigateToReports={null}
+            />,
+        );
+
+        await waitFor(() => {
+            expect(screen.getByLabelText('Código do produto base')).toHaveValue('002');
+        });
+        expect(
+            screen.getByLabelText('Grade (tamanhos separados por espaço, vírgula ou quebra de linha)'),
+        ).toHaveValue('04, 06, 08');
+        expect(screen.getByLabelText('Referência da variação 1')).toHaveValue('002.BR');
+        expect(localStorageMock.getItem).toHaveBeenCalledWith(LAST_MANUAL_PRODUCT_KEY);
+    });
+
+    it('registra o código no armazenamento ao carregar manualmente outro produto', async () => {
+        const portfolioMock = criarPortfolioBase();
+        listPortfolio.mockReturnValue(portfolioMock);
+
+        render(
+            <GestaoProducaoEstoqueModule
+                onNavigateToCrono={null}
+                onNavigateToStock={null}
+                onNavigateToFichaTecnica={null}
+                onNavigateToOperationalSequence={null}
+                onNavigateToReports={null}
+            />,
+        );
+
+        await waitFor(() => {
+            expect(screen.getByLabelText('Código do produto base')).toHaveValue('001');
+        });
+
+        const botoesCarregar = await screen.findAllByRole('button', { name: /Carregar/i });
+        fireEvent.click(botoesCarregar[1]);
+
+        await waitFor(() => {
+            expect(screen.getByLabelText('Código do produto base')).toHaveValue('002');
+        });
+        expect(localStorageMock.setItem).toHaveBeenCalledWith(LAST_MANUAL_PRODUCT_KEY, '002');
     });
 });
 

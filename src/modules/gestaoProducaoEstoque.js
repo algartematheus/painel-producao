@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
     Upload,
     FileSpreadsheet,
@@ -45,6 +45,48 @@ import importStockFile, { PDF_LIBRARY_UNAVAILABLE_ERROR } from './stockImporter'
 
 const MODULE_TITLE = 'Gestão de Produção x Estoque';
 const MODULE_SUBTITLE = 'Integre produção e estoque em um relatório consolidado pronto para impressão.';
+export const LAST_MANUAL_PRODUCT_KEY = 'gestaoProducaoEstoque:lastManualProduct';
+
+const obterStorageSeguro = () => {
+    if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
+        return null;
+    }
+    try {
+        return window.localStorage;
+    } catch (error) {
+        console.warn('[GestaoProducaoEstoque] Não foi possível acessar o localStorage.', error);
+        return null;
+    }
+};
+
+const registrarUltimoProdutoManual = (codigo) => {
+    const storage = obterStorageSeguro();
+    if (!storage) {
+        return;
+    }
+    try {
+        if (codigo) {
+            storage.setItem(LAST_MANUAL_PRODUCT_KEY, codigo);
+        } else {
+            storage.removeItem(LAST_MANUAL_PRODUCT_KEY);
+        }
+    } catch (error) {
+        console.warn('[GestaoProducaoEstoque] Falha ao registrar o último produto manual.', error);
+    }
+};
+
+const recuperarUltimoProdutoManual = () => {
+    const storage = obterStorageSeguro();
+    if (!storage) {
+        return '';
+    }
+    try {
+        return storage.getItem(LAST_MANUAL_PRODUCT_KEY) || '';
+    } catch (error) {
+        console.warn('[GestaoProducaoEstoque] Não foi possível recuperar o último produto manual.', error);
+        return '';
+    }
+};
 
 const normalizarRotuloGrade = (valor) => {
     if (valor === null || valor === undefined) {
@@ -577,6 +619,8 @@ const GestaoProducaoEstoqueModule = ({
     const [previewSource, setPreviewSource] = useState(null);
     const [processing, setProcessing] = useState(false);
     const [status, setStatus] = useState({ type: 'idle', message: '' });
+    const [autoCarregamentoInicialAplicado, setAutoCarregamentoInicialAplicado] = useState(false);
+    const manualFormularioRef = useRef(null);
 
     const gradeListaAtual = useMemo(() => parseManualGradeText(novoProdutoGrade), [novoProdutoGrade]);
 
@@ -605,6 +649,19 @@ const GestaoProducaoEstoqueModule = ({
         setPortfolio(listPortfolio());
         setHistorico(carregarHistorico());
     }, []);
+
+    useEffect(() => {
+        if (autoCarregamentoInicialAplicado || !portfolio.length) {
+            return;
+        }
+        const codigoPreferido = recuperarUltimoProdutoManual();
+        const produtoInicial =
+            portfolio.find((produto) => produto?.codigo === codigoPreferido) || portfolio[0];
+        if (produtoInicial) {
+            handleCarregarProduto(produtoInicial, { scrollBehavior: 'auto' });
+        }
+        setAutoCarregamentoInicialAplicado(true);
+    }, [portfolio, autoCarregamentoInicialAplicado, handleCarregarProduto]);
 
     useEffect(() => {
         setNovoProdutoVariacoes((prev) => {
@@ -957,6 +1014,7 @@ const GestaoProducaoEstoqueModule = ({
         setNovoProdutoVariacoes([criarVariacaoVazia()]);
         setNovoProdutoAgrupamento('juntas');
         clearManualPreview();
+        registrarUltimoProdutoManual('');
     }, [clearManualPreview]);
 
     const temRascunho = useMemo(() => {
@@ -983,8 +1041,24 @@ const GestaoProducaoEstoqueModule = ({
 
     const manualFormularioValido = Boolean(manualFormularioNormalizado);
 
+    const trazerFormularioManualParaView = useCallback((behavior = 'smooth') => {
+        const executarScroll = () => {
+            if (
+                manualFormularioRef.current &&
+                typeof manualFormularioRef.current.scrollIntoView === 'function'
+            ) {
+                manualFormularioRef.current.scrollIntoView({ behavior, block: 'start' });
+            }
+        };
+        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(executarScroll);
+        } else {
+            setTimeout(executarScroll, 0);
+        }
+    }, []);
+
     const handleCarregarProduto = useCallback(
-        (produto) => {
+        (produto, options = {}) => {
             if (!produto) {
                 return;
             }
@@ -1002,8 +1076,14 @@ const GestaoProducaoEstoqueModule = ({
                 return [criarVariacaoVazia(produto.grade || [])];
             });
             clearManualPreview();
+            setMostrarPortfolio(true);
+            if (produto?.codigo) {
+                registrarUltimoProdutoManual(produto.codigo);
+            }
+            const behavior = options?.scrollBehavior || 'smooth';
+            trazerFormularioManualParaView(behavior);
         },
-        [clearManualPreview],
+        [clearManualPreview, trazerFormularioManualParaView],
     );
 
     const sincronizarFormularioComProduto = useCallback(
@@ -1464,7 +1544,7 @@ const GestaoProducaoEstoqueModule = ({
                             <ArrowDown className={`transition-transform ${mostrarPortfolio ? 'rotate-180' : ''}`} size={20} />
                         </header>
                         {mostrarPortfolio && (
-                            <div className="p-6 space-y-6">
+                            <div className="p-6 space-y-6" ref={manualFormularioRef}>
                                 <div className="grid gap-4 md:grid-cols-2">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Código do produto base</label>
