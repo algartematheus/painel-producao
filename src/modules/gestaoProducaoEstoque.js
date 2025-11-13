@@ -201,12 +201,16 @@ const preencherTamanhosComGrade = (gradeLista = [], tamanhos = {}) => {
     return resultado;
 };
 
-const normalizarMapaDeTamanhos = (tamanhosEntrada, gradeLista = []) => {
+const normalizarMapaDeTamanhos = (tamanhosEntrada, gradeLista = [], options = {}) => {
     const mapaEntrada = isPlainObject(tamanhosEntrada)
         ? tamanhosEntrada
         : parseTamanhosString(tamanhosEntrada, { grade: gradeLista });
     const listaNormalizada = normalizarGradeLista(gradeLista);
     const resultado = {};
+    const manterExtrasForaDaGrade =
+        typeof options?.manterExtrasForaDaGrade === 'boolean'
+            ? options.manterExtrasForaDaGrade
+            : listaNormalizada.length === 0;
 
     const mapaNormalizado = Object.entries(mapaEntrada || {}).reduce((acc, [chave, valor]) => {
         const chaveNormalizada = normalizarRotuloGrade(chave);
@@ -227,12 +231,14 @@ const normalizarMapaDeTamanhos = (tamanhosEntrada, gradeLista = []) => {
         resultado[tamanho] = normalizarQuantidade(valor);
     });
 
-    Object.entries(mapaNormalizado).forEach(([tamanho, valor]) => {
-        if (!tamanho || listaNormalizada.includes(tamanho)) {
-            return;
-        }
-        resultado[tamanho] = normalizarQuantidade(valor);
-    });
+    if (manterExtrasForaDaGrade) {
+        Object.entries(mapaNormalizado).forEach(([tamanho, valor]) => {
+            if (!tamanho || listaNormalizada.includes(tamanho)) {
+                return;
+            }
+            resultado[tamanho] = normalizarQuantidade(valor);
+        });
+    }
 
     return resultado;
 };
@@ -324,7 +330,8 @@ export const validarEAdicionarProdutoAoPortfolio = ({
         .map((variacao) => {
             const ref = typeof variacao?.ref === 'string' ? variacao.ref.trim() : '';
             const tamanhosNormalizados = normalizarMapaDeTamanhos(variacao?.tamanhos, gradeLista);
-            if (!ref || !temQuantidadeInformada(tamanhosNormalizados)) {
+            const possuiAlgumTamanho = Object.keys(tamanhosNormalizados || {}).length > 0;
+            if (!ref || !possuiAlgumTamanho) {
                 return null;
             }
             return {
