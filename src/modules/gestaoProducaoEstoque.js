@@ -772,7 +772,7 @@ const GestaoProducaoEstoqueModule = ({
         } finally {
             setProcessing(false);
         }
-    }, [arquivoSelecionado, tipoArquivo, responsavelAtual]);
+    }, [arquivoSelecionado, responsavelAtual]);
 
     const handleConfirmarLancamento = useCallback(async () => {
         if (!arquivoSelecionado) {

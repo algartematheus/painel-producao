@@ -104,7 +104,7 @@ const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => 
         currentGrade = ['UN'];
       } else {
         currentGrade = desc
-          .split(/[\/\s]+/)
+          .split(/[/\s]+/)
           .map((token) => token.trim())
           .filter(Boolean);
       }

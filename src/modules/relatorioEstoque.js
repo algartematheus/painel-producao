@@ -705,34 +705,6 @@ const normalizeLabel = (label) => {
     return stripAccentsAndUpper(label);
 };
 
-const REF_REGEX = /^\d{3,4}\.[A-Z0-9]{2,}$/;
-
-const isVariationCode = (text = '') => {
-    return REF_REGEX.test(normalizeLabel(text));
-};
-
-const parseNumberCell = (value) => {
-    if (value == null || value === '') {
-        return null;
-    }
-
-    if (typeof value === 'number') {
-        return Number.isFinite(value) ? value : null;
-    }
-
-    const numeric = String(value)
-        .replace(/\./g, '')
-        .replace(',', '.')
-        .trim();
-
-    if (!numeric) {
-        return null;
-    }
-
-    const parsed = Number(numeric);
-    return Number.isFinite(parsed) ? parsed : null;
-};
-
 const normalizeParsedProductsToSnapshots = (produtos = [], dataLancamentoISO, responsavel) => {
     if (!Array.isArray(produtos)) {
         return [];
