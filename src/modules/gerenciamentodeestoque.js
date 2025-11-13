@@ -13,7 +13,59 @@ import {
   generateId,
   usePersistedTheme
 } from './shared';
-import { importStockFile, flattenSnapshotsToVariations } from './stockImporter';
+import importLegacyStockFile, { flattenSnapshotsToVariations } from './stockImporter';
+import importStockFile from './importStockFile';
+import { NO_VARIATIONS_FOUND_ERROR } from './types';
+
+const FILE_ACCEPT_ATTRIBUTE = [
+    'application/pdf',
+    '.pdf',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.xlsx',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.docx',
+    'text/plain',
+    '.txt'
+].join(',');
+
+const detectFileType = (file) => {
+    const name = typeof file?.name === 'string' ? file.name.toLowerCase() : '';
+    const mime = typeof file?.type === 'string' ? file.type.toLowerCase() : '';
+    if (name.endsWith('.pdf') || mime.includes('pdf')) {
+        return 'pdf';
+    }
+    if (name.endsWith('.xlsx') || mime.includes('sheet')) {
+        return 'xlsx';
+    }
+    if (name.endsWith('.docx') || mime.includes('wordprocessingml')) {
+        return 'docx';
+    }
+    if (name.endsWith('.txt') || mime.includes('text')) {
+        return 'txt';
+    }
+    return null;
+};
+
+const isTextImportType = (type) => type === 'docx' || type === 'txt';
+
+const extractBaseProductCode = (value) => {
+    if (typeof value !== 'string') {
+        return '';
+    }
+    const normalized = normalizeReferenceCode(value);
+    if (!normalized) {
+        return '';
+    }
+    const [base] = normalized.split('.');
+    if (base && /^\d{3,}$/.test(base)) {
+        return base;
+    }
+    const fallbackMatch = base.match(/^(\d{3,})/);
+    if (fallbackMatch) {
+        return fallbackMatch[1];
+    }
+    return '';
+};
 
 const arrayBufferToBase64 = (arrayBuffer) => {
     if (!(arrayBuffer instanceof ArrayBuffer)) {
@@ -45,7 +97,7 @@ const normalizeReferenceCode = (value) => {
     return value.replace(/[^0-9A-Za-z]/g, '').toUpperCase();
 };
 
-const StockContext = createContext();
+export const StockContext = createContext();
 
 export const StockProvider = ({ children }) => {
     const { user } = useAuth();
@@ -541,13 +593,12 @@ const StockCalendarView = ({ selectedDate, setSelectedDate, currentMonth, setCur
     );
 };
 
-const StockMovementsPage = ({ setConfirmation }) => {
+export const StockMovementsPage = ({ setConfirmation }) => {
     const { products, categories, addStockMovement, stockMovements, deleteStockMovement } = useStock();
     
     const [selectedCategoryId, setSelectedCategoryId] = useState('');
     const [movement, setMovement] = useState({ productId: '', variationId: '', type: 'Saída', quantity: '' });
 
-    const [importType, setImportType] = useState('pdf');
     const [importedSnapshots, setImportedSnapshots] = useState([]);
     const [importedVariations, setImportedVariations] = useState([]);
     const [selectedImportIndex, setSelectedImportIndex] = useState(-1);
@@ -579,6 +630,40 @@ const StockMovementsPage = ({ setConfirmation }) => {
         return stockMovements
             .filter(m => m.timestamp.toDateString() === selectedDate.toDateString());
     }, [stockMovements, selectedDate]);
+
+    const productOrder = useMemo(() => {
+        const seen = new Set();
+        const order = [];
+        products.forEach((product) => {
+            const candidates = [];
+            const directFields = [
+                product?.codigo,
+                product?.code,
+                product?.productCode,
+                product?.sku,
+                product?.name,
+            ];
+            directFields.forEach((value) => {
+                const candidate = extractBaseProductCode(value);
+                if (candidate) {
+                    candidates.push(candidate);
+                }
+            });
+            const variationCandidates = (product?.variations || [])
+                .map((variation) => extractBaseProductCode(variation?.name));
+            variationCandidates.forEach((candidate) => {
+                if (candidate) {
+                    candidates.push(candidate);
+                }
+            });
+            const preferred = candidates.find((candidate) => !seen.has(candidate));
+            if (preferred && !seen.has(preferred)) {
+                seen.add(preferred);
+                order.push(preferred);
+            }
+        });
+        return order;
+    }, [products]);
 
     const findMatchingVariation = useCallback((ref) => {
         const normalizedRef = normalizeReferenceCode(ref);
@@ -655,17 +740,6 @@ const StockMovementsPage = ({ setConfirmation }) => {
         }
     }, []);
 
-    const handleImportTypeChange = useCallback((event) => {
-        setImportType(event.target.value);
-        handleResetImport();
-    }, [handleResetImport]);
-
-    const acceptAttribute = useMemo(() => (
-        importType === 'pdf'
-            ? 'application/pdf,.pdf'
-            : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xlsx'
-    ), [importType]);
-
     const handleFileChange = useCallback(async (event) => {
         const [file] = event.target.files || [];
         if (!file) {
@@ -674,8 +748,17 @@ const StockMovementsPage = ({ setConfirmation }) => {
         }
         try {
             setImportError('');
+            const detectedType = detectFileType(file);
+            if (!detectedType) {
+                handleResetImport();
+                setImportError('Formato não suportado. Utilize arquivos PDF, XLSX, DOCX ou TXT.');
+                return;
+            }
             const buffer = await file.arrayBuffer();
-            const snapshots = await importStockFile({ file, arrayBuffer: buffer, type: importType });
+            const shouldUseTextImporter = isTextImportType(detectedType);
+            const snapshots = shouldUseTextImporter
+                ? await importStockFile(file, productOrder.length ? { productOrder } : undefined)
+                : await importLegacyStockFile({ file, arrayBuffer: buffer, type: detectedType });
             const variations = flattenSnapshotsToVariations(snapshots);
             setImportedSnapshots(snapshots);
             setImportedVariations(variations);
@@ -687,10 +770,10 @@ const StockMovementsPage = ({ setConfirmation }) => {
             }
             setUploadMetadata({
                 fileName: file.name,
-                fileType: file.type || importType,
+                fileType: file.type || detectedType,
                 fileSize: typeof file.size === 'number' ? file.size : buffer.byteLength || 0,
                 fileBase64: arrayBufferToBase64(buffer),
-                importType,
+                importType: detectedType,
                 snapshotSummary: snapshots.map((snapshot) => ({
                     productCode: snapshot.productCode,
                     variationCount: snapshot.variations.length,
@@ -698,13 +781,17 @@ const StockMovementsPage = ({ setConfirmation }) => {
             });
         } catch (error) {
             console.error('Erro ao importar arquivo de estoque', error);
-            setImportError(error.message || 'Não foi possível importar o arquivo.');
+            if (error?.code === NO_VARIATIONS_FOUND_ERROR) {
+                setImportError('Nenhuma variação foi encontrada. Confira se o arquivo contém linhas com "A PRODUZIR".');
+            } else {
+                setImportError(error.message || 'Não foi possível importar o arquivo.');
+            }
             setImportedSnapshots([]);
             setImportedVariations([]);
             setSelectedImportIndex(-1);
             setUploadMetadata(null);
         }
-    }, [importType, applyImportedVariation, handleResetImport]);
+    }, [applyImportedVariation, handleResetImport, productOrder]);
 
     const currentImportedVariation = useMemo(() => {
         if (selectedImportIndex < 0 || selectedImportIndex >= importedVariations.length) {
@@ -825,25 +912,15 @@ const StockMovementsPage = ({ setConfirmation }) => {
 
                         <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl flex flex-col gap-3">
                             <div>
-                                <label className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">Tipo de arquivo</label>
-                                <select
-                                    value={importType}
-                                    onChange={handleImportTypeChange}
-                                    className="w-full p-2 rounded-md bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600"
-                                >
-                                    <option value="pdf">PDF</option>
-                                    <option value="xlsx">Planilha (XLSX)</option>
-                                </select>
-                            </div>
-                            <div>
                                 <label className="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">Arquivo de importação</label>
                                 <input
                                     ref={fileInputRef}
                                     type="file"
-                                    accept={acceptAttribute}
+                                    accept={FILE_ACCEPT_ATTRIBUTE}
                                     onChange={handleFileChange}
                                     className="w-full text-sm text-gray-700 dark:text-gray-200 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                                 />
+                                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Formatos suportados: PDF, XLSX, DOCX e TXT.</p>
                             </div>
                             {importError && (
                                 <p className="text-sm text-red-500 bg-red-50 dark:bg-red-900/40 border border-red-200 dark:border-red-700 rounded-md p-2">
