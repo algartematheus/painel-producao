@@ -14,16 +14,6 @@ export interface ProductSnapshot {
   warnings: string[];
 }
 
-export interface RawParsedBlock {
-  reference: string;
-  productCode: string;
-  grade: string[];
-  quantities: number[];
-  total: number;
-  tamanhos: Record<string, number>;
-  lines: string[];
-}
-
 export interface TextParserOptions {
   productOrder?: string[];
 }
