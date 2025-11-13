@@ -177,6 +177,70 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
         ).toThrow('Cadastre pelo menos uma variação com tamanhos válidos.');
     });
 
+    it('mantém tamanhos adicionais apenas quando a grade precisa ser inferida', () => {
+        upsertPortfolio.mockReturnValue([]);
+
+        validarEAdicionarProdutoAoPortfolio({
+            codigo: '016',
+            grade: '',
+            variacoes: [
+                {
+                    ref: '016.AZ',
+                    tamanhos: { '06': 5, '00': 1 },
+                },
+            ],
+            agrupamento: 'juntas',
+        });
+
+        expect(upsertPortfolio).toHaveBeenCalledWith(
+            {
+                codigo: '016',
+                grade: ['06', '00'],
+                variations: [
+                    {
+                        ref: '016.AZ',
+                        tamanhos: { '06': 5, '00': 1 },
+                    },
+                ],
+                grouping: 'juntas',
+                createdBy: undefined,
+            },
+            undefined,
+        );
+    });
+
+    it('remove tamanhos que não fazem parte da grade informada', () => {
+        upsertPortfolio.mockReturnValue([]);
+
+        validarEAdicionarProdutoAoPortfolio({
+            codigo: '016',
+            grade: '06, 08',
+            variacoes: [
+                {
+                    ref: '016.AZ',
+                    tamanhos: { '06': 0, '08': 0, '00': 10, '01': 5 },
+                },
+            ],
+            agrupamento: 'juntas',
+        });
+
+        expect(upsertPortfolio).toHaveBeenCalledWith(
+            {
+                codigo: '016',
+                grade: ['06', '08'],
+                variations: [
+                    {
+                        ref: '016.AZ',
+                        tamanhos: { '06': 0, '08': 0 },
+                    },
+                ],
+                grouping: 'juntas',
+                createdBy: undefined,
+            },
+            undefined,
+        );
+    });
+
     it('normaliza tokens da grade aplicando caixa alta e preenchimento numérico', () => {
         upsertPortfolio.mockReturnValue([]);
 
