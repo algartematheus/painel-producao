@@ -248,6 +248,39 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
         );
         expect(resultado.mensagemSucesso).toBe('Produto 999 salvo com variações agrupadas.');
     });
+
+    it('permite salvar portfólio com quantidades zeradas quando há tamanhos definidos', () => {
+        upsertPortfolio.mockReturnValue([]);
+
+        const resultado = validarEAdicionarProdutoAoPortfolio({
+            codigo: '0001',
+            grade: 'PP, P',
+            variacoes: [
+                {
+                    ref: '0001-A',
+                    tamanhos: { PP: 0, P: 0 },
+                },
+            ],
+            agrupamento: 'juntas',
+        });
+
+        expect(upsertPortfolio).toHaveBeenCalledWith(
+            {
+                codigo: '0001',
+                grade: ['PP', 'P'],
+                variations: [
+                    {
+                        ref: '0001-A',
+                        tamanhos: { PP: 0, P: 0 },
+                    },
+                ],
+                grouping: 'juntas',
+                createdBy: undefined,
+            },
+            undefined,
+        );
+        expect(resultado.mensagemSucesso).toBe('Produto 0001 salvo com variações agrupadas.');
+    });
 });
 
 describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {

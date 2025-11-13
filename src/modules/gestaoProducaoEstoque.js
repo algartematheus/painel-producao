@@ -324,7 +324,8 @@ export const validarEAdicionarProdutoAoPortfolio = ({
         .map((variacao) => {
             const ref = typeof variacao?.ref === 'string' ? variacao.ref.trim() : '';
             const tamanhosNormalizados = normalizarMapaDeTamanhos(variacao?.tamanhos, gradeLista);
-            if (!ref || !temQuantidadeInformada(tamanhosNormalizados)) {
+            const possuiAlgumTamanho = Object.keys(tamanhosNormalizados || {}).length > 0;
+            if (!ref || !possuiAlgumTamanho) {
                 return null;
             }
             return {
