@@ -651,19 +651,6 @@ const GestaoProducaoEstoqueModule = ({
     }, []);
 
     useEffect(() => {
-        if (autoCarregamentoInicialAplicado || !portfolio.length) {
-            return;
-        }
-        const codigoPreferido = recuperarUltimoProdutoManual();
-        const produtoInicial =
-            portfolio.find((produto) => produto?.codigo === codigoPreferido) || portfolio[0];
-        if (produtoInicial) {
-            handleCarregarProduto(produtoInicial, { scrollBehavior: 'auto' });
-        }
-        setAutoCarregamentoInicialAplicado(true);
-    }, [portfolio, autoCarregamentoInicialAplicado, handleCarregarProduto]);
-
-    useEffect(() => {
         setNovoProdutoVariacoes((prev) => {
             const alinhadas = reconciliarVariacoesManuais(prev, gradeListaAtual);
             if (!alinhadas.length) {
