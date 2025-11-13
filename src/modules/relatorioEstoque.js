@@ -698,13 +698,6 @@ const stripAccentsAndUpper = (value = '') => {
         .trim();
 };
 
-const normalizeLabel = (label) => {
-    if (label == null) {
-        return '';
-    }
-    return stripAccentsAndUpper(label);
-};
-
 const normalizeParsedProductsToSnapshots = (produtos = [], dataLancamentoISO, responsavel) => {
     if (!Array.isArray(produtos)) {
         return [];
