@@ -13,15 +13,10 @@ import {
   generateId,
   usePersistedTheme
 } from './shared';
-import importLegacyStockFile, { flattenSnapshotsToVariations } from './stockImporter';
-import importStockFile from './importStockFile';
+import importStockFile, { flattenSnapshotsToVariations } from './importStockFile';
 import { NO_VARIATIONS_FOUND_ERROR } from './types';
 
 const FILE_ACCEPT_ATTRIBUTE = [
-    'application/pdf',
-    '.pdf',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    '.xlsx',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     '.docx',
     'text/plain',
@@ -31,12 +26,6 @@ const FILE_ACCEPT_ATTRIBUTE = [
 const detectFileType = (file) => {
     const name = typeof file?.name === 'string' ? file.name.toLowerCase() : '';
     const mime = typeof file?.type === 'string' ? file.type.toLowerCase() : '';
-    if (name.endsWith('.pdf') || mime.includes('pdf')) {
-        return 'pdf';
-    }
-    if (name.endsWith('.xlsx') || mime.includes('sheet')) {
-        return 'xlsx';
-    }
     if (name.endsWith('.docx') || mime.includes('wordprocessingml')) {
         return 'docx';
     }
@@ -45,8 +34,6 @@ const detectFileType = (file) => {
     }
     return null;
 };
-
-const isTextImportType = (type) => type === 'docx' || type === 'txt';
 
 const extractBaseProductCode = (value) => {
     if (typeof value !== 'string') {
@@ -751,14 +738,11 @@ export const StockMovementsPage = ({ setConfirmation }) => {
             const detectedType = detectFileType(file);
             if (!detectedType) {
                 handleResetImport();
-                setImportError('Formato não suportado. Utilize arquivos PDF, XLSX, DOCX ou TXT.');
+                setImportError('Formato não suportado. Utilize arquivos DOCX ou TXT.');
                 return;
             }
             const buffer = await file.arrayBuffer();
-            const shouldUseTextImporter = isTextImportType(detectedType);
-            const snapshots = shouldUseTextImporter
-                ? await importStockFile(file, productOrder.length ? { productOrder } : undefined)
-                : await importLegacyStockFile({ file, arrayBuffer: buffer, type: detectedType });
+            const snapshots = await importStockFile(file, productOrder.length ? { productOrder } : undefined);
             const variations = flattenSnapshotsToVariations(snapshots);
             setImportedSnapshots(snapshots);
             setImportedVariations(variations);
