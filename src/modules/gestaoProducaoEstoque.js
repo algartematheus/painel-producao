@@ -201,12 +201,16 @@ const preencherTamanhosComGrade = (gradeLista = [], tamanhos = {}) => {
     return resultado;
 };
 
-const normalizarMapaDeTamanhos = (tamanhosEntrada, gradeLista = []) => {
+const normalizarMapaDeTamanhos = (tamanhosEntrada, gradeLista = [], options = {}) => {
     const mapaEntrada = isPlainObject(tamanhosEntrada)
         ? tamanhosEntrada
         : parseTamanhosString(tamanhosEntrada, { grade: gradeLista });
     const listaNormalizada = normalizarGradeLista(gradeLista);
     const resultado = {};
+    const manterExtrasForaDaGrade =
+        typeof options?.manterExtrasForaDaGrade === 'boolean'
+            ? options.manterExtrasForaDaGrade
+            : listaNormalizada.length === 0;
 
     const mapaNormalizado = Object.entries(mapaEntrada || {}).reduce((acc, [chave, valor]) => {
         const chaveNormalizada = normalizarRotuloGrade(chave);
@@ -227,12 +231,14 @@ const normalizarMapaDeTamanhos = (tamanhosEntrada, gradeLista = []) => {
         resultado[tamanho] = normalizarQuantidade(valor);
     });
 
-    Object.entries(mapaNormalizado).forEach(([tamanho, valor]) => {
-        if (!tamanho || listaNormalizada.includes(tamanho)) {
-            return;
-        }
-        resultado[tamanho] = normalizarQuantidade(valor);
-    });
+    if (manterExtrasForaDaGrade) {
+        Object.entries(mapaNormalizado).forEach(([tamanho, valor]) => {
+            if (!tamanho || listaNormalizada.includes(tamanho)) {
+                return;
+            }
+            resultado[tamanho] = normalizarQuantidade(valor);
+        });
+    }
 
     return resultado;
 };
@@ -324,7 +330,8 @@ export const validarEAdicionarProdutoAoPortfolio = ({
         .map((variacao) => {
             const ref = typeof variacao?.ref === 'string' ? variacao.ref.trim() : '';
             const tamanhosNormalizados = normalizarMapaDeTamanhos(variacao?.tamanhos, gradeLista);
-            if (!ref || !temQuantidadeInformada(tamanhosNormalizados)) {
+            const possuiAlgumTamanho = Object.keys(tamanhosNormalizados || {}).length > 0;
+            if (!ref || !possuiAlgumTamanho) {
                 return null;
             }
             return {
@@ -976,69 +983,6 @@ const GestaoProducaoEstoqueModule = ({
 
     const manualFormularioValido = Boolean(manualFormularioNormalizado);
 
-    const handleAdicionarProduto = useCallback(() => {
-        try {
-            const variacoesPreparadas = prepararVariacoesComGrade(novoProdutoVariacoes, gradeListaAtual);
-            const { portfolioAtualizado, mensagemSucesso } = validarEAdicionarProdutoAoPortfolio({
-                codigo: novoProdutoCodigo,
-                grade: novoProdutoGrade,
-                variacoes: variacoesPreparadas,
-                agrupamento: novoProdutoAgrupamento,
-                responsavel: responsavelAtual,
-            });
-            setPortfolio(portfolioAtualizado);
-            resetFormularioNovoProduto();
-            setStatus({
-                type: 'success',
-                message: `${mensagemSucesso} Alterações salvas automaticamente.`,
-            });
-        } catch (error) {
-            setStatus({ type: 'error', message: error?.message || 'Não foi possível adicionar o produto.' });
-        }
-    }, [
-        novoProdutoCodigo,
-        novoProdutoGrade,
-        novoProdutoVariacoes,
-        novoProdutoAgrupamento,
-        gradeListaAtual,
-        resetFormularioNovoProduto,
-        responsavelAtual,
-    ]);
-
-    const handleSalvarPortfolio = useCallback(() => {
-        if (!temRascunho) {
-            setStatus({ type: 'info', message: 'Preencha o formulário para salvar um novo produto.' });
-            return;
-        }
-        try {
-            const variacoesPreparadas = prepararVariacoesComGrade(novoProdutoVariacoes, gradeListaAtual);
-            const { portfolioAtualizado, mensagemSucesso } = validarEAdicionarProdutoAoPortfolio({
-                codigo: novoProdutoCodigo,
-                grade: novoProdutoGrade,
-                variacoes: variacoesPreparadas,
-                agrupamento: novoProdutoAgrupamento,
-                responsavel: responsavelAtual,
-            });
-            setPortfolio(portfolioAtualizado);
-            resetFormularioNovoProduto();
-            setStatus({
-                type: 'success',
-                message: `Rascunho salvo: ${mensagemSucesso}`,
-            });
-        } catch (error) {
-            setStatus({ type: 'error', message: error?.message || 'Não foi possível salvar o rascunho.' });
-        }
-    }, [
-        temRascunho,
-        novoProdutoCodigo,
-        novoProdutoGrade,
-        novoProdutoVariacoes,
-        novoProdutoAgrupamento,
-        gradeListaAtual,
-        resetFormularioNovoProduto,
-        responsavelAtual,
-    ]);
-
     const handleCarregarProduto = useCallback(
         (produto) => {
             if (!produto) {
@@ -1061,6 +1005,86 @@ const GestaoProducaoEstoqueModule = ({
         },
         [clearManualPreview],
     );
+
+    const sincronizarFormularioComProduto = useCallback(
+        (portfolioFonte, codigoBase) => {
+            if (!Array.isArray(portfolioFonte) || !portfolioFonte.length) {
+                return;
+            }
+            const codigoNormalizado = typeof codigoBase === 'string' ? codigoBase.trim() : '';
+            if (!codigoNormalizado) {
+                return;
+            }
+            const produtoEncontrado = portfolioFonte.find((produto) => produto?.codigo === codigoNormalizado);
+            if (produtoEncontrado) {
+                handleCarregarProduto(produtoEncontrado);
+            }
+        },
+        [handleCarregarProduto],
+    );
+
+    const handleAdicionarProduto = useCallback(() => {
+        try {
+            const variacoesPreparadas = prepararVariacoesComGrade(novoProdutoVariacoes, gradeListaAtual);
+            const { portfolioAtualizado, mensagemSucesso } = validarEAdicionarProdutoAoPortfolio({
+                codigo: novoProdutoCodigo,
+                grade: novoProdutoGrade,
+                variacoes: variacoesPreparadas,
+                agrupamento: novoProdutoAgrupamento,
+                responsavel: responsavelAtual,
+            });
+            setPortfolio(portfolioAtualizado);
+            sincronizarFormularioComProduto(portfolioAtualizado, novoProdutoCodigo);
+            setStatus({
+                type: 'success',
+                message: `${mensagemSucesso} Alterações salvas automaticamente.`,
+            });
+        } catch (error) {
+            setStatus({ type: 'error', message: error?.message || 'Não foi possível adicionar o produto.' });
+        }
+    }, [
+        novoProdutoCodigo,
+        novoProdutoGrade,
+        novoProdutoVariacoes,
+        novoProdutoAgrupamento,
+        gradeListaAtual,
+        responsavelAtual,
+        sincronizarFormularioComProduto,
+    ]);
+
+    const handleSalvarPortfolio = useCallback(() => {
+        if (!temRascunho) {
+            setStatus({ type: 'info', message: 'Preencha o formulário para salvar um novo produto.' });
+            return;
+        }
+        try {
+            const variacoesPreparadas = prepararVariacoesComGrade(novoProdutoVariacoes, gradeListaAtual);
+            const { portfolioAtualizado, mensagemSucesso } = validarEAdicionarProdutoAoPortfolio({
+                codigo: novoProdutoCodigo,
+                grade: novoProdutoGrade,
+                variacoes: variacoesPreparadas,
+                agrupamento: novoProdutoAgrupamento,
+                responsavel: responsavelAtual,
+            });
+            setPortfolio(portfolioAtualizado);
+            sincronizarFormularioComProduto(portfolioAtualizado, novoProdutoCodigo);
+            setStatus({
+                type: 'success',
+                message: `Rascunho salvo: ${mensagemSucesso}`,
+            });
+        } catch (error) {
+            setStatus({ type: 'error', message: error?.message || 'Não foi possível salvar o rascunho.' });
+        }
+    }, [
+        temRascunho,
+        novoProdutoCodigo,
+        novoProdutoGrade,
+        novoProdutoVariacoes,
+        novoProdutoAgrupamento,
+        gradeListaAtual,
+        responsavelAtual,
+        sincronizarFormularioComProduto,
+    ]);
 
     const handleNovoProdutoCodigoChange = useCallback(
         (event) => {
@@ -1657,6 +1681,14 @@ const GestaoProducaoEstoqueModule = ({
                                     >
                                         <CheckCircle2 size={16} />
                                         Salvar alterações
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={resetFormularioNovoProduto}
+                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+                                    >
+                                        <Trash2 size={16} />
+                                        Limpar formulário manual
                                     </button>
                                 </div>
 
