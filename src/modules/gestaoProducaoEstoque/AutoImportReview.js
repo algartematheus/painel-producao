@@ -197,7 +197,7 @@ const AutoImportReview = ({
                 const grade = resolveGradeList(produto);
                 const variations = Array.isArray(produto?.variations) ? produto.variations : [];
                 const adjustment = getAdjustment(produto.productCode) || {};
-                const groupingMode = adjustment.groupingMode === 'separadas' ? 'separadas' : 'juntas';
+                const groupingMode = adjustment.groupingMode === 'separated' ? 'separated' : 'grouped';
                 const alwaysSeparateRefs = adjustment.alwaysSeparateRefs || {};
                 const isDragging = draggingCode && normalizeProductCode(draggingCode) === normalizeProductCode(produto.productCode);
                 return (
@@ -231,18 +231,23 @@ const AutoImportReview = ({
                             <div className="flex flex-wrap items-center gap-2">
                                 <span className="text-xs font-semibold uppercase text-gray-500">Agrupamento</span>
                                 <div className="inline-flex rounded-md border border-gray-300 dark:border-gray-700 overflow-hidden">
-                                    {['juntas', 'separadas'].map((modo) => (
+                                    {[
+                                        { value: 'grouped', label: 'Juntas' },
+                                        { value: 'separated', label: 'Separadas' },
+                                    ].map(({ value, label }) => (
                                         <button
-                                            key={modo}
+                                            key={value}
                                             type="button"
-                                            onClick={() => onToggleGrouping && onToggleGrouping(produto.productCode, modo)}
+                                            onClick={() =>
+                                                onToggleGrouping && onToggleGrouping(produto.productCode, value)
+                                            }
                                             className={`px-3 py-1 text-sm font-medium transition-colors ${
-                                                groupingMode === modo
+                                                groupingMode === value
                                                     ? 'bg-indigo-600 text-white'
                                                     : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200'
                                             }`}
                                         >
-                                            {modo === 'juntas' ? 'Juntas' : 'Separadas'}
+                                            {label}
                                         </button>
                                     ))}
                                 </div>

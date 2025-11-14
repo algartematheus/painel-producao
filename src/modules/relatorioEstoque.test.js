@@ -13,6 +13,7 @@ import {
     adicionarProdutoAoPortfolio,
     reordenarPortfolio,
     normalizarProdutosImportados,
+    buildPortfolioPreferences,
 } from './relatorioEstoque';
 
 jest.mock('./importStockFile');
@@ -40,9 +41,11 @@ describe('relatorioEstoque module', () => {
             codigo: '020',
             grade: ['P', 'M'],
             grouping: 'separadas',
+            groupingMode: 'separated',
             agruparVariacoes: false,
+            orderIndex: 0,
             variations: [
-                { ref: '020.AZ', tamanhos: { P: 5, M: -2 } },
+                { ref: '020.AZ', tamanhos: { P: 5, M: -2 }, alwaysSeparate: false },
             ],
         });
         expect(salvo[0].updatedAt).toEqual(expect.any(String));
@@ -66,6 +69,7 @@ describe('relatorioEstoque module', () => {
         reordenarPortfolio(['B20', 'a16']);
         const ordenado = listPortfolio();
         expect(ordenado.map((item) => item.codigo)).toEqual(['b20', 'ã16']);
+        expect(ordenado.map((item) => item.orderIndex)).toEqual([0, 1]);
 
         deletePortfolio('Á16');
         expect(listPortfolio().map((item) => item.codigo)).toEqual(['b20']);
@@ -107,14 +111,39 @@ describe('relatorioEstoque module', () => {
 
         expect(itemAgrupado?.agruparVariacoes).toBe(true);
         expect(itemAgrupado?.grouping).toBe('juntas');
+        expect(itemAgrupado?.groupingMode).toBe('grouped');
         expect(itemAgrupado?.variations).toEqual([
-            { ref: '016.AZ', tamanhos: { '06': 10, '08': -5 } },
+            { ref: '016.AZ', tamanhos: { '06': 10, '08': -5 }, alwaysSeparate: false },
         ]);
         expect(itemSeparado?.agruparVariacoes).toBe(false);
         expect(itemSeparado?.grouping).toBe('separadas');
+        expect(itemSeparado?.groupingMode).toBe('separated');
         expect(itemSeparado?.variations).toEqual([
-            { ref: '017.ST', tamanhos: { P: 3, M: -1 } },
+            { ref: '017.ST', tamanhos: { P: 3, M: -1 }, alwaysSeparate: false },
         ]);
+    });
+
+    it('expõe helper de preferências com agrupamento e overrides', () => {
+        upsertPortfolio({
+            codigo: '030',
+            grade: ['P'],
+            grouping: 'juntas',
+            variations: [
+                { ref: '030.AZ', tamanhos: { P: 1 }, alwaysSeparate: true },
+                { ref: '030.VM', tamanhos: { P: 2 } },
+            ],
+        });
+        const { order, preferenceMap } = buildPortfolioPreferences();
+        expect(order).toEqual(['030']);
+        const pref = preferenceMap.get('030');
+        expect(pref).toMatchObject({
+            grouping: 'juntas',
+            groupingMode: 'grouped',
+            agruparVariacoes: true,
+            orderIndex: 0,
+        });
+        expect(pref.alwaysSeparateRefs).toEqual(['030.AZ']);
+        expect(pref.alwaysSeparateLookup['030.AZ']).toBe(true);
     });
 
     it('normaliza produtos importados respeitando configuração de agrupamento do portfólio', () => {

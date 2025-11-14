@@ -32,6 +32,7 @@ import {
     upsertPortfolio,
     deletePortfolio,
     reordenarPortfolio,
+    buildPortfolioPreferences,
     criarSnapshotProduto,
     montarDailyRecord,
     salvarNoHistorico,
@@ -182,7 +183,7 @@ const criarVariacaoVazia = (gradeLista = []) => {
         acc[tamanho] = 0;
         return acc;
     }, {});
-    return { ref: '', tamanhos };
+    return { ref: '', tamanhos, alwaysSeparate: false };
 };
 
 const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -409,14 +410,17 @@ export const validarEAdicionarProdutoAoPortfolio = ({
     const variacoesNormalizadas = variacoesProcessadas.map((variacao) => ({
         ref: variacao.ref,
         tamanhos: preencherTamanhosComGrade(gradeFinal, variacao.tamanhos),
+        alwaysSeparate: Boolean(variacao.alwaysSeparate),
     }));
 
     const grouping = agrupamento === 'separadas' ? 'separadas' : 'juntas';
+    const groupingMode = grouping === 'separadas' ? 'separated' : 'grouped';
     const payload = {
         codigo: codigoTrim,
         grade: gradeFinal,
         variations: variacoesNormalizadas,
         grouping,
+        groupingMode,
         createdBy: responsavel,
         alwaysSeparateRefs: [],
     };
@@ -502,10 +506,11 @@ const buildInitialAutoOrder = (snapshots = [], portfolio = []) => {
             snapshotMap.set(normalized, snapshot.productCode);
         }
     });
+    const { order: portfolioOrder } = buildPortfolioPreferences(portfolio);
     const seen = new Set();
     const order = [];
-    portfolio.forEach((produto) => {
-        const normalized = normalizeProductCodeForMatching(produto?.codigo);
+    portfolioOrder.forEach((codigo) => {
+        const normalized = normalizeProductCodeForMatching(codigo);
         if (!normalized || seen.has(normalized)) {
             return;
         }
@@ -525,34 +530,21 @@ const buildInitialAutoOrder = (snapshots = [], portfolio = []) => {
 
 const buildInitialAutoAdjustments = (snapshots = [], portfolio = []) => {
     const ajustes = {};
-    const portfolioMap = new Map();
-    portfolio.forEach((produto) => {
-        const normalized = normalizeProductCodeForMatching(produto?.codigo);
-        if (normalized) {
-            portfolioMap.set(normalized, produto);
-        }
-    });
+    const { preferenceMap } = buildPortfolioPreferences(portfolio);
 
     snapshots.forEach((snapshot) => {
         const normalized = normalizeProductCodeForMatching(snapshot?.productCode);
         if (!normalized) {
             return;
         }
-        const portfolioItem = portfolioMap.get(normalized);
-        const grouping = portfolioItem
-            ? portfolioItem.grouping || (portfolioItem.agruparVariacoes ? 'juntas' : 'separadas')
-            : 'juntas';
-        const refsMap = {};
-        const refs = Array.isArray(portfolioItem?.alwaysSeparateRefs) ? portfolioItem.alwaysSeparateRefs : [];
-        refs.forEach((ref) => {
-            const normalizedRef = normalizeVariationRefForMatching(ref);
-            if (normalizedRef) {
-                refsMap[normalizedRef] = true;
-            }
-        });
+        const preference = preferenceMap.get(normalized);
+        const groupingMode = preference?.groupingMode === 'separated' ? 'separated' : 'grouped';
+        const refsMap = preference?.alwaysSeparateLookup
+            ? { ...preference.alwaysSeparateLookup }
+            : {};
         ajustes[normalized] = {
             productCode: snapshot.productCode,
-            groupingMode: grouping === 'separadas' ? 'separadas' : 'juntas',
+            groupingMode,
             alwaysSeparateRefs: refsMap,
         };
     });
@@ -606,7 +598,7 @@ const buildAutoSnapshots = ({
             return;
         }
         const adjustment = adjustments?.[normalized] || {};
-        const groupingMode = adjustment.groupingMode === 'separadas' ? 'separadas' : 'juntas';
+        const groupingMode = adjustment.groupingMode === 'separated' ? 'separated' : 'grouped';
         const overrides = new Set();
         Object.entries(adjustment.alwaysSeparateRefs || {}).forEach(([ref, flag]) => {
             if (flag) {
@@ -630,7 +622,7 @@ const buildAutoSnapshots = ({
 
         variations.forEach((variation) => {
             const normalizedRef = normalizeVariationRefForMatching(variation?.ref);
-            if (groupingMode === 'separadas') {
+            if (groupingMode === 'separated') {
                 separatedVariations.push(variation);
                 return;
             }
@@ -959,12 +951,22 @@ const GestaoProducaoEstoqueModule = ({
                     (item) => normalizeProductCodeForMatching(item?.codigo) === codigoNormalizado,
                 );
                 const codigoFinal = existente?.codigo || snapshotRelacionado?.productCode || codigoNormalizado;
+                const groupingSalvo = existente?.grouping
+                    || (existente?.agruparVariacoes ? 'juntas' : 'separadas')
+                    || 'juntas';
+                const groupingModeSalvo = existente?.groupingMode === 'separated'
+                    ? 'separated'
+                    : existente?.groupingMode === 'grouped'
+                        ? 'grouped'
+                        : groupingSalvo === 'separadas'
+                            ? 'separated'
+                            : 'grouped';
                 const payloadBase = {
                     codigo: codigoFinal,
                     grade: existente?.grade?.length ? existente.grade : snapshotRelacionado?.grade || [],
                     variations: existente?.variations || [],
-                    grouping:
-                        existente?.grouping || (existente?.agruparVariacoes ? 'juntas' : 'separadas') || 'juntas',
+                    grouping: groupingSalvo,
+                    groupingMode: groupingModeSalvo,
                     alwaysSeparateRefs: existente?.alwaysSeparateRefs || [],
                 };
                 const atualizado = transformFn({ ...payloadBase }, snapshotRelacionado, existente);
@@ -1069,14 +1071,15 @@ const GestaoProducaoEstoqueModule = ({
             if (!normalized) {
                 return;
             }
-            const grouping = groupingMode === 'separadas' ? 'separadas' : 'juntas';
+            const normalizedMode = groupingMode === 'separated' ? 'separated' : 'grouped';
+            const grouping = normalizedMode === 'separated' ? 'separadas' : 'juntas';
             setAutoImportAdjustments((prev) => {
                 const atual = prev[normalized] || {
                     productCode,
-                    groupingMode: 'juntas',
+                    groupingMode: 'grouped',
                     alwaysSeparateRefs: {},
                 };
-                if (atual.groupingMode === grouping) {
+                if (atual.groupingMode === normalizedMode) {
                     return prev;
                 }
                 return {
@@ -1084,13 +1087,14 @@ const GestaoProducaoEstoqueModule = ({
                     [normalized]: {
                         ...atual,
                         productCode: atual.productCode || productCode,
-                        groupingMode: grouping,
+                        groupingMode: normalizedMode,
                     },
                 };
             });
             atualizarPortfolioComAjustes(normalized, (payloadBase) => ({
                 ...payloadBase,
                 grouping,
+                groupingMode: normalizedMode,
                 agruparVariacoes: grouping !== 'separadas',
             }));
         },
@@ -1107,7 +1111,7 @@ const GestaoProducaoEstoqueModule = ({
             setAutoImportAdjustments((prev) => {
                 const atual = prev[normalizedCode] || {
                     productCode,
-                    groupingMode: 'juntas',
+                    groupingMode: 'grouped',
                     alwaysSeparateRefs: {},
                 };
                 const refsAtualizados = { ...(atual.alwaysSeparateRefs || {}) };
@@ -1450,7 +1454,13 @@ const GestaoProducaoEstoqueModule = ({
             if (!produto) {
                 return;
             }
-            const agrupamentoSalvo = produto.grouping || (produto.agruparVariacoes ? 'juntas' : 'separadas');
+            const agrupamentoSalvo = produto.groupingMode === 'separated'
+                ? 'separadas'
+                : produto.grouping === 'separadas'
+                    ? 'separadas'
+                    : produto.agruparVariacoes === false
+                        ? 'separadas'
+                        : 'juntas';
             setNovoProdutoCodigo(produto.codigo || '');
             setNovoProdutoGrade(Array.isArray(produto.grade) && produto.grade.length ? produto.grade.join(', ') : '');
             setNovoProdutoAgrupamento(agrupamentoSalvo === 'separadas' ? 'separadas' : 'juntas');
@@ -1459,6 +1469,7 @@ const GestaoProducaoEstoqueModule = ({
                     return produto.variations.map((variacao) => ({
                         ref: variacao?.ref || '',
                         tamanhos: preencherTamanhosComGrade(produto.grade || [], variacao?.tamanhos || {}),
+                        alwaysSeparate: Boolean(variacao?.alwaysSeparate),
                     }));
                 }
                 return [criarVariacaoVazia(produto.grade || [])];

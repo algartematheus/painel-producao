@@ -55,6 +55,14 @@ const normalizeNumber = (value) => {
     return 0;
 };
 
+const normalizeVariationRef = (value) => {
+    if (typeof value !== 'string') {
+        return '';
+    }
+    const trimmed = value.trim();
+    return trimmed ? stripAccentsAndUpper(trimmed) : '';
+};
+
 const sanitizeVariations = (variations = []) => {
     if (!Array.isArray(variations)) {
         return [];
@@ -93,19 +101,27 @@ const sanitizeAlwaysSeparateRefs = (refs = []) => {
                 return '';
             }
             const trimmed = ref.trim();
-            return trimmed ? trimmed.toUpperCase() : '';
+            return trimmed ? stripAccentsAndUpper(trimmed) : '';
         })
         .filter(Boolean);
 };
 
 const normalizeGrouping = (value) => {
-    if (value === 'separadas') {
+    if (value === 'separadas' || value === 'separated') {
         return 'separadas';
     }
-    if (value === 'juntas') {
+    if (value === 'juntas' || value === 'grouped') {
         return 'juntas';
     }
     return value === false ? 'separadas' : 'juntas';
+};
+
+const normalizeGroupingMode = (value, groupingFallback = 'juntas') => {
+    if (value === 'separated' || value === 'grouped') {
+        return value;
+    }
+    const grouping = normalizeGrouping(groupingFallback);
+    return grouping === 'separadas' ? 'separated' : 'grouped';
 };
 
 const sanitizeActor = (value) => {
@@ -143,7 +159,7 @@ const sanitizeTimestamp = (value) => {
     return date.toISOString();
 };
 
-const sanitizePortfolioProduct = (item) => {
+const sanitizePortfolioProduct = (item, defaultOrderIndex = 0) => {
     if (!item || typeof item !== 'object') {
         return null;
     }
@@ -153,19 +169,40 @@ const sanitizePortfolioProduct = (item) => {
     }
     const grade = cloneGrade(item.grade);
     const variations = sanitizeVariations(item.variations);
-    const grouping = normalizeGrouping(item.grouping ?? item.agruparVariacoes);
+    const grouping = normalizeGrouping(item.grouping ?? item.agruparVariacoes ?? item.groupingMode);
+    const groupingMode = normalizeGroupingMode(item.groupingMode, grouping);
+    const alwaysSeparateRefs = sanitizeAlwaysSeparateRefs(item.alwaysSeparateRefs);
+    const alwaysSeparateSet = new Set(alwaysSeparateRefs);
+    const normalizedVariations = variations.map((variation) => {
+        const normalizedRef = normalizeVariationRef(variation.ref);
+        const shouldSeparate = variation.alwaysSeparate === true || (normalizedRef && alwaysSeparateSet.has(normalizedRef));
+        if (shouldSeparate && normalizedRef && !alwaysSeparateSet.has(normalizedRef)) {
+            alwaysSeparateSet.add(normalizedRef);
+        }
+        return {
+            ...variation,
+            alwaysSeparate: shouldSeparate,
+        };
+    });
     const createdAt = sanitizeTimestamp(item.createdAt);
     const updatedAt = sanitizeTimestamp(item.updatedAt);
     const createdBy = sanitizeActor(item.createdBy);
     const updatedBy = sanitizeActor(item.updatedBy);
+    const orderIndexValue = Number.isFinite(item.orderIndex)
+        ? item.orderIndex
+        : Number.isFinite(defaultOrderIndex)
+            ? defaultOrderIndex
+            : 0;
 
     return {
         codigo,
         grade,
-        variations,
+        variations: normalizedVariations,
         grouping,
+        groupingMode,
         agruparVariacoes: grouping !== 'separadas',
-        alwaysSeparateRefs: sanitizeAlwaysSeparateRefs(item.alwaysSeparateRefs),
+        alwaysSeparateRefs: Array.from(alwaysSeparateSet),
+        orderIndex: orderIndexValue,
         createdAt,
         updatedAt,
         createdBy,
@@ -190,15 +227,83 @@ const readPortfolioFromStorage = () => {
 const persistPortfolio = (portfolioArray = []) => {
     const storage = getStorage();
     const sanitized = Array.isArray(portfolioArray)
-        ? portfolioArray.map(sanitizePortfolioProduct).filter(Boolean)
+        ? portfolioArray
+              .map((item, index) => sanitizePortfolioProduct(item, index))
+              .filter(Boolean)
         : [];
-    storage.setItem(STORAGE_KEYS.portfolio, JSON.stringify(sanitized));
-    return sanitized;
+    const normalized = sanitized.map((item, index) => ({
+        ...item,
+        orderIndex: index,
+        grouping: normalizeGrouping(item.grouping),
+        groupingMode: normalizeGroupingMode(item.groupingMode, item.grouping),
+        agruparVariacoes: normalizeGrouping(item.grouping) !== 'separadas',
+    }));
+    storage.setItem(STORAGE_KEYS.portfolio, JSON.stringify(normalized));
+    return normalized;
 };
 
 export const listPortfolio = () => {
     const stored = readPortfolioFromStorage();
-    return stored.map(sanitizePortfolioProduct).filter(Boolean);
+    const sanitized = stored
+        .map((item, index) => sanitizePortfolioProduct(item, index))
+        .filter(Boolean);
+    return sanitized
+        .slice()
+        .sort((a, b) => {
+            const aIndex = Number.isFinite(a.orderIndex) ? a.orderIndex : 0;
+            const bIndex = Number.isFinite(b.orderIndex) ? b.orderIndex : 0;
+            if (aIndex === bIndex) {
+                return 0;
+            }
+            return aIndex - bIndex;
+        })
+        .map((item, index) => {
+            if (item.orderIndex !== index) {
+                return { ...item, orderIndex: index };
+            }
+            return item;
+        });
+};
+
+const buildAlwaysSeparateLookup = (refs = []) => {
+    return sanitizeAlwaysSeparateRefs(refs).reduce((acc, ref) => {
+        const normalizedRef = normalizeVariationRef(ref);
+        if (normalizedRef) {
+            acc[normalizedRef] = true;
+        }
+        return acc;
+    }, {});
+};
+
+export const buildPortfolioPreferences = (portfolioInput) => {
+    const portfolioList = Array.isArray(portfolioInput) && portfolioInput.length
+        ? portfolioInput
+        : listPortfolio();
+    const order = [];
+    const preferenceMap = new Map();
+
+    portfolioList.forEach((item, index) => {
+        const sanitizedItem = sanitizePortfolioProduct(item, index);
+        if (!sanitizedItem) {
+            return;
+        }
+        const normalizedCode = normalizeCodigoComparacao(sanitizedItem.codigo);
+        if (!normalizedCode) {
+            return;
+        }
+        order.push(sanitizedItem.codigo);
+        preferenceMap.set(normalizedCode, {
+            codigo: sanitizedItem.codigo,
+            grouping: sanitizedItem.grouping,
+            groupingMode: sanitizedItem.groupingMode,
+            agruparVariacoes: sanitizedItem.agruparVariacoes,
+            alwaysSeparateRefs: sanitizeAlwaysSeparateRefs(sanitizedItem.alwaysSeparateRefs),
+            alwaysSeparateLookup: buildAlwaysSeparateLookup(sanitizedItem.alwaysSeparateRefs),
+            orderIndex: sanitizedItem.orderIndex,
+        });
+    });
+
+    return { order, preferenceMap };
 };
 
 export const upsertPortfolio = (produto, options = {}) => {
@@ -217,16 +322,21 @@ export const upsertPortfolio = (produto, options = {}) => {
 
     if (existingIndex >= 0) {
         const previous = currentPortfolio[existingIndex];
+        const normalizedGrouping = normalizeGrouping(
+            sanitizedInput.grouping || previous.grouping || 'juntas',
+        );
+        const normalizedGroupingMode = normalizeGroupingMode(
+            sanitizedInput.groupingMode,
+            normalizedGrouping,
+        );
         const merged = {
             ...previous,
             ...sanitizedInput,
             grade: sanitizedInput.grade.length ? sanitizedInput.grade : previous.grade,
             variations: sanitizedInput.variations.length ? sanitizedInput.variations : previous.variations,
-            grouping: sanitizedInput.grouping || previous.grouping || 'juntas',
-            agruparVariacoes:
-                sanitizedInput.grouping
-                    ? sanitizedInput.grouping !== 'separadas'
-                    : previous.agruparVariacoes ?? true,
+            grouping: normalizedGrouping,
+            groupingMode: normalizedGroupingMode,
+            agruparVariacoes: normalizedGrouping !== 'separadas',
             alwaysSeparateRefs: sanitizedInput.alwaysSeparateRefs.length
                 ? sanitizedInput.alwaysSeparateRefs
                 : previous.alwaysSeparateRefs || [],
@@ -234,15 +344,28 @@ export const upsertPortfolio = (produto, options = {}) => {
             updatedAt: nowIso,
             createdBy: previous.createdBy || sanitizedInput.createdBy || actor || null,
             updatedBy: actor || sanitizedInput.updatedBy || previous.updatedBy || null,
+            orderIndex: Number.isFinite(previous.orderIndex)
+                ? previous.orderIndex
+                : Number.isFinite(sanitizedInput.orderIndex)
+                    ? sanitizedInput.orderIndex
+                    : existingIndex,
         };
         currentPortfolio[existingIndex] = merged;
     } else {
+        const nextOrderIndex = Number.isFinite(sanitizedInput.orderIndex)
+            ? sanitizedInput.orderIndex
+            : currentPortfolio.length;
+        const normalizedGrouping = normalizeGrouping(sanitizedInput.grouping);
         currentPortfolio.push({
             ...sanitizedInput,
+            grouping: normalizedGrouping,
+            groupingMode: normalizeGroupingMode(sanitizedInput.groupingMode, normalizedGrouping),
+            agruparVariacoes: normalizedGrouping !== 'separadas',
             createdAt: sanitizedInput.createdAt || nowIso,
             updatedAt: sanitizedInput.updatedAt || nowIso,
             createdBy: sanitizedInput.createdBy || actor || null,
             updatedBy: actor || sanitizedInput.updatedBy || sanitizedInput.createdBy || null,
+            orderIndex: nextOrderIndex,
         });
     }
 
@@ -271,8 +394,13 @@ export const reordenarPortfolio = (novaOrdemArray = []) => {
             if (typeof item === 'string') {
                 return normalizeCodigoComparacao(item);
             }
-            if (item && typeof item === 'object' && typeof item.codigo === 'string') {
-                return normalizeCodigoComparacao(item.codigo);
+            if (item && typeof item === 'object') {
+                if (typeof item.codigo === 'string') {
+                    return normalizeCodigoComparacao(item.codigo);
+                }
+                if (typeof item.productCode === 'string') {
+                    return normalizeCodigoComparacao(item.productCode);
+                }
             }
             return null;
         })
@@ -286,11 +414,16 @@ export const reordenarPortfolio = (novaOrdemArray = []) => {
         current.map((item) => [normalizeCodigoComparacao(item.codigo), item])
     );
     const ordered = [];
+    const seen = new Set();
 
     codigoOrder.forEach((codigoItem) => {
+        if (!codigoItem || seen.has(codigoItem)) {
+            return;
+        }
         if (portfolioMap.has(codigoItem)) {
             ordered.push(portfolioMap.get(codigoItem));
             portfolioMap.delete(codigoItem);
+            seen.add(codigoItem);
         }
     });
 
