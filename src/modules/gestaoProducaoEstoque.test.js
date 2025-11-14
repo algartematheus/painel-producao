@@ -131,18 +131,17 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
         });
 
         expect(upsertPortfolio).toHaveBeenCalledWith(
-            {
+            expect.objectContaining({
                 codigo: '123',
                 grade: ['PP', 'P'],
                 variations: [
-                    {
-                        ref: '123-A',
-                        tamanhos: { PP: 10, P: -2 },
-                    },
+                    expect.objectContaining({ ref: '123-A', tamanhos: { PP: 10, P: -2 }, alwaysSeparate: false }),
                 ],
                 grouping: 'juntas',
+                groupingMode: 'grouped',
+                alwaysSeparateRefs: [],
                 createdBy: undefined,
-            },
+            }),
             undefined,
         );
         expect(resultado.portfolioAtualizado).toEqual(portfolioEsperado);
@@ -165,18 +164,17 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
         });
 
         expect(upsertPortfolio).toHaveBeenCalledWith(
-            {
+            expect.objectContaining({
                 codigo: '456',
                 grade: ['06', '08'],
                 variations: [
-                    {
-                        ref: '456-B',
-                        tamanhos: { '06': 1, '08': 2 },
-                    },
+                    expect.objectContaining({ ref: '456-B', tamanhos: { '06': 1, '08': 2 }, alwaysSeparate: false }),
                 ],
                 grouping: 'separadas',
+                groupingMode: 'separated',
+                alwaysSeparateRefs: [],
                 createdBy: undefined,
-            },
+            }),
             undefined,
         );
         expect(resultado.mensagemSucesso).toBe('Produto 456 salvo com variações separadas.');
@@ -235,18 +233,17 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
         });
 
         expect(upsertPortfolio).toHaveBeenCalledWith(
-            {
+            expect.objectContaining({
                 codigo: '016',
                 grade: ['06', '00'],
                 variations: [
-                    {
-                        ref: '016.AZ',
-                        tamanhos: { '06': 5, '00': 1 },
-                    },
+                    expect.objectContaining({ ref: '016.AZ', tamanhos: { '06': 5, '00': 1 }, alwaysSeparate: false }),
                 ],
                 grouping: 'juntas',
+                groupingMode: 'grouped',
+                alwaysSeparateRefs: [],
                 createdBy: undefined,
-            },
+            }),
             undefined,
         );
     });
@@ -267,18 +264,17 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
         });
 
         expect(upsertPortfolio).toHaveBeenCalledWith(
-            {
+            expect.objectContaining({
                 codigo: '016',
                 grade: ['06', '08'],
                 variations: [
-                    {
-                        ref: '016.AZ',
-                        tamanhos: { '06': 0, '08': 0 },
-                    },
+                    expect.objectContaining({ ref: '016.AZ', tamanhos: { '06': 0, '08': 0 }, alwaysSeparate: false }),
                 ],
                 grouping: 'juntas',
+                groupingMode: 'grouped',
+                alwaysSeparateRefs: [],
                 createdBy: undefined,
-            },
+            }),
             undefined,
         );
     });
@@ -299,18 +295,17 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
         });
 
         expect(upsertPortfolio).toHaveBeenCalledWith(
-            {
+            expect.objectContaining({
                 codigo: '321',
                 grade: ['PP', '06', '07', 'M1'],
                 variations: [
-                    {
-                        ref: '321-b',
-                        tamanhos: { PP: 5, '06': 2, '07': 3, M1: 4 },
-                    },
+                    expect.objectContaining({ ref: '321-b', tamanhos: { PP: 5, '06': 2, '07': 3, M1: 4 }, alwaysSeparate: false }),
                 ],
                 grouping: 'juntas',
+                groupingMode: 'grouped',
+                alwaysSeparateRefs: [],
                 createdBy: undefined,
-            },
+            }),
             undefined,
         );
     });
@@ -339,17 +334,19 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
         });
 
         expect(upsertPortfolio).toHaveBeenCalledWith(
-            {
+            expect.objectContaining({
                 codigo: '999',
                 grade: ['PP', 'P', 'M', 'G'],
                 variations: [
-                    { ref: '999-A', tamanhos: { PP: 10, P: 20, M: 30, G: 40 } },
-                    { ref: '999-B', tamanhos: { PP: 5, P: 0, M: 15, G: 0 } },
-                    { ref: '999-C', tamanhos: { PP: 7, P: 8, M: 0, G: 0 } },
+                    expect.objectContaining({ ref: '999-A', tamanhos: { PP: 10, P: 20, M: 30, G: 40 }, alwaysSeparate: false }),
+                    expect.objectContaining({ ref: '999-B', tamanhos: { PP: 5, P: 0, M: 15, G: 0 }, alwaysSeparate: false }),
+                    expect.objectContaining({ ref: '999-C', tamanhos: { PP: 7, P: 8, M: 0, G: 0 }, alwaysSeparate: false }),
                 ],
                 grouping: 'juntas',
+                groupingMode: 'grouped',
+                alwaysSeparateRefs: [],
                 createdBy: undefined,
-            },
+            }),
             undefined,
         );
         expect(resultado.mensagemSucesso).toBe('Produto 999 salvo com variações agrupadas.');
@@ -371,18 +368,17 @@ describe('validarEAdicionarProdutoAoPortfolio', () => {
         });
 
         expect(upsertPortfolio).toHaveBeenCalledWith(
-            {
+            expect.objectContaining({
                 codigo: '0001',
                 grade: ['PP', 'P'],
                 variations: [
-                    {
-                        ref: '0001-A',
-                        tamanhos: { PP: 0, P: 0 },
-                    },
+                    expect.objectContaining({ ref: '0001-A', tamanhos: { PP: 0, P: 0 }, alwaysSeparate: false }),
                 ],
                 grouping: 'juntas',
+                groupingMode: 'grouped',
+                alwaysSeparateRefs: [],
                 createdBy: undefined,
-            },
+            }),
             undefined,
         );
         expect(resultado.mensagemSucesso).toBe('Produto 0001 salvo com variações agrupadas.');
@@ -449,18 +445,18 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
 
         await waitFor(() => {
             expect(upsertPortfolio).toHaveBeenCalledWith(
-                {
+                expect.objectContaining({
                     codigo: '016',
                     grade: ['06', '08'],
                     variations: [
-                        {
-                            ref: '016.AZ',
-                            tamanhos: { '06': 10, '08': -5 },
-                        },
+                        expect.objectContaining({ ref: '016.AZ', tamanhos: { '06': 10, '08': -5 }, alwaysSeparate: false }),
                     ],
                     grouping: 'juntas',
+                    groupingMode: 'grouped',
+                    alwaysSeparateRefs: [],
                     createdBy: 'Usuário Teste',
-                },
+                    orderIndex: 0,
+                }),
                 { actor: 'Usuário Teste' },
             );
         });
@@ -595,16 +591,19 @@ describe('GestaoProducaoEstoqueModule - fluxo de salvar rascunho', () => {
 
         await waitFor(() => {
             expect(upsertPortfolio).toHaveBeenCalledWith(
-                {
+                expect.objectContaining({
                     codigo: '099',
                     grade: ['06', '08'],
                     variations: [
-                        { ref: '099.AZ', tamanhos: { '06': 10, '08': 5 } },
-                        { ref: '099.PT', tamanhos: { '06': 4, '08': -1 } },
+                        expect.objectContaining({ ref: '099.AZ', tamanhos: { '06': 10, '08': 5 }, alwaysSeparate: false }),
+                        expect.objectContaining({ ref: '099.PT', tamanhos: { '06': 4, '08': -1 }, alwaysSeparate: false }),
                     ],
                     grouping: 'separadas',
+                    groupingMode: 'separated',
+                    alwaysSeparateRefs: [],
                     createdBy: 'Usuário Teste',
-                },
+                    orderIndex: 0,
+                }),
                 { actor: 'Usuário Teste' },
             );
         });
