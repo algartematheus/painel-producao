@@ -122,4 +122,87 @@ describe('coreParser', () => {
       },
     ] as ProductSnapshot[]);
   });
+
+  it('infere grade numérica a partir da linha Qtde', () => {
+    const text = [
+      'Grade: 0 -',
+      '123.AB',
+      'Qtde 50 52 54 56 58 60',
+      'A PRODUZIR: -210 -10 -20 -30 -40 -50 -60',
+    ].join('\n');
+
+    const snapshots = parseTextContent(text);
+
+    expect(snapshots).toEqual([
+      {
+        productCode: '123',
+        grade: ['50', '52', '54', '56', '58', '60'],
+        warnings: [],
+        variations: [
+          {
+            ref: '123.AB',
+            grade: ['50', '52', '54', '56', '58', '60'],
+            tamanhos: {
+              '50': -10,
+              '52': -20,
+              '54': -30,
+              '56': -40,
+              '58': -50,
+              '60': -60,
+            },
+            total: -210,
+          },
+        ],
+      },
+    ] as ProductSnapshot[]);
+  });
+
+  it('normaliza grades alfabéticas a partir da linha Qtde', () => {
+    const text = [
+      'Grade: 0 -',
+      '456.BR',
+      'Qtde PP P M G GG',
+      'A PRODUZIR: -150 -10 -20 -30 -40 -50',
+    ].join('\n');
+
+    const snapshots = parseTextContent(text);
+
+    expect(snapshots).toEqual([
+      {
+        productCode: '456',
+        grade: ['PP', 'P', 'M', 'G', 'GG'],
+        warnings: [],
+        variations: [
+          {
+            ref: '456.BR',
+            grade: ['PP', 'P', 'M', 'G', 'GG'],
+            tamanhos: { PP: -10, P: -20, M: -30, G: -40, GG: -50 },
+            total: -150,
+          },
+        ],
+      },
+    ] as ProductSnapshot[]);
+  });
+
+  it('interpreta Qtde UN mesmo sem grade detalhada', () => {
+    const text = [
+      'Grade: 0 -',
+      '789.AZ',
+      'Qtde UN',
+      'A PRODUZIR: 15 15',
+    ].join('\n');
+
+    const snapshots = parseTextContent(text);
+
+    expect(snapshots).toEqual([
+      {
+        productCode: '789',
+        grade: ['UN'],
+        warnings: [],
+        variations: [
+          { ref: '789.AZ', grade: ['UN'], tamanhos: { UN: 15 }, total: 15 },
+        ],
+      },
+    ] as ProductSnapshot[]);
+  });
 });
