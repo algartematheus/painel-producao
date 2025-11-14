@@ -96,7 +96,7 @@ const extractGradeTokensFromQtdeLine = (line: string): string[] => {
     return [];
   }
   const tokens = afterQtde
-    .split(/[\/\s]+/)
+    .split(/[/\s]+/)
     .map((token) => token.trim())
     .filter(Boolean);
 
