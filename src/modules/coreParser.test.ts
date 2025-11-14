@@ -79,4 +79,47 @@ describe('coreParser', () => {
 
     expect(snapshots.map((snapshot) => snapshot.productCode)).toEqual(['100', '200']);
   });
+
+  it('interpreta bases alfanuméricas com e sem sufixo', () => {
+    const text = [
+      'Grade: 2 - UNICA',
+      '010E',
+      'Qtde UN',
+      'A PRODUZIR: 5',
+      '010E.AZ',
+      'Qtde UN',
+      'A PRODUZIR: 7',
+      'Grade: 3 - 06/08/10',
+      '016.AZ',
+      'Qtde 06 08 10',
+      'A PRODUZIR: -60 -10 -20 -30',
+    ].join('\n');
+
+    const snapshots = parseTextContent(text);
+
+    expect(snapshots).toEqual([
+      {
+        productCode: '010E',
+        grade: ['UN'],
+        warnings: [],
+        variations: [
+          { ref: '010E', grade: ['UN'], tamanhos: { UN: 5 }, total: 5 },
+          { ref: '010E.AZ', grade: ['UN'], tamanhos: { UN: 7 }, total: 7 },
+        ],
+      },
+      {
+        productCode: '016',
+        grade: ['06', '08', '10'],
+        warnings: [],
+        variations: [
+          {
+            ref: '016.AZ',
+            grade: ['06', '08', '10'],
+            tamanhos: { '06': -10, '08': -20, '10': -30 },
+            total: -60,
+          },
+        ],
+      },
+    ] as ProductSnapshot[]);
+  });
 });

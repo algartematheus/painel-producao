@@ -13,8 +13,8 @@ interface ParsedProduct {
   warnings: string[];
 }
 
-const VARIATION_ONLY_REGEX = /^\s*(\d{3,}\.[A-Z0-9]{2,3})\s*$/;
-const BASE_ONLY_REGEX = /^\s*(\d{3,})\s*$/;
+const VARIATION_ONLY_REGEX = /^\s*(\d{3,}[A-Z]?\.[A-Z0-9]{2,3})\s*$/;
+const BASE_ONLY_REGEX = /^\s*(\d{3,}[A-Z]?)\s*$/;
 const GRADE_HEADER_REGEX = /^\s*Grade:\s*\d+\s*-\s*(.+?)\s*$/i;
 const QTDE_HEADER_REGEX = /\bQtde\b/i;
 const PRODUCE_REGEX = /A\s+PRODUZIR:/i;
@@ -66,7 +66,7 @@ const createOrGetVariation = (
   ref: string,
   gradeFromContext?: string[] | null,
 ): ParsedVariation | null => {
-  const codeMatch = ref.match(/^(\d{3,})/);
+  const codeMatch = ref.match(/^(\d{3,}[A-Z]?)/);
   if (!codeMatch) {
     return null;
   }
@@ -118,13 +118,13 @@ const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => 
     }
 
     if (QTDE_HEADER_REGEX.test(line)) {
-      const baseMatch = line.match(/^\s*(\d{3,})\b.*Qtde\s+UN\b/i);
+      const baseMatch = line.match(/^\s*(\d{3,}[A-Z]?)\b.*Qtde\s+UN\b/i);
       if (baseMatch && currentGrade?.length === 1) {
         currentVariation = createOrGetVariation(productsMap, baseMatch[1], currentGrade);
         return;
       }
 
-      const variationMatch = line.match(/^\s*(\d{3,}\.[A-Z0-9]{2,3})\b.*Qtde\b/i);
+      const variationMatch = line.match(/^\s*(\d{3,}[A-Z]?\.[A-Z0-9]{2,3})\b.*Qtde\b/i);
       if (variationMatch) {
         currentVariation = createOrGetVariation(productsMap, variationMatch[1], currentGrade);
         return;
