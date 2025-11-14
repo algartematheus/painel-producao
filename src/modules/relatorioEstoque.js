@@ -341,6 +341,48 @@ export const resumoPositivoNegativo = (totalPorTamanho = {}) => {
     };
 };
 
+const calcularDetalhesPorTamanho = (variations = [], grade = []) => {
+    const sanitizedVariations = sanitizeVariations(variations);
+    const sanitizedGrade = cloneGrade(grade);
+    const gradeToUse = sanitizedGrade.length ? sanitizedGrade : inferGradeFromVariations(sanitizedVariations);
+
+    const detalhes = {};
+
+    gradeToUse.forEach((size) => {
+        detalhes[size] = {
+            positivo: 0,
+            negativo: 0,
+            liquido: 0,
+        };
+    });
+
+    sanitizedVariations.forEach((variation) => {
+        gradeToUse.forEach((size) => {
+            const value = normalizeNumber(variation.tamanhos?.[size]);
+            if (!value) {
+                return;
+            }
+
+            if (!detalhes[size]) {
+                detalhes[size] = {
+                    positivo: 0,
+                    negativo: 0,
+                    liquido: 0,
+                };
+            }
+
+            if (value > 0) {
+                detalhes[size].positivo += value;
+            } else if (value < 0) {
+                detalhes[size].negativo += value;
+            }
+            detalhes[size].liquido += value;
+        });
+    });
+
+    return detalhes;
+};
+
 export const criarSnapshotProduto = ({
     produtoBase,
     grade = [],
@@ -355,6 +397,7 @@ export const criarSnapshotProduto = ({
     const sanitizedVariations = sanitizeVariations(variations);
     const gradeCalculada = sanitizedGrade.length ? sanitizedGrade : inferGradeFromVariations(sanitizedVariations);
     const totalPorTamanho = calcularTotalPorTamanho(sanitizedVariations, gradeCalculada);
+    const totalPorTamanhoDetalhado = calcularDetalhesPorTamanho(sanitizedVariations, gradeCalculada);
     const resumo = resumoPositivoNegativo(totalPorTamanho);
     const gradeFinal = sanitizedGrade.length ? sanitizedGrade : gradeCalculada;
     return {
@@ -362,6 +405,7 @@ export const criarSnapshotProduto = ({
         grade: gradeFinal,
         variations: sanitizedVariations,
         totalPorTamanho,
+        totalPorTamanhoDetalhado,
         resumoPositivoNegativo: resumo,
         metadata: {
             dataLancamentoISO: dataLancamentoISO || null,

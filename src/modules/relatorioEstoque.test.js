@@ -179,19 +179,19 @@ describe('relatorioEstoque module', () => {
             produtoBase: '016',
             grade: ['06', '08'],
             variations: [
-                { ref: '016.AZ', tamanhos: { '06': -2, '08': 4 } },
-                { ref: '016.ST', tamanhos: { '06': 1, '08': -1 } },
+                { ref: '016.AZ', tamanhos: { '06': -2, '08': 1 } },
+                { ref: '016.ST', tamanhos: { '06': 1, '08': -80 } },
             ],
             dataLancamentoISO: '2024-01-01T00:00:00Z',
             responsavel: 'Matheus',
         });
 
-        expect(snapshot.totalPorTamanho).toEqual({ '06': -1, '08': 3 });
+        expect(snapshot.totalPorTamanho).toEqual({ '06': -1, '08': -79 });
         expect(snapshot.totalPorTamanhoDetalhado).toEqual({
             '06': { positivo: 1, negativo: -2, liquido: -1 },
-            '08': { positivo: 4, negativo: -1, liquido: 3 },
+            '08': { positivo: 1, negativo: -80, liquido: -79 },
         });
-        expect(snapshot.resumoPositivoNegativo).toEqual({ positivoTotal: 3, negativoTotal: -1, formatoHumano: '3 -1' });
+        expect(snapshot.resumoPositivoNegativo).toEqual({ positivoTotal: 1, negativoTotal: -80, formatoHumano: '1 -80' });
         expect(snapshot.metadata).toEqual({ dataLancamentoISO: '2024-01-01T00:00:00Z', responsavel: 'Matheus' });
     });
 
