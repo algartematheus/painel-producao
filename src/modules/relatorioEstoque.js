@@ -77,7 +77,23 @@ const sanitizeVariations = (variations = []) => {
             return {
                 ref,
                 tamanhos,
+                alwaysSeparate: variation.alwaysSeparate === true,
             };
+        })
+        .filter(Boolean);
+};
+
+const sanitizeAlwaysSeparateRefs = (refs = []) => {
+    if (!Array.isArray(refs)) {
+        return [];
+    }
+    return refs
+        .map((ref) => {
+            if (typeof ref !== 'string') {
+                return '';
+            }
+            const trimmed = ref.trim();
+            return trimmed ? trimmed.toUpperCase() : '';
         })
         .filter(Boolean);
 };
@@ -149,6 +165,7 @@ const sanitizePortfolioProduct = (item) => {
         variations,
         grouping,
         agruparVariacoes: grouping !== 'separadas',
+        alwaysSeparateRefs: sanitizeAlwaysSeparateRefs(item.alwaysSeparateRefs),
         createdAt,
         updatedAt,
         createdBy,
@@ -210,6 +227,9 @@ export const upsertPortfolio = (produto, options = {}) => {
                 sanitizedInput.grouping
                     ? sanitizedInput.grouping !== 'separadas'
                     : previous.agruparVariacoes ?? true,
+            alwaysSeparateRefs: sanitizedInput.alwaysSeparateRefs.length
+                ? sanitizedInput.alwaysSeparateRefs
+                : previous.alwaysSeparateRefs || [],
             createdAt: previous.createdAt || sanitizedInput.createdAt || nowIso,
             updatedAt: nowIso,
             createdBy: previous.createdBy || sanitizedInput.createdBy || actor || null,

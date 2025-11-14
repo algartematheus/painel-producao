@@ -42,6 +42,7 @@ import {
     exemploFluxoCompleto,
 } from './relatorioEstoque';
 import importStockFile from './importStockFile';
+import AutoImportReview from './gestaoProducaoEstoque/AutoImportReview';
 
 const MODULE_TITLE = 'Gestão de Produção x Estoque';
 const MODULE_SUBTITLE = 'Integre produção e estoque em um relatório consolidado pronto para impressão.';
@@ -417,6 +418,7 @@ export const validarEAdicionarProdutoAoPortfolio = ({
         variations: variacoesNormalizadas,
         grouping,
         createdBy: responsavel,
+        alwaysSeparateRefs: [],
     };
 
     const options = responsavel ? { actor: responsavel } : undefined;
@@ -471,6 +473,195 @@ const sumSnapshotsResumo = (snapshots = []) => {
         acc.negativo += resumo.negativoTotal || 0;
         return acc;
     }, { positivo: 0, negativo: 0 });
+};
+
+const normalizeProductCodeForMatching = (value = '') => {
+    if (typeof value !== 'string') {
+        return '';
+    }
+    const trimmed = value.trim();
+    return trimmed ? trimmed.toUpperCase() : '';
+};
+
+const normalizeVariationRefForMatching = (value = '') => {
+    if (typeof value !== 'string') {
+        return '';
+    }
+    const trimmed = value.trim();
+    return trimmed ? trimmed.toUpperCase() : '';
+};
+
+const buildInitialAutoOrder = (snapshots = [], portfolio = []) => {
+    if (!Array.isArray(snapshots) || !snapshots.length) {
+        return [];
+    }
+    const snapshotMap = new Map();
+    snapshots.forEach((snapshot) => {
+        const normalized = normalizeProductCodeForMatching(snapshot?.productCode);
+        if (normalized && !snapshotMap.has(normalized)) {
+            snapshotMap.set(normalized, snapshot.productCode);
+        }
+    });
+    const seen = new Set();
+    const order = [];
+    portfolio.forEach((produto) => {
+        const normalized = normalizeProductCodeForMatching(produto?.codigo);
+        if (!normalized || seen.has(normalized)) {
+            return;
+        }
+        if (snapshotMap.has(normalized)) {
+            order.push(snapshotMap.get(normalized));
+            seen.add(normalized);
+        }
+    });
+    snapshotMap.forEach((codigoOriginal, normalized) => {
+        if (!seen.has(normalized)) {
+            seen.add(normalized);
+            order.push(codigoOriginal);
+        }
+    });
+    return order;
+};
+
+const buildInitialAutoAdjustments = (snapshots = [], portfolio = []) => {
+    const ajustes = {};
+    const portfolioMap = new Map();
+    portfolio.forEach((produto) => {
+        const normalized = normalizeProductCodeForMatching(produto?.codigo);
+        if (normalized) {
+            portfolioMap.set(normalized, produto);
+        }
+    });
+
+    snapshots.forEach((snapshot) => {
+        const normalized = normalizeProductCodeForMatching(snapshot?.productCode);
+        if (!normalized) {
+            return;
+        }
+        const portfolioItem = portfolioMap.get(normalized);
+        const grouping = portfolioItem
+            ? portfolioItem.grouping || (portfolioItem.agruparVariacoes ? 'juntas' : 'separadas')
+            : 'juntas';
+        const refsMap = {};
+        const refs = Array.isArray(portfolioItem?.alwaysSeparateRefs) ? portfolioItem.alwaysSeparateRefs : [];
+        refs.forEach((ref) => {
+            const normalizedRef = normalizeVariationRefForMatching(ref);
+            if (normalizedRef) {
+                refsMap[normalizedRef] = true;
+            }
+        });
+        ajustes[normalized] = {
+            productCode: snapshot.productCode,
+            groupingMode: grouping === 'separadas' ? 'separadas' : 'juntas',
+            alwaysSeparateRefs: refsMap,
+        };
+    });
+
+    return ajustes;
+};
+
+const buildAutoSnapshots = ({
+    rawSnapshots = [],
+    adjustments = {},
+    order = [],
+    responsavel,
+    dataLancamentoISO,
+}) => {
+    if (!Array.isArray(rawSnapshots) || !rawSnapshots.length) {
+        return [];
+    }
+
+    const snapshotMap = new Map();
+    rawSnapshots.forEach((snapshot) => {
+        const normalized = normalizeProductCodeForMatching(snapshot?.productCode);
+        if (normalized) {
+            snapshotMap.set(normalized, snapshot);
+        }
+    });
+
+    const normalizedOrder = [];
+    const seen = new Set();
+    order.forEach((codigo) => {
+        const normalized = normalizeProductCodeForMatching(codigo);
+        if (!normalized || seen.has(normalized)) {
+            return;
+        }
+        if (snapshotMap.has(normalized)) {
+            normalizedOrder.push(normalized);
+            seen.add(normalized);
+        }
+    });
+    snapshotMap.forEach((_, normalized) => {
+        if (!seen.has(normalized)) {
+            normalizedOrder.push(normalized);
+            seen.add(normalized);
+        }
+    });
+
+    const snapshotsFinais = [];
+
+    normalizedOrder.forEach((normalized) => {
+        const snapshot = snapshotMap.get(normalized);
+        if (!snapshot) {
+            return;
+        }
+        const adjustment = adjustments?.[normalized] || {};
+        const groupingMode = adjustment.groupingMode === 'separadas' ? 'separadas' : 'juntas';
+        const overrides = new Set();
+        Object.entries(adjustment.alwaysSeparateRefs || {}).forEach(([ref, flag]) => {
+            if (flag) {
+                const normalizedRef = normalizeVariationRefForMatching(ref);
+                if (normalizedRef) {
+                    overrides.add(normalizedRef);
+                }
+            }
+        });
+
+        const baseConfig = {
+            produtoBase: snapshot.productCode,
+            grade: Array.isArray(snapshot?.grade) ? snapshot.grade : [],
+            responsavel,
+            dataLancamentoISO,
+        };
+
+        const groupedVariations = [];
+        const separatedVariations = [];
+        const variations = Array.isArray(snapshot?.variations) ? snapshot.variations : [];
+
+        variations.forEach((variation) => {
+            const normalizedRef = normalizeVariationRefForMatching(variation?.ref);
+            if (groupingMode === 'separadas') {
+                separatedVariations.push(variation);
+                return;
+            }
+            if (normalizedRef && overrides.has(normalizedRef)) {
+                separatedVariations.push(variation);
+                return;
+            }
+            groupedVariations.push(variation);
+        });
+
+        if (groupedVariations.length) {
+            snapshotsFinais.push(
+                criarSnapshotProduto({
+                    ...baseConfig,
+                    variations: groupedVariations,
+                }),
+            );
+        }
+
+        separatedVariations.forEach((variation) => {
+            snapshotsFinais.push(
+                criarSnapshotProduto({
+                    ...baseConfig,
+                    produtoBase: variation?.ref || snapshot.productCode,
+                    variations: [variation],
+                }),
+            );
+        });
+    });
+
+    return snapshotsFinais;
 };
 
 const parseManualGradeText = (gradeText) => normalizarGradeLista(parseGradeString(gradeText));
@@ -617,6 +808,9 @@ const GestaoProducaoEstoqueModule = ({
     const [manualPreviewSnapshots, setManualPreviewSnapshots] = useState([]);
     const [manualPreviewData, setManualPreviewData] = useState(null);
     const [previewSource, setPreviewSource] = useState(null);
+    const [autoImportRawSnapshots, setAutoImportRawSnapshots] = useState([]);
+    const [autoImportAdjustments, setAutoImportAdjustments] = useState({});
+    const [autoImportOrder, setAutoImportOrder] = useState([]);
     const [processing, setProcessing] = useState(false);
     const [status, setStatus] = useState({ type: 'idle', message: '' });
     const [autoCarregamentoInicialAplicado, setAutoCarregamentoInicialAplicado] = useState(false);
@@ -669,6 +863,29 @@ const GestaoProducaoEstoqueModule = ({
             return nenhumaMudanca ? prev : alinhadas;
         });
     }, [gradeListaAtual]);
+
+    useEffect(() => {
+        if (previewSource !== 'auto') {
+            return;
+        }
+        if (!autoImportRawSnapshots.length) {
+            setPreviewSnapshots([]);
+            return;
+        }
+        const snapshots = buildAutoSnapshots({
+            rawSnapshots: autoImportRawSnapshots,
+            adjustments: autoImportAdjustments,
+            order: autoImportOrder,
+            responsavel: responsavelAtual,
+        });
+        setPreviewSnapshots(snapshots);
+    }, [
+        autoImportRawSnapshots,
+        autoImportAdjustments,
+        autoImportOrder,
+        previewSource,
+        responsavelAtual,
+    ]);
 
     const navigationButtons = useMemo(() => ([
         onNavigateToCrono
@@ -724,7 +941,41 @@ const GestaoProducaoEstoqueModule = ({
         setManualPreviewSnapshots([]);
         setManualPreviewData(null);
         setPreviewSource(null);
+        setAutoImportRawSnapshots([]);
+        setAutoImportAdjustments({});
+        setAutoImportOrder([]);
     }, []);
+
+    const atualizarPortfolioComAjustes = useCallback(
+        (codigoNormalizado, transformFn) => {
+            if (!codigoNormalizado || typeof transformFn !== 'function') {
+                return;
+            }
+            setPortfolio((prevPortfolio) => {
+                const snapshotRelacionado = autoImportRawSnapshots.find(
+                    (item) => normalizeProductCodeForMatching(item?.productCode) === codigoNormalizado,
+                );
+                const existente = prevPortfolio.find(
+                    (item) => normalizeProductCodeForMatching(item?.codigo) === codigoNormalizado,
+                );
+                const codigoFinal = existente?.codigo || snapshotRelacionado?.productCode || codigoNormalizado;
+                const payloadBase = {
+                    codigo: codigoFinal,
+                    grade: existente?.grade?.length ? existente.grade : snapshotRelacionado?.grade || [],
+                    variations: existente?.variations || [],
+                    grouping:
+                        existente?.grouping || (existente?.agruparVariacoes ? 'juntas' : 'separadas') || 'juntas',
+                    alwaysSeparateRefs: existente?.alwaysSeparateRefs || [],
+                };
+                const atualizado = transformFn({ ...payloadBase }, snapshotRelacionado, existente);
+                if (!atualizado || !atualizado.codigo) {
+                    return prevPortfolio;
+                }
+                return upsertPortfolio(atualizado, { actor: { name: responsavelAtual } });
+            });
+        },
+        [autoImportRawSnapshots, responsavelAtual],
+    );
 
     const handleTipoArquivo = useCallback((novoTipo) => {
         setTipoArquivo(novoTipo);
@@ -751,19 +1002,21 @@ const GestaoProducaoEstoqueModule = ({
         setStatus({ type: 'info', message: 'Lendo arquivo e montando prévia das variações...' });
         try {
             const produtosImportados = await importStockFile(arquivoSelecionado);
-            const snapshots = produtosImportados.map((produto) => criarSnapshotProduto({
-                produtoBase: produto.productCode || produto.produtoBase,
-                grade: produto.grade,
-                variations: produto.variations,
-                dataLancamentoISO: new Date().toISOString(),
-                responsavel: responsavelAtual,
-            }));
-            setPreviewSnapshots(snapshots);
+            const ajustesIniciais = buildInitialAutoAdjustments(produtosImportados, portfolio);
+            const ordemInicial = buildInitialAutoOrder(produtosImportados, portfolio);
+            setAutoImportRawSnapshots(produtosImportados);
+            setAutoImportAdjustments(ajustesIniciais);
+            setAutoImportOrder(ordemInicial);
+            setPreviewSnapshots([]);
             setManualPreviewSnapshots([]);
             setManualPreviewData(null);
             setPreviewSource('auto');
-            if (snapshots.length) {
-                setStatus({ type: 'success', message: `Prévia montada com ${snapshots.length} produto(s). Revise e confirme o lançamento.` });
+            if (produtosImportados.length) {
+                setStatus({
+                    type: 'success',
+                    message:
+                        'Prévia montada. Reordene os produtos, ajuste o agrupamento e confirme para gerar o relatório.',
+                });
             } else {
                 setStatus({ type: 'warning', message: 'Nenhum produto foi encontrado neste arquivo.' });
             }
@@ -772,26 +1025,181 @@ const GestaoProducaoEstoqueModule = ({
         } finally {
             setProcessing(false);
         }
-    }, [arquivoSelecionado, responsavelAtual]);
+    }, [arquivoSelecionado, portfolio]);
+
+    const handleAutoImportReorder = useCallback(
+        (draggedCode, targetCode) => {
+            const sourceNormalized = normalizeProductCodeForMatching(draggedCode);
+            if (!sourceNormalized) {
+                return;
+            }
+            if (targetCode && sourceNormalized === normalizeProductCodeForMatching(targetCode)) {
+                return;
+            }
+            setAutoImportOrder((prev) => {
+                const filtered = prev.filter(
+                    (codigo) => normalizeProductCodeForMatching(codigo) !== sourceNormalized,
+                );
+                const snapshotRelacionado = autoImportRawSnapshots.find(
+                    (item) => normalizeProductCodeForMatching(item?.productCode) === sourceNormalized,
+                );
+                const codigoParaInserir = snapshotRelacionado?.productCode || draggedCode;
+                if (!codigoParaInserir) {
+                    return filtered;
+                }
+                if (targetCode) {
+                    const targetNormalized = normalizeProductCodeForMatching(targetCode);
+                    const targetIndex = filtered.findIndex(
+                        (codigo) => normalizeProductCodeForMatching(codigo) === targetNormalized,
+                    );
+                    if (targetIndex >= 0) {
+                        filtered.splice(targetIndex, 0, codigoParaInserir);
+                        return [...filtered];
+                    }
+                }
+                return [...filtered, codigoParaInserir];
+            });
+        },
+        [autoImportRawSnapshots],
+    );
+
+    const handleAutoImportGroupingChange = useCallback(
+        (productCode, groupingMode) => {
+            const normalized = normalizeProductCodeForMatching(productCode);
+            if (!normalized) {
+                return;
+            }
+            const grouping = groupingMode === 'separadas' ? 'separadas' : 'juntas';
+            setAutoImportAdjustments((prev) => {
+                const atual = prev[normalized] || {
+                    productCode,
+                    groupingMode: 'juntas',
+                    alwaysSeparateRefs: {},
+                };
+                if (atual.groupingMode === grouping) {
+                    return prev;
+                }
+                return {
+                    ...prev,
+                    [normalized]: {
+                        ...atual,
+                        productCode: atual.productCode || productCode,
+                        groupingMode: grouping,
+                    },
+                };
+            });
+            atualizarPortfolioComAjustes(normalized, (payloadBase) => ({
+                ...payloadBase,
+                grouping,
+                agruparVariacoes: grouping !== 'separadas',
+            }));
+        },
+        [atualizarPortfolioComAjustes],
+    );
+
+    const handleAutoImportAlwaysSeparateChange = useCallback(
+        (productCode, variationRef, checked) => {
+            const normalizedCode = normalizeProductCodeForMatching(productCode);
+            const normalizedRef = normalizeVariationRefForMatching(variationRef);
+            if (!normalizedCode || !normalizedRef) {
+                return;
+            }
+            setAutoImportAdjustments((prev) => {
+                const atual = prev[normalizedCode] || {
+                    productCode,
+                    groupingMode: 'juntas',
+                    alwaysSeparateRefs: {},
+                };
+                const refsAtualizados = { ...(atual.alwaysSeparateRefs || {}) };
+                if (checked) {
+                    refsAtualizados[normalizedRef] = true;
+                } else {
+                    delete refsAtualizados[normalizedRef];
+                }
+                return {
+                    ...prev,
+                    [normalizedCode]: {
+                        ...atual,
+                        productCode: atual.productCode || productCode,
+                        alwaysSeparateRefs: refsAtualizados,
+                    },
+                };
+            });
+            atualizarPortfolioComAjustes(normalizedCode, (payloadBase) => {
+                const refsExistentes = new Set(
+                    (payloadBase.alwaysSeparateRefs || []).map((ref) =>
+                        normalizeVariationRefForMatching(ref),
+                    ),
+                );
+                if (checked) {
+                    refsExistentes.add(normalizedRef);
+                } else {
+                    refsExistentes.delete(normalizedRef);
+                }
+                return {
+                    ...payloadBase,
+                    alwaysSeparateRefs: Array.from(refsExistentes).filter(Boolean),
+                };
+            });
+        },
+        [atualizarPortfolioComAjustes],
+    );
 
     const handleConfirmarLancamento = useCallback(async () => {
-        if (!arquivoSelecionado) {
-            setStatus({ type: 'error', message: 'Selecione e processe um arquivo antes de confirmar o lançamento.' });
+        if (previewSource !== 'auto' || !autoImportRawSnapshots.length) {
+            setStatus({
+                type: 'error',
+                message: 'Gere e revise a prévia automatizada antes de confirmar o lançamento.',
+            });
             return;
         }
         setProcessing(true);
         setStatus({ type: 'info', message: 'Gerando relatório completo e salvando no histórico...' });
         try {
-            await importarArquivoDeProducao(arquivoSelecionado, tipoArquivo, responsavelAtual);
+            const dataLancamentoISO = new Date().toISOString();
+            const finalSnapshots = buildAutoSnapshots({
+                rawSnapshots: autoImportRawSnapshots,
+                adjustments: autoImportAdjustments,
+                order: autoImportOrder,
+                responsavel: responsavelAtual,
+                dataLancamentoISO,
+            });
+            if (!finalSnapshots.length) {
+                throw new Error('Nenhum snapshot foi gerado. Ajuste as variações e tente novamente.');
+            }
+            await importarArquivoDeProducao(finalSnapshots, 'manual', responsavelAtual);
             setHistorico(carregarHistorico());
-            setStatus({ type: 'success', message: 'Lançamento registrado com sucesso! O relatório foi aberto em uma nova aba.' });
+            setStatus({
+                type: 'success',
+                message: 'Lançamento registrado com sucesso! O relatório foi aberto em uma nova aba.',
+            });
+            setArquivoSelecionado(null);
+            setArquivoNome('');
             resetPreview();
+            const portfolioCodes = new Set(
+                portfolio.map((item) => normalizeProductCodeForMatching(item?.codigo)),
+            );
+            const ordemParaPersistir = autoImportOrder.filter((codigo) =>
+                portfolioCodes.has(normalizeProductCodeForMatching(codigo)),
+            );
+            if (ordemParaPersistir.length) {
+                const atualizado = reordenarPortfolio(ordemParaPersistir);
+                setPortfolio(atualizado);
+            }
         } catch (error) {
             setStatus({ type: 'error', message: error?.message || 'Não foi possível concluir o lançamento.' });
         } finally {
             setProcessing(false);
         }
-    }, [arquivoSelecionado, tipoArquivo, responsavelAtual, resetPreview]);
+    }, [
+        previewSource,
+        autoImportRawSnapshots,
+        autoImportAdjustments,
+        autoImportOrder,
+        responsavelAtual,
+        resetPreview,
+        portfolio,
+    ]);
 
     const handleExecutarExemplo = useCallback(() => {
         exemploFluxoCompleto();
@@ -1386,7 +1794,8 @@ const GestaoProducaoEstoqueModule = ({
                                     >
                                         <FileText size={18} /> TXT
                                     </button>
-                                </div>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="md:col-span-2 flex flex-col gap-2">
@@ -1423,7 +1832,7 @@ const GestaoProducaoEstoqueModule = ({
                             <button
                                 type="button"
                                 onClick={handleConfirmarLancamento}
-                                disabled={processing || !arquivoSelecionado || !previewSnapshots.length}
+                                disabled={processing || previewSource !== 'auto' || !previewSnapshots.length}
                                 className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
                             >
                                 <CheckCircle2 size={16} />
@@ -1454,9 +1863,19 @@ const GestaoProducaoEstoqueModule = ({
                                     </div>
                                 </header>
 
-                                <div className="space-y-6">
-                                    {previewSnapshots.map((snapshot) => (
-                                        <div key={snapshot.produtoBase} className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                                {previewSource === 'auto' ? (
+                                    <AutoImportReview
+                                        rawSnapshots={autoImportRawSnapshots}
+                                        orderedProductCodes={autoImportOrder}
+                                        adjustments={autoImportAdjustments}
+                                        onReorder={handleAutoImportReorder}
+                                        onToggleGrouping={handleAutoImportGroupingChange}
+                                        onToggleAlwaysSeparate={handleAutoImportAlwaysSeparateChange}
+                                    />
+                                ) : (
+                                    <div className="space-y-6">
+                                        {previewSnapshots.map((snapshot) => (
+                                            <div key={snapshot.produtoBase} className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                                             <div className="bg-gray-50 dark:bg-gray-800 px-4 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                                                 <div>
                                                     <h4 className="text-lg font-semibold">Produto {snapshot.produtoBase}</h4>
@@ -1517,7 +1936,8 @@ const GestaoProducaoEstoqueModule = ({
                                             </div>
                                         </div>
                                     ))}
-                                </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </section>
