@@ -312,6 +312,42 @@ const temQuantidadeInformada = (tamanhos = {}) =>
         (quantidade) => normalizarQuantidade(quantidade) !== 0,
     );
 
+const calcularResumoPorTamanho = (variacoes = [], gradeLista = []) => {
+    const resumo = {};
+    const listaNormalizada = normalizarGradeLista(gradeLista);
+    listaNormalizada.forEach((tamanho) => {
+        if (!tamanho) {
+            return;
+        }
+        resumo[tamanho] = { positivo: 0, negativo: 0 };
+    });
+    (Array.isArray(variacoes) ? variacoes : []).forEach((variacao) => {
+        listaNormalizada.forEach((tamanho) => {
+            const quantidade = normalizarQuantidade(variacao?.tamanhos?.[tamanho]);
+            if (!Number.isFinite(quantidade) || quantidade === 0) {
+                return;
+            }
+            if (!resumo[tamanho]) {
+                resumo[tamanho] = { positivo: 0, negativo: 0 };
+            }
+            if (quantidade > 0) {
+                resumo[tamanho].positivo += quantidade;
+            } else {
+                resumo[tamanho].negativo += quantidade;
+            }
+        });
+    });
+    return resumo;
+};
+
+const formatQuantidadeResumo = (valor) => {
+    const numero = Number(valor) || 0;
+    return numero.toLocaleString('pt-BR', {
+        minimumFractionDigits: Number.isInteger(numero) ? 0 : 2,
+        maximumFractionDigits: 2,
+    });
+};
+
 const obterValorParaCampoDeTamanho = (tamanhos = {}, tamanho) => {
     if (!isPlainObject(tamanhos)) {
         return '';
@@ -362,6 +398,7 @@ export const validarEAdicionarProdutoAoPortfolio = ({
     variacoes,
     agrupamento,
     responsavel,
+    orderIndex,
     adicionarProduto = upsertPortfolio,
 }) => {
     const codigoTrim = typeof codigo === 'string' ? codigo.trim() : '';
@@ -370,9 +407,10 @@ export const validarEAdicionarProdutoAoPortfolio = ({
     }
 
     let gradeLista = normalizarGradeLista(parseGradeString(grade));
+    const normalizeRef = (valor) => (typeof valor === 'string' ? valor.trim().toUpperCase() : '');
     const variacoesProcessadas = (Array.isArray(variacoes) ? variacoes : [])
         .map((variacao) => {
-            const ref = typeof variacao?.ref === 'string' ? variacao.ref.trim() : '';
+            const ref = normalizeRef(variacao?.ref);
             const tamanhosNormalizados = normalizarMapaDeTamanhos(variacao?.tamanhos, gradeLista);
             const possuiAlgumTamanho = Object.keys(tamanhosNormalizados || {}).length > 0;
             if (!ref || !possuiAlgumTamanho) {
@@ -381,6 +419,7 @@ export const validarEAdicionarProdutoAoPortfolio = ({
             return {
                 ref,
                 tamanhos: tamanhosNormalizados,
+                alwaysSeparate: Boolean(variacao?.alwaysSeparate),
             };
         })
         .filter(Boolean);
@@ -413,6 +452,17 @@ export const validarEAdicionarProdutoAoPortfolio = ({
         alwaysSeparate: Boolean(variacao.alwaysSeparate),
     }));
 
+    const alwaysSeparateRefsSet = new Set();
+    variacoesNormalizadas.forEach((variacao) => {
+        if (!variacao.alwaysSeparate) {
+            return;
+        }
+        const normalizedRef = normalizeRef(variacao.ref);
+        if (normalizedRef) {
+            alwaysSeparateRefsSet.add(normalizedRef);
+        }
+    });
+
     const grouping = agrupamento === 'separadas' ? 'separadas' : 'juntas';
     const groupingMode = grouping === 'separadas' ? 'separated' : 'grouped';
     const payload = {
@@ -422,8 +472,12 @@ export const validarEAdicionarProdutoAoPortfolio = ({
         grouping,
         groupingMode,
         createdBy: responsavel,
-        alwaysSeparateRefs: [],
+        alwaysSeparateRefs: Array.from(alwaysSeparateRefsSet),
     };
+
+    if (Number.isFinite(orderIndex)) {
+        payload.orderIndex = orderIndex;
+    }
 
     const options = responsavel ? { actor: responsavel } : undefined;
     const portfolioAtualizado = adicionarProduto(payload, options);
@@ -699,6 +753,7 @@ const validarFormularioManual = ({
             return {
                 ref,
                 tamanhos,
+                alwaysSeparate: Boolean(variacao?.alwaysSeparate),
             };
         })
         .filter(Boolean);
@@ -750,14 +805,21 @@ const construirSnapshotsManuais = ({
     responsavel,
     dataLancamentoISO = null,
 }) => {
+    const gradeNormalizada = Array.isArray(grade) ? grade : [];
+    const variacoesNormalizadas = (Array.isArray(variacoes) ? variacoes : []).map((variacao) => ({
+        ref: typeof variacao?.ref === 'string' ? variacao.ref : '',
+        tamanhos: preencherTamanhosComGrade(gradeNormalizada, variacao?.tamanhos),
+        alwaysSeparate: Boolean(variacao?.alwaysSeparate),
+    }));
+
     const snapshotConfig = {
-        grade,
+        grade: gradeNormalizada,
         responsavel,
         dataLancamentoISO,
     };
 
     if (agrupamento === 'separadas') {
-        return variacoes.map((variacao) =>
+        return variacoesNormalizadas.map((variacao) =>
             criarSnapshotProduto({
                 ...snapshotConfig,
                 produtoBase: variacao.ref || codigo,
@@ -766,13 +828,39 @@ const construirSnapshotsManuais = ({
         );
     }
 
-    return [
-        criarSnapshotProduto({
-            ...snapshotConfig,
-            produtoBase: codigo,
-            variations: variacoes,
-        }),
-    ];
+    const agrupadas = [];
+    const separadas = [];
+
+    variacoesNormalizadas.forEach((variacao) => {
+        if (variacao.alwaysSeparate) {
+            separadas.push(variacao);
+        } else {
+            agrupadas.push(variacao);
+        }
+    });
+
+    const snapshots = [];
+    if (agrupadas.length) {
+        snapshots.push(
+            criarSnapshotProduto({
+                ...snapshotConfig,
+                produtoBase: codigo,
+                variations: agrupadas,
+            }),
+        );
+    }
+
+    separadas.forEach((variacao) => {
+        snapshots.push(
+            criarSnapshotProduto({
+                ...snapshotConfig,
+                produtoBase: variacao.ref || codigo,
+                variations: [variacao],
+            }),
+        );
+    });
+
+    return snapshots;
 };
 
 const GestaoProducaoEstoqueModule = ({
@@ -807,8 +895,74 @@ const GestaoProducaoEstoqueModule = ({
     const [status, setStatus] = useState({ type: 'idle', message: '' });
     const [autoCarregamentoInicialAplicado, setAutoCarregamentoInicialAplicado] = useState(false);
     const manualFormularioRef = useRef(null);
+    const gridCellRefs = useRef(new Map());
 
     const gradeListaAtual = useMemo(() => parseManualGradeText(novoProdutoGrade), [novoProdutoGrade]);
+    const resumoGradeAtual = useMemo(
+        () => calcularResumoPorTamanho(novoProdutoVariacoes, gradeListaAtual),
+        [novoProdutoVariacoes, gradeListaAtual],
+    );
+
+    const registerGridCell = useCallback((rowIndex, colIndex, element) => {
+        const key = `${rowIndex}-${colIndex}`;
+        if (element) {
+            gridCellRefs.current.set(key, element);
+        } else {
+            gridCellRefs.current.delete(key);
+        }
+    }, []);
+
+    const focusGridCell = useCallback((rowIndex, colIndex) => {
+        const key = `${rowIndex}-${colIndex}`;
+        const target = gridCellRefs.current.get(key);
+        if (target) {
+            target.focus();
+            if (typeof target.select === 'function') {
+                target.select();
+            }
+        }
+    }, []);
+
+    const handleGridKeyDown = useCallback(
+        (event, rowIndex, colIndex) => {
+            const navegaveis = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'];
+            if (!navegaveis.includes(event.key)) {
+                return;
+            }
+            event.preventDefault();
+            const totalLinhas = novoProdutoVariacoes.length;
+            const totalColunas = Math.max(1, gradeListaAtual.length + 1);
+            let proximaLinha = rowIndex;
+            let proximaColuna = colIndex;
+
+            switch (event.key) {
+                case 'ArrowUp':
+                    proximaLinha = Math.max(0, rowIndex - 1);
+                    break;
+                case 'ArrowDown':
+                    proximaLinha = Math.min(totalLinhas - 1, rowIndex + 1);
+                    break;
+                case 'ArrowLeft':
+                    proximaColuna = Math.max(0, colIndex - 1);
+                    break;
+                case 'ArrowRight':
+                    proximaColuna = Math.min(totalColunas - 1, colIndex + 1);
+                    break;
+                case 'Enter':
+                    if (event.shiftKey) {
+                        proximaLinha = Math.max(0, rowIndex - 1);
+                    } else {
+                        proximaLinha = Math.min(totalLinhas - 1, rowIndex + 1);
+                    }
+                    break;
+                default:
+                    break;
+            }
+
+            focusGridCell(proximaLinha, proximaColuna);
+        },
+        [gradeListaAtual.length, novoProdutoVariacoes.length, focusGridCell],
+    );
 
     const clearManualPreview = useCallback(() => {
         setManualPreviewSnapshots([]);
@@ -1231,6 +1385,14 @@ const GestaoProducaoEstoqueModule = ({
                     houveAlteracao = true;
                     return { ...variacao, ref: valorNormalizado };
                 }
+                if (campo === 'alwaysSeparate') {
+                    const checked = Boolean(valor);
+                    if (variacao.alwaysSeparate === checked) {
+                        return variacao;
+                    }
+                    houveAlteracao = true;
+                    return { ...variacao, alwaysSeparate: checked };
+                }
                 if (campo === 'tamanhos' && tamanhoAlvo) {
                     const tamanhosAtuais = isPlainObject(variacao.tamanhos) ? variacao.tamanhos : {};
                     const valorBruto = typeof valor === 'string' ? valor : String(valor ?? '');
@@ -1515,15 +1677,32 @@ const GestaoProducaoEstoqueModule = ({
         [handleCarregarProduto],
     );
 
+    const encontrarOrderIndexProduto = useCallback(
+        (codigoBase) => {
+            const codigoNormalizado = typeof codigoBase === 'string' ? codigoBase.trim() : '';
+            if (!codigoNormalizado) {
+                return portfolio.length;
+            }
+            const produtoExistente = portfolio.find((item) => item?.codigo === codigoNormalizado);
+            if (produtoExistente && Number.isFinite(produtoExistente.orderIndex)) {
+                return produtoExistente.orderIndex;
+            }
+            return portfolio.length;
+        },
+        [portfolio],
+    );
+
     const handleAdicionarProduto = useCallback(() => {
         try {
             const variacoesPreparadas = prepararVariacoesComGrade(novoProdutoVariacoes, gradeListaAtual);
+            const ordemPreferida = encontrarOrderIndexProduto(novoProdutoCodigo);
             const { portfolioAtualizado, mensagemSucesso } = validarEAdicionarProdutoAoPortfolio({
                 codigo: novoProdutoCodigo,
                 grade: novoProdutoGrade,
                 variacoes: variacoesPreparadas,
                 agrupamento: novoProdutoAgrupamento,
                 responsavel: responsavelAtual,
+                orderIndex: ordemPreferida,
             });
             setPortfolio(portfolioAtualizado);
             sincronizarFormularioComProduto(portfolioAtualizado, novoProdutoCodigo);
@@ -1542,6 +1721,7 @@ const GestaoProducaoEstoqueModule = ({
         gradeListaAtual,
         responsavelAtual,
         sincronizarFormularioComProduto,
+        encontrarOrderIndexProduto,
     ]);
 
     const handleSalvarPortfolio = useCallback(() => {
@@ -1551,12 +1731,14 @@ const GestaoProducaoEstoqueModule = ({
         }
         try {
             const variacoesPreparadas = prepararVariacoesComGrade(novoProdutoVariacoes, gradeListaAtual);
+            const ordemPreferida = encontrarOrderIndexProduto(novoProdutoCodigo);
             const { portfolioAtualizado, mensagemSucesso } = validarEAdicionarProdutoAoPortfolio({
                 codigo: novoProdutoCodigo,
                 grade: novoProdutoGrade,
                 variacoes: variacoesPreparadas,
                 agrupamento: novoProdutoAgrupamento,
                 responsavel: responsavelAtual,
+                orderIndex: ordemPreferida,
             });
             setPortfolio(portfolioAtualizado);
             sincronizarFormularioComProduto(portfolioAtualizado, novoProdutoCodigo);
@@ -1576,6 +1758,7 @@ const GestaoProducaoEstoqueModule = ({
         gradeListaAtual,
         responsavelAtual,
         sincronizarFormularioComProduto,
+        encontrarOrderIndexProduto,
     ]);
 
     const handleNovoProdutoCodigoChange = useCallback(
@@ -1618,6 +1801,7 @@ const GestaoProducaoEstoqueModule = ({
             variacoes: manualFormularioNormalizado.variacoes.map((variacao) => ({
                 ref: variacao.ref,
                 tamanhos: { ...variacao.tamanhos },
+                alwaysSeparate: Boolean(variacao.alwaysSeparate),
             })),
         };
 
@@ -2006,75 +2190,102 @@ const GestaoProducaoEstoqueModule = ({
                                         </div>
                                         <p className="text-xs text-gray-500 dark:text-gray-400">
                                             As colunas são geradas automaticamente a partir da grade definida acima. Informe as
-                                            quantidades em cada célula (valores negativos são permitidos) ou utilize o formato
-                                            tradicional com tamanho e saldo ao importar dados existentes.
+                                            quantidades em cada célula (valores negativos são permitidos), utilize setas ou Enter para navegar e cole sequências completas para agilizar o preenchimento.
                                         </p>
-                                        <div className="overflow-x-auto rounded-md border border-dashed border-gray-300 dark:border-gray-600">
-                                            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
-                                                <thead className="bg-gray-50 dark:bg-gray-900/60">
+                                        <div className="overflow-x-auto rounded-md border border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900">
+                                            <table className="w-full border-collapse text-sm">
+                                                <thead className="bg-gray-100 dark:bg-gray-900/60 text-gray-700 dark:text-gray-200">
                                                     <tr>
-                                                        <th
-                                                            scope="col"
-                                                            className="px-3 py-2 text-left font-medium text-gray-700 dark:text-gray-200"
-                                                        >
-                                                            Referência
+                                                        <th className="border border-gray-300 dark:border-gray-700 px-3 py-2 text-left font-semibold" scope="col">
+                                                            REF/TAM
                                                         </th>
                                                         {gradeListaAtual.map((tamanho) => (
                                                             <th
                                                                 key={`cabecalho-${tamanho}`}
+                                                                className="border border-gray-300 dark:border-gray-700 px-3 py-2 text-center font-semibold"
                                                                 scope="col"
-                                                                className="px-3 py-2 text-center font-medium text-gray-700 dark:text-gray-200"
                                                             >
                                                                 {tamanho}
                                                             </th>
                                                         ))}
-                                                        <th
-                                                            scope="col"
-                                                            className="px-3 py-2 text-center font-medium text-gray-700 dark:text-gray-200"
-                                                        >
+                                                        <th className="border border-gray-300 dark:border-gray-700 px-3 py-2 text-center font-semibold" scope="col">
                                                             Ações
                                                         </th>
                                                     </tr>
                                                 </thead>
-                                                <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
+                                                <tbody>
                                                     {novoProdutoVariacoes.map((variacao, index) => (
-                                                        <tr key={`variacao-${index}`}>
-                                                            <td className="px-3 py-2 align-middle">
-                                                                <input
-                                                                    type="text"
-                                                                    value={variacao.ref}
-                                                                    onChange={(event) => handleAtualizarVariacao(index, 'ref', event.target.value)}
-                                                                    className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2"
-                                                                    placeholder="Ex: 016.AZ"
-                                                                    aria-label={`Referência da variação ${index + 1}`}
-                                                                />
+                                                        <tr key={`variacao-${index}`} className="bg-white dark:bg-gray-900">
+                                                            <td className="border border-gray-300 dark:border-gray-700 px-3 py-2 align-top">
+                                                                <div className="space-y-2">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={variacao.ref}
+                                                                        onChange={(event) => handleAtualizarVariacao(index, 'ref', event.target.value)}
+                                                                        onKeyDown={(event) => handleGridKeyDown(event, index, 0)}
+                                                                        ref={(element) => registerGridCell(index, 0, element)}
+                                                                        className="w-full rounded-sm border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 font-semibold tracking-wide text-gray-900 dark:text-gray-100 focus:border-blue-500 focus:ring-blue-500"
+                                                                        placeholder="Ex: 016.AZ"
+                                                                        aria-label={`Referência da variação ${index + 1}`}
+                                                                    />
+                                                                    <label className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-300">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={Boolean(variacao.alwaysSeparate)}
+                                                                            onChange={(event) =>
+                                                                                handleAtualizarVariacao(
+                                                                                    index,
+                                                                                    'alwaysSeparate',
+                                                                                    event.target.checked,
+                                                                                )
+                                                                            }
+                                                                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                                            aria-label={`Sempre separar variação ${index + 1}`}
+                                                                        />
+                                                                        <span>Sempre separar</span>
+                                                                    </label>
+                                                                </div>
                                                             </td>
-                                                            {gradeListaAtual.map((tamanho) => (
-                                                                <td key={`${tamanho}-${index}`} className="px-2 py-2 align-middle text-center">
-                                                                <input
-                                                                    type="text"
-                                                                    inputMode="decimal"
-                                                                    pattern="-?\\d*(?:[\\.,]\\d*)?"
-                                                                    value={obterValorParaCampoDeTamanho(variacao.tamanhos, tamanho)}
-                                                                    onChange={(event) =>
-                                                                        handleAtualizarVariacao(
-                                                                            index,
-                                                                            'tamanhos',
-                                                                            event.target.value,
-                                                                            tamanho,
-                                                                        )
-                                                                    }
-                                                                    onPaste={(event) =>
-                                                                        handleColarNaVariacao(event, index, tamanho)
-                                                                    }
-                                                                    className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1.5 text-right"
-                                                                    aria-label={`Quantidade para tamanho ${tamanho} da variação ${index + 1}`}
-                                                                    placeholder="0"
-                                                                    autoComplete="off"
-                                                                />
-                                                                </td>
-                                                            ))}
-                                                            <td className="px-3 py-2 text-center align-middle">
+                                                            {gradeListaAtual.map((tamanho, colunaIndex) => {
+                                                                const valorAtual = normalizarQuantidade(variacao?.tamanhos?.[tamanho]);
+                                                                const valorClasse =
+                                                                    valorAtual > 0
+                                                                        ? 'text-green-700 dark:text-green-400'
+                                                                        : valorAtual < 0
+                                                                            ? 'text-red-600 dark:text-red-400'
+                                                                            : 'text-gray-900 dark:text-gray-100';
+                                                                return (
+                                                                    <td
+                                                                        key={`${tamanho}-${index}`}
+                                                                        className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-right align-middle"
+                                                                    >
+                                                                        <input
+                                                                            type="text"
+                                                                            inputMode="decimal"
+                                                                            pattern="-?\\d*(?:[\\.,]\\d*)?"
+                                                                            value={obterValorParaCampoDeTamanho(variacao.tamanhos, tamanho)}
+                                                                            onChange={(event) =>
+                                                                                handleAtualizarVariacao(
+                                                                                    index,
+                                                                                    'tamanhos',
+                                                                                    event.target.value,
+                                                                                    tamanho,
+                                                                                )
+                                                                            }
+                                                                            onPaste={(event) =>
+                                                                                handleColarNaVariacao(event, index, tamanho)
+                                                                            }
+                                                                            onKeyDown={(event) => handleGridKeyDown(event, index, colunaIndex + 1)}
+                                                                            ref={(element) => registerGridCell(index, colunaIndex + 1, element)}
+                                                                            className={`w-full bg-transparent text-right text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 ${valorClasse}`}
+                                                                            aria-label={`Quantidade para tamanho ${tamanho} da variação ${index + 1}`}
+                                                                            placeholder="0"
+                                                                            autoComplete="off"
+                                                                        />
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                            <td className="border border-gray-300 dark:border-gray-700 px-3 py-2 text-center align-middle">
                                                                 {novoProdutoVariacoes.length > 1 && (
                                                                     <button
                                                                         type="button"
@@ -2089,11 +2300,49 @@ const GestaoProducaoEstoqueModule = ({
                                                             </td>
                                                         </tr>
                                                     ))}
+                                                    {gradeListaAtual.length > 0 && (
+                                                        <tr className="bg-gray-50 dark:bg-gray-800/70 text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-200">
+                                                            <td className="border border-gray-300 dark:border-gray-700 px-3 py-2">produtoBase.</td>
+                                                            {gradeListaAtual.map((tamanho) => {
+                                                                const resumo = resumoGradeAtual[tamanho] || { positivo: 0, negativo: 0 };
+                                                                return (
+                                                                    <td
+                                                                        key={`resumo-${tamanho}`}
+                                                                        className="border border-gray-300 dark:border-gray-700 px-2 py-2 text-right"
+                                                                    >
+                                                                        <div className="flex flex-col items-end gap-0.5">
+                                                                            <span
+                                                                                className={
+                                                                                    resumo.positivo
+                                                                                        ? 'text-green-700 dark:text-green-400'
+                                                                                        : 'text-gray-500 dark:text-gray-400'
+                                                                                }
+                                                                            >
+                                                                                +{formatQuantidadeResumo(resumo.positivo)}
+                                                                            </span>
+                                                                            <span
+                                                                                className={
+                                                                                    resumo.negativo
+                                                                                        ? 'text-red-600 dark:text-red-400'
+                                                                                        : 'text-gray-500 dark:text-gray-400'
+                                                                                }
+                                                                            >
+                                                                                {formatQuantidadeResumo(resumo.negativo)}
+                                                                            </span>
+                                                                        </div>
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                            <td className="border border-gray-300 dark:border-gray-700 px-3 py-2 text-center text-gray-500 dark:text-gray-400 text-xs">
+                                                                —
+                                                            </td>
+                                                        </tr>
+                                                    )}
                                                     {!gradeListaAtual.length && (
                                                         <tr>
                                                             <td
                                                                 colSpan={Math.max(2, gradeListaAtual.length + 2)}
-                                                                className="px-4 py-6 text-center text-xs text-gray-500 dark:text-gray-400"
+                                                                className="border border-gray-300 dark:border-gray-700 px-4 py-6 text-center text-xs text-gray-500 dark:text-gray-400"
                                                             >
                                                                 Defina a grade para habilitar as colunas de tamanho e preencher os saldos por variação.
                                                             </td>
