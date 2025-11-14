@@ -31,6 +31,22 @@ const getStorage = () => {
 
 const cloneGrade = (grade) => (Array.isArray(grade) ? grade.map((item) => String(item)) : []);
 
+const stripAccentsAndUpper = (value) => {
+    if (typeof value !== 'string') {
+        return '';
+    }
+    const normalized = value.normalize ? value.normalize('NFD') : value;
+    return normalized.replace(/[\u0300-\u036f]/g, '').toUpperCase();
+};
+
+const normalizeCodigoComparacao = (value) => {
+    if (typeof value !== 'string') {
+        return '';
+    }
+    const trimmed = value.trim();
+    return trimmed ? stripAccentsAndUpper(trimmed) : '';
+};
+
 const normalizeNumber = (value) => {
     const parsed = typeof value === 'number' ? value : Number(value);
     if (Number.isFinite(parsed)) {
@@ -177,7 +193,10 @@ export const upsertPortfolio = (produto, options = {}) => {
     const actor = sanitizeActor(options.actor ?? produto?.updatedBy ?? produto?.createdBy);
     const currentPortfolio = listPortfolio();
     const nowIso = new Date().toISOString();
-    const existingIndex = currentPortfolio.findIndex((item) => item.codigo === sanitizedInput.codigo);
+    const normalizedInputCode = normalizeCodigoComparacao(sanitizedInput.codigo);
+    const existingIndex = currentPortfolio.findIndex(
+        (item) => normalizeCodigoComparacao(item.codigo) === normalizedInputCode
+    );
 
     if (existingIndex >= 0) {
         const previous = currentPortfolio[existingIndex];
@@ -211,11 +230,13 @@ export const upsertPortfolio = (produto, options = {}) => {
 };
 
 export const deletePortfolio = (codigo) => {
-    const code = typeof codigo === 'string' ? codigo.trim() : '';
-    if (!code) {
+    const normalized = normalizeCodigoComparacao(codigo);
+    if (!normalized) {
         return listPortfolio();
     }
-    const updated = listPortfolio().filter((item) => item.codigo !== code);
+    const updated = listPortfolio().filter(
+        (item) => normalizeCodigoComparacao(item.codigo) !== normalized
+    );
     return persistPortfolio(updated);
 };
 
@@ -228,10 +249,10 @@ export const reordenarPortfolio = (novaOrdemArray = []) => {
     const codigoOrder = novaOrdemArray
         .map((item) => {
             if (typeof item === 'string') {
-                return item.trim();
+                return normalizeCodigoComparacao(item);
             }
             if (item && typeof item === 'object' && typeof item.codigo === 'string') {
-                return item.codigo.trim();
+                return normalizeCodigoComparacao(item.codigo);
             }
             return null;
         })
@@ -241,7 +262,9 @@ export const reordenarPortfolio = (novaOrdemArray = []) => {
         return persistPortfolio(current);
     }
 
-    const portfolioMap = new Map(current.map((item) => [item.codigo, item]));
+    const portfolioMap = new Map(
+        current.map((item) => [normalizeCodigoComparacao(item.codigo), item])
+    );
     const ordered = [];
 
     codigoOrder.forEach((codigoItem) => {
@@ -688,14 +711,6 @@ const abrirJanelaRelatorio = (html) => {
         novaJanela.document.close();
     }
     return novaJanela;
-};
-
-const stripAccentsAndUpper = (value = '') => {
-    return String(value)
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toUpperCase()
-        .trim();
 };
 
 const normalizeParsedProductsToSnapshots = (produtos = [], dataLancamentoISO, responsavel) => {

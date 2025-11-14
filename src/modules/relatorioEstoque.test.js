@@ -11,6 +11,7 @@ import {
     upsertPortfolio,
     deletePortfolio,
     adicionarProdutoAoPortfolio,
+    reordenarPortfolio,
     normalizarProdutosImportados,
 } from './relatorioEstoque';
 
@@ -53,6 +54,21 @@ describe('relatorioEstoque module', () => {
         const removido = deletePortfolio('020');
         expect(removido).toEqual([]);
         expect(listPortfolio()).toEqual([]);
+    });
+
+    it('normaliza o código para comparar atualizações, remoções e reordenação', () => {
+        upsertPortfolio({ codigo: 'ã16', grade: ['UN'] });
+        const atualizado = upsertPortfolio({ codigo: 'A16', grade: ['P', 'M'] });
+        expect(atualizado).toHaveLength(1);
+        expect(atualizado[0].grade).toEqual(['P', 'M']);
+
+        upsertPortfolio({ codigo: 'b20', grade: ['36'] });
+        reordenarPortfolio(['B20', 'a16']);
+        const ordenado = listPortfolio();
+        expect(ordenado.map((item) => item.codigo)).toEqual(['b20', 'ã16']);
+
+        deletePortfolio('Á16');
+        expect(listPortfolio().map((item) => item.codigo)).toEqual(['b20']);
     });
 
     it('permite cadastrar manualmente produtos com variações agrupadas e separadas', () => {
