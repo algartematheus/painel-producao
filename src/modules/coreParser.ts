@@ -86,6 +86,45 @@ const createOrGetVariation = (
   return variation;
 };
 
+const extractGradeTokensFromQtdeLine = (line: string): string[] => {
+  const qtdeIndex = line.toLowerCase().indexOf('qtde');
+  if (qtdeIndex < 0) {
+    return [];
+  }
+  const afterQtde = line.slice(qtdeIndex + 4).trim();
+  if (!afterQtde) {
+    return [];
+  }
+  const tokens = afterQtde
+    .split(/[\/\s]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  return tokens.reduce<string[]>((acc, token) => {
+    if (/^\d+$/.test(token)) {
+      const normalizedNumber = String(parseInt(token, 10)).padStart(2, '0');
+      acc.push(normalizedNumber);
+      return acc;
+    }
+
+    const alphaToken = token.replace(/[^a-z]/gi, '').toUpperCase();
+    if (!alphaToken) {
+      return acc;
+    }
+
+    if (alphaToken === 'UNICA') {
+      acc.push('UN');
+      return acc;
+    }
+
+    if (/^[A-Z]+$/.test(alphaToken)) {
+      acc.push(alphaToken);
+    }
+
+    return acc;
+  }, []);
+};
+
 const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => {
   const productsMap = new Map<string, ParsedProduct>();
   let currentGrade: string[] | null = null;
@@ -118,6 +157,21 @@ const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => 
     }
 
     if (QTDE_HEADER_REGEX.test(line)) {
+      const qtdeGradeTokens = extractGradeTokensFromQtdeLine(line);
+      if (qtdeGradeTokens.length) {
+        currentGrade = qtdeGradeTokens.slice();
+        if (currentVariation) {
+          currentVariation.grade = qtdeGradeTokens.slice();
+          const productCodeMatch = currentVariation.ref.match(/^(\d{3,}[A-Z]?)/);
+          if (productCodeMatch) {
+            const product = productsMap.get(productCodeMatch[1]);
+            if (product) {
+              product.grade = qtdeGradeTokens.slice();
+            }
+          }
+        }
+      }
+
       const baseMatch = line.match(/^\s*(\d{3,}[A-Z]?)\b.*Qtde\s+UN\b/i);
       if (baseMatch && currentGrade?.length === 1) {
         currentVariation = createOrGetVariation(productsMap, baseMatch[1], currentGrade);
