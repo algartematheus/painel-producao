@@ -205,4 +205,40 @@ describe('coreParser', () => {
       },
     ] as ProductSnapshot[]);
   });
+
+  it('reutiliza a grade do produto quando a variação não declara a linha Qtde', () => {
+    const text = [
+      'Grade: 0 -',
+      '555.AZ',
+      'Qtde 06 08 10',
+      'A PRODUZIR: -60 -10 -20 -30',
+      'Grade: 0 -',
+      '555.BR',
+      'A PRODUZIR: -45 -15 -15 -15',
+    ].join('\n');
+
+    const snapshots = parseTextContent(text);
+
+    expect(snapshots).toEqual([
+      {
+        productCode: '555',
+        grade: ['06', '08', '10'],
+        warnings: [],
+        variations: [
+          {
+            ref: '555.AZ',
+            grade: ['06', '08', '10'],
+            tamanhos: { '06': -10, '08': -20, '10': -30 },
+            total: -60,
+          },
+          {
+            ref: '555.BR',
+            grade: ['06', '08', '10'],
+            tamanhos: { '06': -15, '08': -15, '10': -15 },
+            total: -45,
+          },
+        ],
+      },
+    ] as ProductSnapshot[]);
+  });
 });

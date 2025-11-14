@@ -74,14 +74,21 @@ const createOrGetVariation = (
   const product = createOrGetProduct(productsMap, productCode, gradeFromContext);
   let variation = product.variations.find((entry) => entry.ref === ref);
   if (!variation) {
+    const grade = gradeFromContext?.length
+      ? cloneGrade(gradeFromContext)
+      : cloneGrade(product.grade);
     variation = {
       ref,
-      grade: cloneGrade(gradeFromContext) || cloneGrade(product.grade),
+      grade,
       tamanhos: {},
     };
     product.variations.push(variation);
-  } else if (!variation.grade.length && gradeFromContext?.length) {
-    variation.grade = cloneGrade(gradeFromContext);
+  } else if (!variation.grade.length) {
+    if (gradeFromContext?.length) {
+      variation.grade = cloneGrade(gradeFromContext);
+    } else if (product.grade.length) {
+      variation.grade = cloneGrade(product.grade);
+    }
   }
   return variation;
 };
