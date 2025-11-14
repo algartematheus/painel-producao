@@ -1,18 +1,12 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { StockContext, StockMovementsPage } from './gerenciamentodeestoque';
-import importLegacyStockFile, { flattenSnapshotsToVariations } from './stockImporter';
-import importStockFile from './importStockFile';
-
-jest.mock('./stockImporter', () => ({
-    __esModule: true,
-    default: jest.fn(),
-    flattenSnapshotsToVariations: jest.fn(),
-}));
+import importStockFile, { flattenSnapshotsToVariations } from './importStockFile';
 
 jest.mock('./importStockFile', () => ({
     __esModule: true,
     default: jest.fn(),
+    flattenSnapshotsToVariations: jest.fn(),
 }));
 
 const renderMovementsPage = (contextOverrides = {}) => {
@@ -83,7 +77,6 @@ test('importa arquivos DOCX utilizando o novo fluxo de pré-visualização', asy
         expect(importStockFile).toHaveBeenCalledTimes(1);
     });
 
-    expect(importLegacyStockFile).not.toHaveBeenCalled();
     expect(importStockFile).toHaveBeenCalledWith(file, { productOrder: ['016'] });
     expect(screen.getByText(/Quantidade total: 5/)).toBeInTheDocument();
 });

@@ -36,6 +36,28 @@ const assertHasVariations = (snapshots: ProductSnapshot[]): void => {
   }
 };
 
+export const flattenSnapshotsToVariations = (
+  snapshots: ProductSnapshot[] = [],
+): { productCode: string; ref: string; tamanhos: Record<string, number>; total: number }[] => {
+  const flattened: { productCode: string; ref: string; tamanhos: Record<string, number>; total: number }[] = [];
+  snapshots.forEach((snapshot) => {
+    const variations = Array.isArray(snapshot?.variations) ? snapshot.variations : [];
+    variations.forEach((variation) => {
+      const tamanhos = variation?.tamanhos || {};
+      const total = Object.values(tamanhos)
+        .map((value) => (typeof value === 'number' && Number.isFinite(value) ? value : 0))
+        .reduce((sum, value) => sum + value, 0);
+      flattened.push({
+        productCode: snapshot.productCode,
+        ref: variation?.ref || '',
+        tamanhos,
+        total,
+      });
+    });
+  });
+  return flattened;
+};
+
 export const importStockFile = async (
   file: File,
   options?: StockImportOptions,

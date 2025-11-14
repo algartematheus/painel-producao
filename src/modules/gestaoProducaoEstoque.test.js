@@ -37,10 +37,9 @@ jest.mock('../components/GlobalNavigation', () => ({
     default: () => <nav data-testid="global-navigation" />,
 }));
 
-jest.mock('./stockImporter', () => ({
+jest.mock('./importStockFile', () => ({
     __esModule: true,
     default: jest.fn(),
-    PDF_LIBRARY_UNAVAILABLE_ERROR: 'PDF_LIBRARY_UNAVAILABLE_ERROR',
 }));
 
 jest.mock('./relatorioEstoque', () => ({
