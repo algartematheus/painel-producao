@@ -479,7 +479,29 @@ export const resumoPositivoNegativo = (totalPorTamanho = {}) => {
     const entries = Object.entries(totalPorTamanho || {});
     let positivoTotal = 0;
     let negativoTotal = 0;
+
     entries.forEach(([, value]) => {
+        if (value && typeof value === 'object') {
+            const positivo = normalizeNumber(value.positivo);
+            const negativo = normalizeNumber(value.negativo);
+            if (positivo > 0) {
+                positivoTotal += positivo;
+            }
+            if (negativo < 0) {
+                negativoTotal += negativo;
+            }
+
+            if (positivo === 0 && negativo === 0) {
+                const liquido = normalizeNumber(value.liquido);
+                if (liquido > 0) {
+                    positivoTotal += liquido;
+                } else if (liquido < 0) {
+                    negativoTotal += liquido;
+                }
+            }
+            return;
+        }
+
         const numero = normalizeNumber(value);
         if (numero > 0) {
             positivoTotal += numero;
@@ -487,6 +509,7 @@ export const resumoPositivoNegativo = (totalPorTamanho = {}) => {
             negativoTotal += numero;
         }
     });
+
     return {
         positivoTotal,
         negativoTotal,
@@ -551,7 +574,7 @@ export const criarSnapshotProduto = ({
     const gradeCalculada = sanitizedGrade.length ? sanitizedGrade : inferGradeFromVariations(sanitizedVariations);
     const totalPorTamanho = calcularTotalPorTamanho(sanitizedVariations, gradeCalculada);
     const totalPorTamanhoDetalhado = calcularDetalhesPorTamanho(sanitizedVariations, gradeCalculada);
-    const resumo = resumoPositivoNegativo(totalPorTamanho);
+    const resumo = resumoPositivoNegativo(totalPorTamanhoDetalhado);
     const gradeFinal = sanitizedGrade.length ? sanitizedGrade : gradeCalculada;
     return {
         produtoBase,

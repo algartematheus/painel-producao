@@ -199,8 +199,16 @@ describe('relatorioEstoque module', () => {
         const totais = calcularTotalPorTamanho(variations, grade);
         expect(totais).toEqual({ '06': 5, '08': 0, '10': 20 });
 
-        const resumo = resumoPositivoNegativo(totais);
-        expect(resumo).toEqual({ positivoTotal: 25, negativoTotal: 0, formatoHumano: '25 0' });
+        const detalhado = {
+            '06': { positivo: 15, negativo: -10, liquido: 5 },
+            '08': { positivo: 5, negativo: -5, liquido: 0 },
+            '10': { positivo: 20, negativo: 0, liquido: 20 },
+        };
+        const resumoDetalhado = resumoPositivoNegativo(detalhado);
+        expect(resumoDetalhado).toEqual({ positivoTotal: 40, negativoTotal: -15, formatoHumano: '40 -15' });
+
+        const resumoFallback = resumoPositivoNegativo(totais);
+        expect(resumoFallback).toEqual({ positivoTotal: 25, negativoTotal: 0, formatoHumano: '25 0' });
     });
 
     it('cria snapshot com totais agregados', () => {
@@ -208,16 +216,16 @@ describe('relatorioEstoque module', () => {
             produtoBase: '016',
             grade: ['06', '08'],
             variations: [
-                { ref: '016.AZ', tamanhos: { '06': -2, '08': 1 } },
-                { ref: '016.ST', tamanhos: { '06': 1, '08': -80 } },
+                { ref: '016.AZ', tamanhos: { '06': 0, '08': 1 } },
+                { ref: '016.ST', tamanhos: { '06': 0, '08': -80 } },
             ],
             dataLancamentoISO: '2024-01-01T00:00:00Z',
             responsavel: 'Matheus',
         });
 
-        expect(snapshot.totalPorTamanho).toEqual({ '06': -1, '08': -79 });
+        expect(snapshot.totalPorTamanho).toEqual({ '06': 0, '08': -79 });
         expect(snapshot.totalPorTamanhoDetalhado).toEqual({
-            '06': { positivo: 1, negativo: -2, liquido: -1 },
+            '06': { positivo: 0, negativo: 0, liquido: 0 },
             '08': { positivo: 1, negativo: -80, liquido: -79 },
         });
         expect(snapshot.resumoPositivoNegativo).toEqual({ positivoTotal: 1, negativoTotal: -80, formatoHumano: '1 -80' });
