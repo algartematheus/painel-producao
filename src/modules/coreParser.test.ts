@@ -63,6 +63,69 @@ describe('coreParser', () => {
     ] as ProductSnapshot[]);
   });
 
+  it('alinhar 016.DV com coluna faltante utilizando TOTAL ESTOQUES', () => {
+    const text = [
+      'Grade: 3 - 06/08/10/12/14/16/02/04',
+      '016.DV',
+      'TOTAL ESTOQUES:       999      11      22      33      44      55      66      77      88',
+      'A PRODUZIR:           -170     -10     -20              -40      -50      -20      -10      -20',
+    ].join('\n');
+
+    const snapshots = parseTextContent(text);
+
+    expect(snapshots).toEqual([
+      {
+        productCode: '016',
+        grade: ['06', '08', '10', '12', '14', '16', '02', '04'],
+        warnings: [],
+        variations: [
+          {
+            ref: '016.DV',
+            grade: ['06', '08', '10', '12', '14', '16', '02', '04'],
+            tamanhos: {
+              '02': -10,
+              '04': -20,
+              '06': -10,
+              '08': -20,
+              '10': 0,
+              '12': -40,
+              '14': -50,
+              '16': -20,
+            },
+            total: -170,
+          },
+        ],
+      },
+    ] as ProductSnapshot[]);
+  });
+
+  it('reconhece variação com sufixo longo como 021.USED', () => {
+    const text = [
+      'Grade: 2 - UNICA',
+      '021.USED',
+      'Qtde UN',
+      'A PRODUZIR: -10',
+    ].join('\n');
+
+    const snapshots = parseTextContent(text);
+
+    expect(snapshots).toEqual([
+      {
+        productCode: '021',
+        grade: ['UN'],
+        warnings: [],
+        variations: [
+          {
+            ref: '021.USED',
+            grade: ['UN'],
+            tamanhos: { UN: -10 },
+            total: -10,
+          },
+        ],
+      },
+    ] as ProductSnapshot[]);
+  });
+
   it('aplica ordenação de produtos informada nas opções', () => {
     const text = [
       'Grade: 2 - UNICA',
