@@ -446,13 +446,24 @@ const inferGradeFromVariations = (variations = [], fallbackGrade = []) => {
     if (Array.isArray(fallbackGrade) && fallbackGrade.length) {
         return cloneGrade(fallbackGrade);
     }
-    for (const variation of variations) {
-        const keys = Object.keys(variation.tamanhos || {});
-        if (keys.length) {
-            return keys;
+
+    const uniqueSizes = new Set();
+
+    variations.forEach((variation) => {
+        if (!variation || typeof variation !== 'object') {
+            return;
         }
-    }
-    return [];
+
+        const sizeKeys = Object.keys(variation.tamanhos || {});
+        sizeKeys.forEach((size) => {
+            const normalizedSize = String(size);
+            if (!uniqueSizes.has(normalizedSize)) {
+                uniqueSizes.add(normalizedSize);
+            }
+        });
+    });
+
+    return Array.from(uniqueSizes).sort((a, b) => a.localeCompare(b));
 };
 
 export const calcularTotalPorTamanho = (variations = [], grade = []) => {
@@ -571,11 +582,14 @@ export const criarSnapshotProduto = ({
     }
     const sanitizedGrade = cloneGrade(grade);
     const sanitizedVariations = sanitizeVariations(variations);
-    const gradeCalculada = sanitizedGrade.length ? sanitizedGrade : inferGradeFromVariations(sanitizedVariations);
+    const gradeInferida = inferGradeFromVariations(sanitizedVariations);
+    const gradeCalculada = sanitizedGrade.length
+        ? Array.from(new Set([...sanitizedGrade, ...gradeInferida]))
+        : gradeInferida;
     const totalPorTamanho = calcularTotalPorTamanho(sanitizedVariations, gradeCalculada);
     const totalPorTamanhoDetalhado = calcularDetalhesPorTamanho(sanitizedVariations, gradeCalculada);
     const resumo = resumoPositivoNegativo(totalPorTamanhoDetalhado);
-    const gradeFinal = sanitizedGrade.length ? sanitizedGrade : gradeCalculada;
+    const gradeFinal = gradeCalculada;
     return {
         produtoBase,
         grade: gradeFinal,
