@@ -99,6 +99,33 @@ describe('coreParser', () => {
     ] as ProductSnapshot[]);
   });
 
+  it('reconhece variação com sufixo longo como 021.USED', () => {
+    const text = [
+      'Grade: 2 - UNICA',
+      '021.USED',
+      'Qtde UN',
+      'A PRODUZIR: -10',
+    ].join('\n');
+
+    const snapshots = parseTextContent(text);
+
+    expect(snapshots).toEqual([
+      {
+        productCode: '021',
+        grade: ['UN'],
+        warnings: [],
+        variations: [
+          {
+            ref: '021.USED',
+            grade: ['UN'],
+            tamanhos: { UN: -10 },
+            total: -10,
+          },
+        ],
+      },
+    ] as ProductSnapshot[]);
+  });
+
   it('aplica ordenação de produtos informada nas opções', () => {
     const text = [
       'Grade: 2 - UNICA',

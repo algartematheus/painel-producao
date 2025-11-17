@@ -14,7 +14,7 @@ interface ParsedProduct {
   warnings: string[];
 }
 
-const VARIATION_ONLY_REGEX = /^\s*(\d{3,}[A-Z]?\.[A-Z0-9]{2,3})\s*$/;
+const VARIATION_ONLY_REGEX = /^\s*(\d{3,}[A-Z]?\.[A-Z0-9]+)\s*$/;
 const BASE_ONLY_REGEX = /^\s*(\d{3,}[A-Z]?)\s*$/;
 const GRADE_HEADER_REGEX = /^\s*Grade:\s*\d+\s*-\s*(.+?)\s*$/i;
 const QTDE_HEADER_REGEX = /\bQtde\b/i;
@@ -252,7 +252,7 @@ const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => 
         return;
       }
 
-      const variationMatch = line.match(/^\s*(\d{3,}[A-Z]?\.[A-Z0-9]{2,3})\b.*Qtde\b/i);
+      const variationMatch = line.match(/^\s*(\d{3,}[A-Z]?\.[A-Z0-9]+)\b.*Qtde\b/i);
       if (variationMatch) {
         currentVariation = createOrGetVariation(productsMap, variationMatch[1], currentGrade);
         return;

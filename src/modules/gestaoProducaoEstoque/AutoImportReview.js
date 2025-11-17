@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { GripVertical } from 'lucide-react';
+import { resumoPositivoNegativo } from '../relatorioEstoque';
 
 const normalizeProductCode = (value = '') => {
     if (typeof value !== 'string') {
@@ -147,36 +148,76 @@ const AutoImportReview = ({
         event.preventDefault();
     };
 
-    const renderResumoRow = (variations, gradeLength) => {
-        const resumo = variations.reduce(
-            (acc, variation) => {
-                const total = getVariationTotal(variation);
-                if (total > 0) {
-                    acc.positivo += total;
-                } else if (total < 0) {
-                    acc.negativo += total;
-                }
-                return acc;
-            },
-            { positivo: 0, negativo: 0 },
-        );
-        return (
-            <tr className="bg-gray-50 dark:bg-gray-900/40">
-                <td colSpan={Math.max(gradeLength + 3, 2)} className="px-3 py-2 text-sm">
-                    <div className="flex flex-wrap gap-4 text-sm">
-                        <span className="font-medium text-gray-700 dark:text-gray-200">
-                            Necessário produzir:{' '}
-                            <span className="text-red-600 dark:text-red-400">{resumo.positivo}</span>
-                        </span>
-                        <span className="font-medium text-gray-700 dark:text-gray-200">
-                            Sobra consolidada:{' '}
-                            <span className="text-blue-600 dark:text-blue-400">{resumo.negativo}</span>
-                        </span>
-                    </div>
-                </td>
-            </tr>
-        );
-    };
+const ensureResumoDetalhado = (variations = [], grade = []) => {
+    const sizeSet = new Set();
+    if (Array.isArray(grade)) {
+        grade.forEach((size) => {
+            if (size) {
+                sizeSet.add(String(size));
+            }
+        });
+    }
+
+    variations.forEach((variation) => {
+        Object.keys(variation?.tamanhos || {}).forEach((size) => {
+            if (size) {
+                sizeSet.add(String(size));
+            }
+        });
+    });
+
+    const detalhes = {};
+    sizeSet.forEach((size) => {
+        detalhes[size] = { positivo: 0, negativo: 0, liquido: 0 };
+    });
+
+    variations.forEach((variation) => {
+        sizeSet.forEach((size) => {
+            const value = safeNumber(variation?.tamanhos?.[size]);
+            if (!value) {
+                return;
+            }
+            if (!detalhes[size]) {
+                detalhes[size] = { positivo: 0, negativo: 0, liquido: 0 };
+            }
+            if (value > 0) {
+                detalhes[size].positivo += value;
+            } else if (value < 0) {
+                detalhes[size].negativo += value;
+            }
+            detalhes[size].liquido += value;
+        });
+    });
+
+    return detalhes;
+};
+
+const renderResumoRow = (variations, grade) => {
+    const gradeList = Array.isArray(grade) ? grade : [];
+    const gradeLength = gradeList.length;
+    const detalhes = ensureResumoDetalhado(variations, gradeList);
+    const resumo = resumoPositivoNegativo(detalhes);
+    return (
+        <tr className="bg-gray-50 dark:bg-gray-900/40">
+            <td colSpan={Math.max(gradeLength + 3, 2)} className="px-3 py-2 text-sm">
+                <div className="flex flex-wrap gap-4 text-sm">
+                    <span className="font-medium text-gray-700 dark:text-gray-200">
+                        Necessário produzir:{' '}
+                        <span className="text-red-600 dark:text-red-400">{resumo.positivoTotal}</span>
+                    </span>
+                    <span className="font-medium text-gray-700 dark:text-gray-200">
+                        Sobra consolidada:{' '}
+                        <span className="text-blue-600 dark:text-blue-400">{resumo.negativoTotal}</span>
+                    </span>
+                    <span className="font-medium text-gray-700 dark:text-gray-200">
+                        Resumo rápido:{' '}
+                        <span className="text-gray-900 dark:text-gray-100 font-semibold">{resumo.formatoHumano}</span>
+                    </span>
+                </div>
+            </td>
+        </tr>
+    );
+};
 
     if (!produtosOrdenados.length) {
         return (
@@ -313,7 +354,7 @@ const AutoImportReview = ({
                                             </tr>
                                         );
                                     })}
-                                    {renderResumoRow(variations, grade.length)}
+                                    {renderResumoRow(variations, grade)}
                                 </tbody>
                             </table>
                         </div>
