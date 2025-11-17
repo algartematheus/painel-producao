@@ -212,6 +212,26 @@ describe('relatorioEstoque module', () => {
         expect(resumoFallback).toEqual({ positivoTotal: 25, negativoTotal: 0, formatoHumano: '25 0' });
     });
 
+    it('expande grade inferida ao considerar todas as variações sem grade explícita', () => {
+        const snapshot = criarSnapshotProduto({
+            produtoBase: '080',
+            variations: [
+                { ref: '080.A', tamanhos: { P: 2 } },
+                { ref: '080.B', tamanhos: { M: -1, G: 5 } },
+                { ref: '080.C', tamanhos: { GG: 3 } },
+            ],
+        });
+
+        expect(snapshot.grade).toEqual(['G', 'GG', 'M', 'P']);
+        expect(snapshot.totalPorTamanho).toEqual({ G: 5, GG: 3, M: -1, P: 2 });
+        expect(snapshot.totalPorTamanhoDetalhado).toEqual({
+            G: { positivo: 5, negativo: 0, liquido: 5 },
+            GG: { positivo: 3, negativo: 0, liquido: 3 },
+            M: { positivo: 0, negativo: -1, liquido: -1 },
+            P: { positivo: 2, negativo: 0, liquido: 2 },
+        });
+    });
+
     it('cria snapshot com totais agregados', () => {
         const snapshot = criarSnapshotProduto({
             produtoBase: '016',
