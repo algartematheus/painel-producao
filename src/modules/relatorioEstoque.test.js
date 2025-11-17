@@ -7,6 +7,7 @@ import {
     paginarRelatorioEmPaginasA4,
     gerarHTMLImpressaoPaginado,
     importarArquivoDeProducao,
+    renderizarBlocoProdutoHTML,
     listPortfolio,
     upsertPortfolio,
     deletePortfolio,
@@ -230,6 +231,35 @@ describe('relatorioEstoque module', () => {
         });
         expect(snapshot.resumoPositivoNegativo).toEqual({ positivoTotal: 1, negativoTotal: -80, formatoHumano: '1 -80' });
         expect(snapshot.metadata).toEqual({ dataLancamentoISO: '2024-01-01T00:00:00Z', responsavel: 'Matheus' });
+    });
+
+    it('renderiza totais detalhados com combinações de positivo e negativo', () => {
+        const snapshot = criarSnapshotProduto({
+            produtoBase: '050',
+            grade: ['P', 'M', 'G', 'GG'],
+            variations: [
+                { ref: '050.A', tamanhos: { P: 5, M: 4 } },
+                { ref: '050.B', tamanhos: { P: -2, G: -3 } },
+            ],
+        });
+
+        const html = renderizarBlocoProdutoHTML(snapshot);
+        expect(html).toContain('<td class="">5-2</td>');
+        expect(html).toContain('<td class="falta">4</td>');
+        expect(html).toContain('<td class="sobra">-3</td>');
+        expect(html).toContain('<td class="">0</td>');
+    });
+
+    it('mantém compatibilidade com snapshots que só possuem total líquido', () => {
+        const snapshot = criarSnapshotProduto({
+            produtoBase: '060',
+            grade: ['U'],
+            variations: [{ ref: '060.A', tamanhos: { U: -3 } }],
+        });
+        delete snapshot.totalPorTamanhoDetalhado;
+
+        const html = renderizarBlocoProdutoHTML(snapshot);
+        expect(html).toContain('<td class="sobra">-3</td>');
     });
 
     it('paginates report blocks respecting page height', () => {

@@ -643,7 +643,61 @@ export const renderizarBlocoProdutoHTML = (produtoSnapshot) => {
     const grade = cloneGrade(produtoSnapshot.grade);
     const variations = Array.isArray(produtoSnapshot.variations) ? produtoSnapshot.variations : [];
     const totalPorTamanho = produtoSnapshot.totalPorTamanho || calcularTotalPorTamanho(variations, grade);
+    const totalPorTamanhoDetalhado = produtoSnapshot.totalPorTamanhoDetalhado || calcularDetalhesPorTamanho(variations, grade);
     const resumo = produtoSnapshot.resumoPositivoNegativo || { positivoTotal: 0, negativoTotal: 0, formatoHumano: '0 0' };
+
+    const getDetalheNormalizado = (size) => {
+        const detalhe = totalPorTamanhoDetalhado?.[size];
+        const liquidoFallback = normalizeNumber(totalPorTamanho?.[size]);
+        let positivo = normalizeNumber(detalhe?.positivo);
+        let negativo = normalizeNumber(detalhe?.negativo);
+
+        positivo = positivo > 0 ? positivo : 0;
+        negativo = negativo < 0 ? negativo : 0;
+
+        if (positivo === 0 && negativo === 0) {
+            const liquidoDetalhe = normalizeNumber(detalhe?.liquido);
+            if (liquidoDetalhe > 0) {
+                positivo = liquidoDetalhe;
+            } else if (liquidoDetalhe < 0) {
+                negativo = liquidoDetalhe;
+            }
+        }
+
+        if (positivo === 0 && negativo === 0 && liquidoFallback !== 0) {
+            if (liquidoFallback > 0) {
+                positivo = liquidoFallback;
+            } else {
+                negativo = liquidoFallback;
+            }
+        }
+
+        return { positivo, negativo };
+    };
+
+    const formatTotalCell = (size) => {
+        const { positivo, negativo } = getDetalheNormalizado(size);
+        const hasPositivo = positivo > 0;
+        const hasNegativo = negativo < 0;
+
+        let displayValue = '0';
+        if (hasPositivo && hasNegativo) {
+            displayValue = `${formatNumber(positivo)}-${formatNumber(Math.abs(negativo))}`;
+        } else if (hasPositivo) {
+            displayValue = formatNumber(positivo);
+        } else if (hasNegativo) {
+            displayValue = formatNumber(negativo);
+        }
+
+        let className = '';
+        if (hasPositivo && !hasNegativo) {
+            className = 'falta';
+        } else if (hasNegativo && !hasPositivo) {
+            className = 'sobra';
+        }
+
+        return { className, displayValue };
+    };
 
     const headerCells = grade.map((size) => `<th>${size}</th>`).join('');
 
@@ -667,9 +721,8 @@ export const renderizarBlocoProdutoHTML = (produtoSnapshot) => {
 
     const totalCells = grade
         .map((size) => {
-            const value = normalizeNumber(totalPorTamanho[size]);
-            const className = getValueClass(value);
-            return `<td class="${className}">${formatNumber(value)}</td>`;
+            const { className, displayValue } = formatTotalCell(size);
+            return `<td class="${className}">${displayValue}</td>`;
         })
         .join('');
 
