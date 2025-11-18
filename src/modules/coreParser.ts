@@ -1,10 +1,21 @@
 import { ProductSnapshot, TextParserOptions, VariationSnapshot } from './types';
 
+interface ColumnLayoutSize {
+  label: string;
+  start: number;
+  end: number;
+}
+
+interface ColumnLayout {
+  sizes: ColumnLayoutSize[];
+}
+
 interface ParsedVariation {
   ref: string;
   grade: string[];
   tamanhos: Record<string, number>;
   lastTotalEstoqueLine?: string;
+  columnLayout?: ColumnLayout | null;
 }
 
 interface ParsedProduct {
@@ -34,6 +45,105 @@ const normalizeLines = (text: string): string[] => {
     return [];
   }
   return text.replace(/\r\n/g, '\n').split('\n');
+};
+
+const normalizeSizeLabel = (token: string): string | null => {
+  if (!token) {
+    return null;
+  }
+
+  if (/^\d+$/.test(token)) {
+    return String(parseInt(token, 10)).padStart(2, '0');
+  }
+
+  const alphaToken = token.replace(/[^a-z]/gi, '').toUpperCase();
+  if (!alphaToken) {
+    return null;
+  }
+
+  if (alphaToken === 'UNICA') {
+    return 'UN';
+  }
+
+  if (/^[A-Z]+$/.test(alphaToken)) {
+    return alphaToken;
+  }
+
+  return null;
+};
+
+const cloneColumnLayout = (layout?: ColumnLayout | null): ColumnLayout | null => {
+  if (!layout?.sizes?.length) {
+    return null;
+  }
+
+  return {
+    sizes: layout.sizes.map((size) => ({ ...size })),
+  };
+};
+
+const parseColumnLayoutFromQtdeLine = (line: string, gradeTokens: string[]): ColumnLayout | null => {
+  if (!line || !gradeTokens.length) {
+    return null;
+  }
+
+  const qtdeIndex = line.toLowerCase().indexOf('qtde');
+  if (qtdeIndex < 0) {
+    return null;
+  }
+
+  const regex = /([0-9A-Za-zÁ-ú]+)/g;
+  let match: RegExpExecArray | null = regex.exec(line);
+  let seenQtde = false;
+  const entries: { raw: string; start: number }[] = [];
+
+  while (match) {
+    const rawToken = match[1];
+    const start = match.index - qtdeIndex;
+
+    if (!seenQtde) {
+      if (/^qtde$/i.test(rawToken)) {
+        seenQtde = true;
+      }
+      match = regex.exec(line);
+      continue;
+    }
+
+    entries.push({ raw: rawToken, start });
+    match = regex.exec(line);
+  }
+
+  if (!entries.length) {
+    return null;
+  }
+
+  const sizes: ColumnLayoutSize[] = [];
+  let gradeIndex = 0;
+
+  for (let i = 0; i < entries.length && gradeIndex < gradeTokens.length; i += 1) {
+    const entry = entries[i];
+    const normalized = normalizeSizeLabel(entry.raw);
+    if (!normalized) {
+      continue;
+    }
+
+    if (normalized === gradeTokens[gradeIndex]) {
+      sizes.push({ label: normalized, start: entry.start, end: entry.start });
+      gradeIndex += 1;
+    }
+  }
+
+  if (sizes.length !== gradeTokens.length) {
+    return null;
+  }
+
+  const resolvedSizes = sizes.map((size, index) => ({
+    label: size.label,
+    start: size.start,
+    end: index + 1 < sizes.length ? sizes[index + 1].start : line.length - qtdeIndex,
+  }));
+
+  return { sizes: resolvedSizes };
 };
 
 const extractNumbersAfterColon = (line: string): number[] => {
@@ -101,6 +211,33 @@ const mapProduceLineToSizesByColumns = (
   return perSizeValues;
 };
 
+const mapLineToGradeUsingLayout = (
+  line: string,
+  grade: string[],
+  layout?: ColumnLayout | null,
+): number[] | null => {
+  if (!layout?.sizes?.length || !grade.length) {
+    return null;
+  }
+
+  const colonIndex = line.indexOf(':');
+  const dataSlice = colonIndex >= 0 ? line.slice(colonIndex + 1) : line;
+  const perSizeValues: number[] = [];
+
+  for (let i = 0; i < grade.length; i += 1) {
+    const size = grade[i];
+    const column = layout.sizes.find((entry) => entry.label === size);
+    if (!column) {
+      return null;
+    }
+    const slice = dataSlice.slice(column.start, column.end).trim();
+    const match = slice.match(/-?\d+/);
+    perSizeValues.push(match ? parseInt(match[0], 10) : 0);
+  }
+
+  return perSizeValues;
+};
+
 const cloneGrade = (grade?: string[] | null): string[] => {
   if (!Array.isArray(grade)) {
     return [];
@@ -132,6 +269,7 @@ const createOrGetVariation = (
   productsMap: Map<string, ParsedProduct>,
   ref: string,
   gradeFromContext?: string[] | null,
+  columnLayoutFromContext?: ColumnLayout | null,
 ): ParsedVariation | null => {
   const codeMatch = ref.match(/^(\d{3,}[A-Z]?)/);
   if (!codeMatch) {
@@ -148,6 +286,7 @@ const createOrGetVariation = (
       ref,
       grade,
       tamanhos: {},
+      columnLayout: cloneColumnLayout(columnLayoutFromContext),
     };
     product.variations.push(variation);
   } else if (!variation.grade.length) {
@@ -157,6 +296,11 @@ const createOrGetVariation = (
       variation.grade = cloneGrade(product.grade);
     }
   }
+
+  if (columnLayoutFromContext?.sizes.length) {
+    variation.columnLayout = cloneColumnLayout(columnLayoutFromContext);
+  }
+
   return variation;
 };
 
@@ -203,6 +347,7 @@ const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => 
   const productsMap = new Map<string, ParsedProduct>();
   let currentGrade: string[] | null = null;
   let currentVariation: ParsedVariation | null = null;
+  let currentColumnLayout: ColumnLayout | null = null;
 
   lines.forEach((rawLine) => {
     const line = rawLine.replace(/\s+$/g, '');
@@ -222,6 +367,7 @@ const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => 
           .filter(Boolean);
       }
       currentVariation = null;
+      currentColumnLayout = null;
       return;
     }
 
@@ -232,6 +378,8 @@ const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => 
 
     if (QTDE_HEADER_REGEX.test(line)) {
       const qtdeGradeTokens = extractGradeTokensFromQtdeLine(line);
+      const columnLayout = parseColumnLayoutFromQtdeLine(line, qtdeGradeTokens);
+      currentColumnLayout = columnLayout;
       if (qtdeGradeTokens.length) {
         currentGrade = qtdeGradeTokens.slice();
         if (currentVariation) {
@@ -243,25 +391,43 @@ const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => 
               product.grade = qtdeGradeTokens.slice();
             }
           }
+          if (columnLayout?.sizes.length) {
+            currentVariation.columnLayout = cloneColumnLayout(columnLayout);
+          }
         }
       }
 
       const baseMatch = line.match(/^\s*(\d{3,}[A-Z]?)\b.*Qtde\s+UN\b/i);
       if (baseMatch && currentGrade?.length === 1) {
-        currentVariation = createOrGetVariation(productsMap, baseMatch[1], currentGrade);
+        currentVariation = createOrGetVariation(
+          productsMap,
+          baseMatch[1],
+          currentGrade,
+          currentColumnLayout,
+        );
         return;
       }
 
       const variationMatch = line.match(/^\s*(\d{3,}[A-Z]?\.[A-Z0-9]+)\b.*Qtde\b/i);
       if (variationMatch) {
-        currentVariation = createOrGetVariation(productsMap, variationMatch[1], currentGrade);
+        currentVariation = createOrGetVariation(
+          productsMap,
+          variationMatch[1],
+          currentGrade,
+          currentColumnLayout,
+        );
         return;
       }
     }
 
     const refOnlyMatch = line.match(VARIATION_ONLY_REGEX);
     if (refOnlyMatch) {
-      currentVariation = createOrGetVariation(productsMap, refOnlyMatch[1], currentGrade);
+      currentVariation = createOrGetVariation(
+        productsMap,
+        refOnlyMatch[1],
+        currentGrade,
+        currentColumnLayout,
+      );
       return;
     }
 
@@ -273,7 +439,12 @@ const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => 
     if (!currentVariation) {
       const baseMatch = line.match(BASE_ONLY_REGEX);
       if (baseMatch && currentGrade?.length === 1) {
-        currentVariation = createOrGetVariation(productsMap, baseMatch[1], currentGrade);
+        currentVariation = createOrGetVariation(
+          productsMap,
+          baseMatch[1],
+          currentGrade,
+          currentColumnLayout,
+        );
         return;
       }
     }
@@ -290,26 +461,34 @@ const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => 
         const lastValue = prodTokens[prodTokens.length - 1];
         perSizeValues = [typeof lastValue === 'number' ? lastValue : 0];
       } else {
-        let alignedValues: number[] | null = null;
-        if (
-          currentVariation.lastTotalEstoqueLine &&
-          prodTokens.length !== grade.length + 1
-        ) {
-          alignedValues = mapProduceLineToSizesByColumns(
-            grade,
-            line,
-            currentVariation.lastTotalEstoqueLine,
-          );
-        }
+        const layoutValues = currentVariation.columnLayout
+          ? mapLineToGradeUsingLayout(line, grade, currentVariation.columnLayout)
+          : null;
 
-        if (alignedValues && alignedValues.length === grade.length) {
-          perSizeValues = alignedValues;
-        } else if (prodTokens.length === grade.length + 1) {
-          perSizeValues = prodTokens.slice(1);
-        } else if (prodTokens.length >= grade.length) {
-          perSizeValues = prodTokens.slice(prodTokens.length - grade.length);
+        if (layoutValues && layoutValues.length === grade.length) {
+          perSizeValues = layoutValues;
         } else {
-          perSizeValues = Array.from({ length: grade.length }, (_, index) => prodTokens[index] ?? 0);
+          let alignedValues: number[] | null = null;
+          if (
+            currentVariation.lastTotalEstoqueLine &&
+            prodTokens.length !== grade.length + 1
+          ) {
+            alignedValues = mapProduceLineToSizesByColumns(
+              grade,
+              line,
+              currentVariation.lastTotalEstoqueLine,
+            );
+          }
+
+          if (alignedValues && alignedValues.length === grade.length) {
+            perSizeValues = alignedValues;
+          } else if (prodTokens.length === grade.length + 1) {
+            perSizeValues = prodTokens.slice(1);
+          } else if (prodTokens.length >= grade.length) {
+            perSizeValues = prodTokens.slice(prodTokens.length - grade.length);
+          } else {
+            perSizeValues = Array.from({ length: grade.length }, (_, index) => prodTokens[index] ?? 0);
+          }
         }
       }
 
