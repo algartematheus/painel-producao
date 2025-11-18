@@ -99,6 +99,60 @@ describe('coreParser', () => {
     ] as ProductSnapshot[]);
   });
 
+  it('mantém colunas vazias alinhadas quando Qtde possui margem maior que A PRODUZIR', () => {
+    const text = [
+      'Grade: 3 - 04/06/08',
+      '123.AB',
+      '        Qtde              04        06        08',
+      'A PRODUZIR:        10                          30',
+    ].join('\n');
+
+    const snapshots = parseTextContent(text);
+
+    expect(snapshots).toEqual([
+      {
+        productCode: '123',
+        grade: ['04', '06', '08'],
+        warnings: [],
+        variations: [
+          {
+            ref: '123.AB',
+            grade: ['04', '06', '08'],
+            tamanhos: { '04': 10, '06': 0, '08': 30 },
+            total: 40,
+          },
+        ],
+      },
+    ] as ProductSnapshot[]);
+  });
+
+  it('mantém colunas vazias alinhadas quando A PRODUZIR possui margem maior que Qtde', () => {
+    const text = [
+      'Grade: 3 - 04/06/08',
+      '123.AB',
+      'Qtde 04 06 08',
+      '            A PRODUZIR:                5                          25',
+    ].join('\n');
+
+    const snapshots = parseTextContent(text);
+
+    expect(snapshots).toEqual([
+      {
+        productCode: '123',
+        grade: ['04', '06', '08'],
+        warnings: [],
+        variations: [
+          {
+            ref: '123.AB',
+            grade: ['04', '06', '08'],
+            tamanhos: { '04': 5, '06': 0, '08': 25 },
+            total: 30,
+          },
+        ],
+      },
+    ] as ProductSnapshot[]);
+  });
+
   it('reconhece variação com sufixo longo como 021.USED', () => {
     const text = [
       'Grade: 2 - UNICA',
