@@ -87,6 +87,11 @@ const parseColumnLayoutFromQtdeLine = (line: string, gradeTokens: string[]): Col
     return null;
   }
 
+  const qtdeIndex = line.toLowerCase().indexOf('qtde');
+  if (qtdeIndex < 0) {
+    return null;
+  }
+
   const regex = /([0-9A-Za-zÁ-ú]+)/g;
   let match: RegExpExecArray | null = regex.exec(line);
   let seenQtde = false;
@@ -94,7 +99,7 @@ const parseColumnLayoutFromQtdeLine = (line: string, gradeTokens: string[]): Col
 
   while (match) {
     const rawToken = match[1];
-    const start = match.index;
+    const start = match.index - qtdeIndex;
 
     if (!seenQtde) {
       if (/^qtde$/i.test(rawToken)) {
@@ -135,7 +140,7 @@ const parseColumnLayoutFromQtdeLine = (line: string, gradeTokens: string[]): Col
   const resolvedSizes = sizes.map((size, index) => ({
     label: size.label,
     start: size.start,
-    end: index + 1 < sizes.length ? sizes[index + 1].start : line.length,
+    end: index + 1 < sizes.length ? sizes[index + 1].start : line.length - qtdeIndex,
   }));
 
   return { sizes: resolvedSizes };
@@ -215,6 +220,8 @@ const mapLineToGradeUsingLayout = (
     return null;
   }
 
+  const colonIndex = line.indexOf(':');
+  const dataSlice = colonIndex >= 0 ? line.slice(colonIndex + 1) : line;
   const perSizeValues: number[] = [];
 
   for (let i = 0; i < grade.length; i += 1) {
@@ -223,7 +230,7 @@ const mapLineToGradeUsingLayout = (
     if (!column) {
       return null;
     }
-    const slice = line.slice(column.start, column.end).trim();
+    const slice = dataSlice.slice(column.start, column.end).trim();
     const match = slice.match(/-?\d+/);
     perSizeValues.push(match ? parseInt(match[0], 10) : 0);
   }
