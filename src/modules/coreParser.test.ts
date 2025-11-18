@@ -304,4 +304,64 @@ describe('coreParser', () => {
       },
     ] as ProductSnapshot[]);
   });
+
+  it('utiliza o layout da linha Qtde para alinhar totais e colunas vazias', () => {
+    const prefix = 'A PRODUZIR:';
+    const columnWidth = 6;
+    const indent = ' '.repeat(prefix.length);
+    const buildColumns = (values: (string | number | null)[]) =>
+      values
+        .map((value) => {
+          if (value === null || value === undefined || value === '') {
+            return ' '.repeat(columnWidth);
+          }
+          return String(value).padStart(columnWidth);
+        })
+        .join('');
+
+    const headerLine = `${indent}${buildColumns(['Qtde', '36', '38', '40', '42', '44', '46', '48', '34'])}`;
+    const produce059 = `${prefix}${buildColumns(['-45', '-12', '', '-8', '-6', '', '-6', '-8', '-5'])}`;
+    const produce053 = `${prefix}${buildColumns(['-19', '', '-5', '-10', '-2', '1', '', '-4', '1'])}`;
+
+    const text = [
+      'Grade: 3 - 36/38/40/42/44/46/48/34',
+      '059.AZ',
+      headerLine,
+      produce059,
+      '053.ST',
+      headerLine,
+      produce053,
+    ].join('\n');
+
+    const snapshots = parseTextContent(text);
+
+    expect(snapshots).toEqual([
+      {
+        productCode: '059',
+        grade: ['36', '38', '40', '42', '44', '46', '48', '34'],
+        warnings: [],
+        variations: [
+          {
+            ref: '059.AZ',
+            grade: ['36', '38', '40', '42', '44', '46', '48', '34'],
+            tamanhos: { '34': -5, '36': -12, '38': 0, '40': -8, '42': -6, '44': 0, '46': -6, '48': -8 },
+            total: -45,
+          },
+        ],
+      },
+      {
+        productCode: '053',
+        grade: ['36', '38', '40', '42', '44', '46', '48', '34'],
+        warnings: [],
+        variations: [
+          {
+            ref: '053.ST',
+            grade: ['36', '38', '40', '42', '44', '46', '48', '34'],
+            tamanhos: { '34': 1, '36': 0, '38': -5, '40': -10, '42': -2, '44': 1, '46': 0, '48': -4 },
+            total: -19,
+          },
+        ],
+      },
+    ] as ProductSnapshot[]);
+  });
 });
