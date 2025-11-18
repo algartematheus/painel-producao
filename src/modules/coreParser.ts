@@ -196,10 +196,14 @@ const mapProduceLineToSizesByColumns = (
     return null;
   }
   const totalTokens = extractNumberTokensWithIndex(totalLine);
-  if (totalTokens.length < grade.length + 1) {
+  if (totalTokens.length < grade.length) {
     return null;
   }
-  const columnTokens = totalTokens.slice(1, grade.length + 1);
+
+  const hasAggregatedTotal = totalTokens.length > grade.length;
+  const columnTokens = hasAggregatedTotal
+    ? totalTokens.slice(1, grade.length + 1)
+    : totalTokens.slice(-grade.length);
   if (columnTokens.length !== grade.length) {
     return null;
   }
@@ -215,7 +219,10 @@ const mapProduceLineToSizesByColumns = (
   if (!filteredProduceTokens.length) {
     return null;
   }
-  const sizeTokens = filteredProduceTokens.slice(1);
+  const hasProduceGrandTotal = filteredProduceTokens.length > grade.length;
+  const sizeTokens = hasProduceGrandTotal
+    ? filteredProduceTokens.slice(1)
+    : filteredProduceTokens.slice();
   const perSizeValues: number[] = [];
   let sizeIndex = 0;
 

@@ -99,6 +99,33 @@ describe('coreParser', () => {
     ] as ProductSnapshot[]);
   });
 
+  it('interpreta TOTAL ESTOQUES sem total geral mantendo os valores por tamanho', () => {
+    const text = [
+      'Grade: 3 - 04/06/08',
+      '123.AB',
+      'TOTAL ESTOQUES:          10      20      30',
+      'A PRODUZIR:              -10     -20     -30',
+    ].join('\n');
+
+    const snapshots = parseTextContent(text);
+
+    expect(snapshots).toEqual([
+      {
+        productCode: '123',
+        grade: ['04', '06', '08'],
+        warnings: [],
+        variations: [
+          {
+            ref: '123.AB',
+            grade: ['04', '06', '08'],
+            tamanhos: { '04': -10, '06': -20, '08': -30 },
+            total: -60,
+          },
+        ],
+      },
+    ] as ProductSnapshot[]);
+  });
+
   it('desconsidera os contadores de Tempo antes do PARCIAL (2) ao alinhar colunas via TOTAL ESTOQUES', () => {
     const text = [
       'Grade: 3 - 04/06/08',
