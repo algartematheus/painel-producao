@@ -153,6 +153,60 @@ describe('coreParser', () => {
     ] as ProductSnapshot[]);
   });
 
+  it('mantém o total geral separado das colunas quando há valores ausentes em A PRODUZIR', () => {
+    const text = [
+      'Grade: 3 - 04/06/08',
+      '123.AB',
+      'Qtde 04 06 08',
+      'A PRODUZIR:        40          10                          30',
+    ].join('\n');
+
+    const snapshots = parseTextContent(text);
+
+    expect(snapshots).toEqual([
+      {
+        productCode: '123',
+        grade: ['04', '06', '08'],
+        warnings: [],
+        variations: [
+          {
+            ref: '123.AB',
+            grade: ['04', '06', '08'],
+            tamanhos: { '04': 10, '06': 0, '08': 30 },
+            total: 40,
+          },
+        ],
+      },
+    ] as ProductSnapshot[]);
+  });
+
+  it('interpreta linhas PARCIAL (2) reutilizando o layout e preenchendo zeros nas colunas vazias', () => {
+    const text = [
+      'Grade: 3 - 04/06/08',
+      '123.AC',
+      'Qtde 04 06 08',
+      'PARCIAL (2):      30                              30',
+    ].join('\n');
+
+    const snapshots = parseTextContent(text);
+
+    expect(snapshots).toEqual([
+      {
+        productCode: '123',
+        grade: ['04', '06', '08'],
+        warnings: [],
+        variations: [
+          {
+            ref: '123.AC',
+            grade: ['04', '06', '08'],
+            tamanhos: { '04': 0, '06': 0, '08': 30 },
+            total: 30,
+          },
+        ],
+      },
+    ] as ProductSnapshot[]);
+  });
+
   it('reconhece variação com sufixo longo como 021.USED', () => {
     const text = [
       'Grade: 2 - UNICA',
