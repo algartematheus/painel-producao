@@ -11,6 +11,11 @@ interface ColumnLayout {
   margin: number;
 }
 
+interface ProduceLineParsingResult {
+  totalGeral: number;
+  perSize: Record<string, number>;
+}
+
 interface ParsedVariation {
   ref: string;
   grade: string[];
@@ -31,6 +36,7 @@ const BASE_ONLY_REGEX = /^\s*(\d{3,}[A-Z]?)\s*$/;
 const GRADE_HEADER_REGEX = /^\s*Grade:\s*\d+\s*-\s*(.+?)\s*$/i;
 const QTDE_HEADER_REGEX = /\bQtde\b/i;
 const PRODUCE_REGEX = /A\s+PRODUZIR:/i;
+const PARTIAL_PRODUCE_REGEX = /PARCIAL\s*\(\d+\)\s*:/i;
 const TOTAL_GRADE_REGEX = /^\s*TOTAL\s+GRADE:/i;
 const TOTAL_ESTOQUES_REGEX = /TOTAL\s+ESTOQUES/i;
 
@@ -213,42 +219,44 @@ const mapProduceLineToSizesByColumns = (
   return perSizeValues;
 };
 
-const mapLineToGradeUsingLayout = (
+const parseProduceLine = (
+  layout: ColumnLayout | null | undefined,
   line: string,
-  grade: string[],
-  layout?: ColumnLayout | null,
-): number[] | null => {
-  if (!layout?.sizes?.length || !grade.length) {
+): ProduceLineParsingResult | null => {
+  if (!layout?.sizes?.length) {
     return null;
   }
 
   const colonIndex = line.indexOf(':');
   const layoutMargin = layout.margin ?? layout.sizes[0]?.start ?? 0;
   const dataStart = colonIndex >= 0 ? colonIndex + 1 : 0;
-  let dataSlice = colonIndex >= 0 ? line.slice(colonIndex + 1) : line;
+  const originalDataSlice = colonIndex >= 0 ? line.slice(colonIndex + 1) : line;
+  let dataSlice = originalDataSlice;
+  let removedPrefix = '';
 
   const offset = layoutMargin - dataStart;
   if (offset > 0) {
     dataSlice = `${' '.repeat(offset)}${dataSlice}`;
   } else if (offset < 0) {
-    dataSlice = dataSlice.slice(Math.min(-offset, dataSlice.length));
+    const removeCount = Math.min(-offset, dataSlice.length);
+    removedPrefix = dataSlice.slice(0, removeCount);
+    dataSlice = dataSlice.slice(removeCount);
   }
-  const perSizeValues: number[] = [];
 
-  for (let i = 0; i < grade.length; i += 1) {
-    const size = grade[i];
-    const column = layout.sizes.find((entry) => entry.label === size);
-    if (!column) {
-      return null;
-    }
+  const perSize: Record<string, number> = {};
+
+  layout.sizes.forEach((column) => {
     const relativeStart = Math.max(column.start - layoutMargin, 0);
     const relativeEnd = Math.max(column.end - layoutMargin, relativeStart);
     const slice = dataSlice.slice(relativeStart, relativeEnd).trim();
     const match = slice.match(/-?\d+/);
-    perSizeValues.push(match ? parseInt(match[0], 10) : 0);
-  }
+    perSize[column.label] = match ? parseInt(match[0], 10) : 0;
+  });
 
-  return perSizeValues;
+  const totalMatch = removedPrefix.trim().match(/-?\d+/);
+  const totalGeral = totalMatch ? parseInt(totalMatch[0], 10) : 0;
+
+  return { totalGeral, perSize };
 };
 
 const cloneGrade = (grade?: string[] | null): string[] => {
@@ -462,30 +470,25 @@ const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => 
       }
     }
 
-    if (currentVariation && PRODUCE_REGEX.test(line)) {
+    if (currentVariation && (PRODUCE_REGEX.test(line) || PARTIAL_PRODUCE_REGEX.test(line))) {
       const grade = currentVariation.grade.length ? currentVariation.grade : cloneGrade(currentGrade);
       if (!currentVariation.grade.length && grade.length) {
         currentVariation.grade = grade.slice();
       }
-      const prodTokens = extractNumbersAfterColon(line);
       let perSizeValues: number[] = [];
 
       if (grade.length <= 1) {
+        const prodTokens = extractNumbersAfterColon(line);
         const lastValue = prodTokens[prodTokens.length - 1];
         perSizeValues = [typeof lastValue === 'number' ? lastValue : 0];
       } else {
-        const layoutValues = currentVariation.columnLayout
-          ? mapLineToGradeUsingLayout(line, grade, currentVariation.columnLayout)
-          : null;
+        const layoutResult = parseProduceLine(currentVariation.columnLayout, line);
 
-        if (layoutValues && layoutValues.length === grade.length) {
-          perSizeValues = layoutValues;
+        if (layoutResult) {
+          perSizeValues = grade.map((size) => layoutResult.perSize[size] ?? 0);
         } else {
           let alignedValues: number[] | null = null;
-          if (
-            currentVariation.lastTotalEstoqueLine &&
-            prodTokens.length !== grade.length + 1
-          ) {
+          if (currentVariation.lastTotalEstoqueLine) {
             alignedValues = mapProduceLineToSizesByColumns(
               grade,
               line,
@@ -495,12 +498,8 @@ const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => 
 
           if (alignedValues && alignedValues.length === grade.length) {
             perSizeValues = alignedValues;
-          } else if (prodTokens.length === grade.length + 1) {
-            perSizeValues = prodTokens.slice(1);
-          } else if (prodTokens.length >= grade.length) {
-            perSizeValues = prodTokens.slice(prodTokens.length - grade.length);
           } else {
-            perSizeValues = Array.from({ length: grade.length }, (_, index) => prodTokens[index] ?? 0);
+            perSizeValues = Array.from({ length: grade.length }, () => 0);
           }
         }
       }
