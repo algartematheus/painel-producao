@@ -8,6 +8,7 @@ interface ColumnLayoutSize {
 
 interface ColumnLayout {
   sizes: ColumnLayoutSize[];
+  margin: number;
 }
 
 interface ParsedVariation {
@@ -79,6 +80,7 @@ const cloneColumnLayout = (layout?: ColumnLayout | null): ColumnLayout | null =>
 
   return {
     sizes: layout.sizes.map((size) => ({ ...size })),
+    margin: layout.margin,
   };
 };
 
@@ -99,7 +101,7 @@ const parseColumnLayoutFromQtdeLine = (line: string, gradeTokens: string[]): Col
 
   while (match) {
     const rawToken = match[1];
-    const start = match.index - qtdeIndex;
+    const start = match.index;
 
     if (!seenQtde) {
       if (/^qtde$/i.test(rawToken)) {
@@ -140,10 +142,10 @@ const parseColumnLayoutFromQtdeLine = (line: string, gradeTokens: string[]): Col
   const resolvedSizes = sizes.map((size, index) => ({
     label: size.label,
     start: size.start,
-    end: index + 1 < sizes.length ? sizes[index + 1].start : line.length - qtdeIndex,
+    end: index + 1 < sizes.length ? sizes[index + 1].start : line.length,
   }));
 
-  return { sizes: resolvedSizes };
+  return { sizes: resolvedSizes, margin: resolvedSizes[0]?.start ?? qtdeIndex };
 };
 
 const extractNumbersAfterColon = (line: string): number[] => {
@@ -221,7 +223,16 @@ const mapLineToGradeUsingLayout = (
   }
 
   const colonIndex = line.indexOf(':');
-  const dataSlice = colonIndex >= 0 ? line.slice(colonIndex + 1) : line;
+  const layoutMargin = layout.margin ?? layout.sizes[0]?.start ?? 0;
+  const dataStart = colonIndex >= 0 ? colonIndex + 1 : 0;
+  let dataSlice = colonIndex >= 0 ? line.slice(colonIndex + 1) : line;
+
+  const offset = layoutMargin - dataStart;
+  if (offset > 0) {
+    dataSlice = `${' '.repeat(offset)}${dataSlice}`;
+  } else if (offset < 0) {
+    dataSlice = dataSlice.slice(Math.min(-offset, dataSlice.length));
+  }
   const perSizeValues: number[] = [];
 
   for (let i = 0; i < grade.length; i += 1) {
@@ -230,7 +241,9 @@ const mapLineToGradeUsingLayout = (
     if (!column) {
       return null;
     }
-    const slice = dataSlice.slice(column.start, column.end).trim();
+    const relativeStart = Math.max(column.start - layoutMargin, 0);
+    const relativeEnd = Math.max(column.end - layoutMargin, relativeStart);
+    const slice = dataSlice.slice(relativeStart, relativeEnd).trim();
     const match = slice.match(/-?\d+/);
     perSizeValues.push(match ? parseInt(match[0], 10) : 0);
   }
