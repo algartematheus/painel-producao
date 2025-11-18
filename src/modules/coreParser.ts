@@ -175,6 +175,17 @@ const extractNumberTokensWithIndex = (line: string): NumberToken[] => {
   return tokens;
 };
 
+const resolveProduceSegmentColonIndex = (line: string): number => {
+  if (typeof line !== 'string') {
+    return -1;
+  }
+  const match = line.match(/(PARCIAL(?:\s*\(\d+\))?|A\s+PRODUZIR)\s*:/i);
+  if (match && typeof match.index === 'number') {
+    return match.index + match[0].lastIndexOf(':');
+  }
+  return line.indexOf(':');
+};
+
 const mapProduceLineToSizesByColumns = (
   grade: string[],
   produceLine: string,
@@ -196,7 +207,15 @@ const mapProduceLineToSizesByColumns = (
   if (!produceTokens.length) {
     return null;
   }
-  const sizeTokens = produceTokens.slice(1);
+  const segmentColonIndex = resolveProduceSegmentColonIndex(produceLine);
+  const filteredProduceTokens =
+    segmentColonIndex >= 0
+      ? produceTokens.filter((token) => token.index > segmentColonIndex)
+      : produceTokens.slice();
+  if (!filteredProduceTokens.length) {
+    return null;
+  }
+  const sizeTokens = filteredProduceTokens.slice(1);
   const perSizeValues: number[] = [];
   let sizeIndex = 0;
 
