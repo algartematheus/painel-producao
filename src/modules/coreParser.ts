@@ -132,7 +132,7 @@ const extractGradeTokensFromQtdeLine = (line: string): string[] => {
     return [];
   }
   const tokens = afterQtde
-    .split(/[\/\s]+/)
+    .split(/[\s/]+/)
     .map((token) => token.trim())
     .filter(Boolean);
 
@@ -184,7 +184,7 @@ const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => 
         currentGrade = ['UN'];
       } else {
         currentGrade = desc
-          .split(/[\/\s]+/)
+          .split(/[\s/]+/)
           .map((token) => token.trim())
           .reduce<string[]>((acc, token) => {
             const normalized = normalizeSizeLabel(token);
