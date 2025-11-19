@@ -65,7 +65,7 @@ export const parseTextContent = (text: string, options?: TextParserOptions): Pro
   let expectingRef = false;
 
   const dataLineRegex = /(A PRODUZIR:|PARCIAL \(2\):)/i;
-  const refStartRegex = /^([A-Z0-9\.]+)/i;
+  const refStartRegex = /^([A-Z0-9.]+)/i;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -114,6 +114,7 @@ export const parseTextContent = (text: string, options?: TextParserOptions): Pro
           currentRef = candidate;
           expectingRef = false;
         }
+        continue;
       }
       // Se encontrar divisores, cancela a espera para não pegar lixo
       if (trimmed.includes("Lotes Anteriores") || trimmed.includes("Estoque")) {
@@ -198,7 +199,7 @@ export const parseTextContent = (text: string, options?: TextParserOptions): Pro
       // --- FIM DA LÓGICA DE MAPEAMENTO ---
 
       // Salvar/Atualizar Produto
-      const codeMatch = currentRef.match(/^([^\.]+)/);
+      const codeMatch = currentRef.match(/^([^.]+)/);
       const productCode = codeMatch ? codeMatch[1] : currentRef;
 
       if (!productsMap.has(productCode)) {
@@ -208,6 +209,17 @@ export const parseTextContent = (text: string, options?: TextParserOptions): Pro
       const variations = productsMap.get(productCode)!;
       const existingVarIndex = variations.findIndex(v => v.ref === currentRef);
       
+      const newVariation = {
+        ref: currentRef,
+        grade: currentLayout.sizeTokens.map(t => t.text),
+        tamanhos: values,
+        total: totalRow
+      };
+
+      const variations = productsMap.get(productCode)!;
+      const refForSearch = currentRef;
+      const existingVarIndex = variations.findIndex(v => v.ref === refForSearch);
+
       const newVariation = {
         ref: currentRef,
         grade: currentLayout.sizeTokens.map(t => t.text),
