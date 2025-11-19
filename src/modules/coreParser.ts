@@ -13,6 +13,12 @@ interface ParsedProduct {
   warnings: string[];
 }
 
+interface ColumnRange {
+  label: string;
+  start: number;
+  end?: number;
+}
+
 const VARIATION_REGEX = /(\d{3,}[A-Z]?\.[A-Z0-9]+)/;
 const VARIATION_ONLY_REGEX = /^\s*(\d{3,}[A-Z]?\.[A-Z0-9]+)\s*$/;
 const BASE_ONLY_REGEX = /^\s*(\d{3,}[A-Z]?)\s*$/;
@@ -164,6 +170,55 @@ const mapNumbersToGrade = (grade: string[], numbers: number[]): number[] => {
   }
 
   return values;
+};
+
+const buildColumnsFromQtdeLine = (line: string): ColumnRange[] => {
+  const match = line.match(QTDE_HEADER_REGEX);
+  if (!match || typeof match.index !== 'number') {
+    return [];
+  }
+
+  const qtdeIndex = match.index;
+  const qtdeEnd = qtdeIndex + match[0].length;
+  const afterQtde = line.slice(qtdeEnd);
+  const tokens: ColumnRange[] = [];
+  const regex = /\S+/g;
+  let tokenMatch: RegExpExecArray | null;
+
+  while ((tokenMatch = regex.exec(afterQtde))) {
+    const normalized = normalizeSizeLabel(tokenMatch[0]);
+    if (!normalized) {
+      continue;
+    }
+    tokens.push({
+      label: normalized,
+      start: qtdeEnd + tokenMatch.index,
+    });
+  }
+
+  return tokens.map((token, index) => ({
+    ...token,
+    end: tokens[index + 1]?.start,
+  }));
+};
+
+const extractNumbersFromColumns = (
+  line: string,
+  columns: ColumnRange[],
+): { numbers: number[]; hasValue: boolean } => {
+  let hasValue = false;
+  const numbers = columns.map((column) => {
+    const end = typeof column.end === 'number' ? column.end : line.length;
+    const slice = line.slice(column.start, end);
+    const match = slice.match(/-?\d+/);
+    if (match) {
+      hasValue = true;
+      return parseInt(match[0], 10) || 0;
+    }
+    return 0;
+  });
+
+  return { numbers, hasValue };
 };
 
 const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => {
@@ -326,9 +381,67 @@ const applyProductOrdering = (snapshots: ProductSnapshot[], options?: TextParser
 
 export const parseTextContent = (text: string, options?: TextParserOptions): ProductSnapshot[] => {
   const lines = normalizeLines(text);
-  const productsMap = parseLinesIntoProducts(lines);
+  const qtdeLineIndex = lines.findIndex((line) => QTDE_HEADER_REGEX.test(line));
+  const qtdeLine = qtdeLineIndex >= 0 ? lines[qtdeLineIndex].replace(/\s+$/g, '') : '';
+  const columns = qtdeLine ? buildColumnsFromQtdeLine(qtdeLine) : [];
+  const gradeFromColumns = columns.map((column) => column.label);
+
+  if (!columns.length || !gradeFromColumns.length) {
+    const productsMap = parseLinesIntoProducts(lines);
+    const snapshots = buildSnapshotsFromMap(productsMap);
+    return applyProductOrdering(snapshots, options);
+  }
+
+  const productsMap = new Map<string, ParsedProduct>();
+  let currentVariation: ParsedVariation | null = null;
+
+  for (let index = qtdeLineIndex; index < lines.length; index++) {
+    const rawLine = lines[index]?.replace(/\s+$/g, '') ?? '';
+    if (!rawLine || TOTAL_GRADE_REGEX.test(rawLine) || TOTAL_ESTOQUES_REGEX.test(rawLine)) {
+      continue;
+    }
+
+    const variationMatch = rawLine.match(VARIATION_REGEX);
+    const baseMatch = gradeFromColumns.length === 1 ? rawLine.match(BASE_ONLY_REGEX) : null;
+
+    if (variationMatch) {
+      currentVariation = createOrGetVariation(
+        productsMap,
+        variationMatch[1],
+        gradeFromColumns,
+      );
+    } else if (baseMatch) {
+      currentVariation = createOrGetVariation(productsMap, baseMatch[1], gradeFromColumns);
+    }
+
+    const variationForLine = currentVariation;
+    const { numbers, hasValue } = extractNumbersFromColumns(rawLine, columns);
+
+    if (variationForLine && hasValue) {
+      const grade = variationForLine.grade.length ? variationForLine.grade : gradeFromColumns;
+      if (!variationForLine.grade.length) {
+        variationForLine.grade = grade.slice();
+      }
+
+      const perSizeValues = mapNumbersToGrade(grade, numbers);
+      variationForLine.tamanhos = grade.reduce<Record<string, number>>((acc, size, idx) => {
+        acc[size] = perSizeValues[idx] ?? 0;
+        return acc;
+      }, {});
+
+      const productCodeMatch = variationForLine.ref.match(/^(\d{3,}[A-Z]?)/);
+      if (productCodeMatch) {
+        const product = createOrGetProduct(productsMap, productCodeMatch[1], grade);
+        if (!product.grade.length) {
+          product.grade = grade.slice();
+        }
+      }
+    }
+  }
+
   const snapshots = buildSnapshotsFromMap(productsMap);
   return applyProductOrdering(snapshots, options);
 };
 
 export default parseTextContent;
+
