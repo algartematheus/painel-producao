@@ -1,395 +1,253 @@
 import { ProductSnapshot, TextParserOptions, VariationSnapshot } from './types';
 
-interface ParsedVariation {
-  ref: string;
-  grade: string[];
-  tamanhos: Record<string, number>;
-}
-
-interface ParsedProduct {
-  productCode: string;
-  grade: string[];
-  variations: ParsedVariation[];
-  warnings: string[];
-}
-
-interface ColumnRange {
-  label: string;
+interface Token {
+  text: string;
   start: number;
-  end?: number;
+  end: number;
+  center: number;
 }
 
-const VARIATION_REGEX = /(\d{3,}[A-Z]?\.[A-Z0-9]+)/;
-const VARIATION_ONLY_REGEX = /^\s*(\d{3,}[A-Z]?\.[A-Z0-9]+)\s*$/;
-const BASE_ONLY_REGEX = /^\s*(\d{3,}[A-Z]?)\s*$/;
-const GRADE_HEADER_REGEX = /^\s*Grade:\s*\d+\s*-\s*(.+?)\s*$/i;
-const QTDE_HEADER_REGEX = /\bQtde\b/i;
-const PRODUCE_REGEX = /A\s+PRODUZIR:/i;
-const PARTIAL_PRODUCE_REGEX = /PARCIAL\s*\(\d+\)\s*:/i;
-const TOTAL_GRADE_REGEX = /^\s*TOTAL\s+GRADE:/i;
-const TOTAL_ESTOQUES_REGEX = /TOTAL\s+ESTOQUES/i;
+interface HeaderLayout {
+  qtdeToken: Token;
+  sizeTokens: Token[];
+}
 
-const normalizeLines = (text: string): string[] => {
-  if (typeof text !== 'string') {
-    return [];
-  }
-  return text.replace(/\r\n/g, '\n').split('\n');
-};
+// Lista de palavras para ignorar se aparecerem no início de uma linha (falsos positivos de Referência)
+const IGNORED_REFS = [
+  'LOTES', 'TOTAL', 'ESTOQUE', 'RELATÓRIO', 'RELATORIO', 
+  'PAGINA', 'DATA', 'FILIAIS', 'PRODUÇÃO', 'PRODUCAO', 
+  'APLIC', 'TEMPO', 'SALDO', 'CANCELADOS', 'PROJEÇÃO', 'GRADE',
+  'PCP', 'PLANEJAMENTO', 'CONTROLE', 'OP', 'OBS'
+];
 
-const normalizeSizeLabel = (token: string): string | null => {
-  if (!token) {
-    return null;
-  }
-
-  if (/^\d+$/.test(token)) {
-    return String(parseInt(token, 10)).padStart(2, '0');
-  }
-
-  const alphaToken = token.replace(/[^a-z]/gi, '').toUpperCase();
-  if (!alphaToken) {
-    return null;
-  }
-
-  if (alphaToken === 'UNICA') {
-    return 'UN';
-  }
-
-  if (/^[A-Z]+$/.test(alphaToken)) {
-    return alphaToken;
-  }
-
-  return null;
-};
-
-const extractNumbersAfterColon = (line: string): number[] => {
-  const index = line.indexOf(':');
-  const slice = index >= 0 ? line.slice(index + 1) : line;
-  const matches = slice.match(/-?\d+/g) || [];
-  return matches.map((value) => parseInt(value, 10));
-};
-
-const cloneGrade = (grade?: string[] | null): string[] => {
-  if (!Array.isArray(grade)) {
-    return [];
-  }
-  return grade.filter((token) => token.length);
-};
-
-const createOrGetProduct = (
-  productsMap: Map<string, ParsedProduct>,
-  productCode: string,
-  gradeFromContext?: string[] | null,
-): ParsedProduct => {
-  if (!productsMap.has(productCode)) {
-    productsMap.set(productCode, {
-      productCode,
-      grade: cloneGrade(gradeFromContext),
-      variations: [],
-      warnings: [],
-    });
-  }
-  const product = productsMap.get(productCode)!;
-  if (!product.grade.length && gradeFromContext?.length) {
-    product.grade = cloneGrade(gradeFromContext);
-  }
-  return product;
-};
-
-const createOrGetVariation = (
-  productsMap: Map<string, ParsedProduct>,
-  ref: string,
-  gradeFromContext?: string[] | null,
-): ParsedVariation | null => {
-  const codeMatch = ref.match(/^(\d{3,}[A-Z]?)/);
-  if (!codeMatch) {
-    return null;
-  }
-  const productCode = codeMatch[1];
-  const product = createOrGetProduct(productsMap, productCode, gradeFromContext);
-  let variation = product.variations.find((entry) => entry.ref === ref);
-  if (!variation) {
-    const grade = gradeFromContext?.length
-      ? cloneGrade(gradeFromContext)
-      : cloneGrade(product.grade);
-    variation = {
-      ref,
-      grade,
-      tamanhos: {},
-    };
-    product.variations.push(variation);
-  } else if (!variation.grade.length) {
-    if (gradeFromContext?.length) {
-      variation.grade = cloneGrade(gradeFromContext);
-    } else if (product.grade.length) {
-      variation.grade = cloneGrade(product.grade);
-    }
-  }
-
-  return variation;
-};
-
-const mapNumbersToGrade = (grade: string[], numbers: number[]): number[] => {
-  if (!grade.length) {
-    return [];
-  }
-
-  let values = numbers.slice();
-  if (values.length > grade.length) {
-    values = values.slice(1);
-  }
-
-  if (values.length > grade.length) {
-    values = values.slice(0, grade.length);
-  }
-
-  if (values.length < grade.length) {
-    values = values.concat(Array.from({ length: grade.length - values.length }, () => 0));
-  }
-
-  return values;
-};
-
-const buildColumnsFromQtdeLine = (line: string): ColumnRange[] => {
-  const match = line.match(QTDE_HEADER_REGEX);
-  if (!match || typeof match.index !== 'number') {
-    return [];
-  }
-
-  const qtdeIndex = match.index;
-  const qtdeEnd = qtdeIndex + match[0].length;
-  const afterQtde = line.slice(qtdeEnd);
-  const tokens: ColumnRange[] = [];
+/**
+ * Extrai "tokens" (palavras/números) de uma linha preservando sua posição visual.
+ */
+const getTokens = (line: string): Token[] => {
   const regex = /\S+/g;
-  let tokenMatch: RegExpExecArray | null;
-
-  while ((tokenMatch = regex.exec(afterQtde))) {
-    const normalized = normalizeSizeLabel(tokenMatch[0]);
-    if (!normalized) {
-      continue;
-    }
+  const tokens: Token[] = [];
+  let match;
+  while ((match = regex.exec(line)) !== null) {
     tokens.push({
-      label: normalized,
-      start: qtdeEnd + tokenMatch.index,
+      text: match[0],
+      start: match.index,
+      end: match.index + match[0].length,
+      center: match.index + (match[0].length / 2)
     });
   }
-
-  return tokens.map((token, index) => ({
-    ...token,
-    end: tokens[index + 1]?.start,
-  }));
+  return tokens;
 };
 
-const extractNumbersFromColumns = (
-  line: string,
-  columns: ColumnRange[],
-): { numbers: number[]; hasValue: boolean } => {
-  let hasValue = false;
-  const numbers = columns.map((column) => {
-    const end = typeof column.end === 'number' ? column.end : line.length;
-    const slice = line.slice(column.start, end);
-    const match = slice.match(/-?\d+/);
-    if (match) {
-      hasValue = true;
-      return parseInt(match[0], 10) || 0;
-    }
-    return 0;
-  });
-
-  return { numbers, hasValue };
-};
-
-const buildSnapshotsFromMap = (productsMap: Map<string, ParsedProduct>): ProductSnapshot[] => {
-  return Array.from(productsMap.values()).map((product) => {
-    const grade = cloneGrade(product.grade);
-    const variations: VariationSnapshot[] = product.variations.map((variation) => {
-      const variationGrade = variation.grade.length ? variation.grade : grade;
-      const tamanhos = { ...variation.tamanhos };
-      const total = Object.values(tamanhos).reduce((sum, value) => sum + (value || 0), 0);
-      return {
-        ref: variation.ref,
-        grade: variationGrade.slice(),
-        tamanhos,
-        total,
-      };
-    });
-    return {
-      productCode: product.productCode,
-      grade,
-      variations,
-      warnings: product.warnings.slice(),
-    };
-  });
-};
-
-const applyProductOrdering = (snapshots: ProductSnapshot[], options?: TextParserOptions): ProductSnapshot[] => {
-  if (!options?.productOrder?.length) {
-    return snapshots;
+/**
+ * Identifica a linha de cabeçalho (Qtde + Tamanhos).
+ */
+const parseHeaderLayout = (line: string): HeaderLayout | null => {
+  const tokens = getTokens(line);
+  const qtdeIndex = tokens.findIndex(t => t.text.toLowerCase().includes('qtde'));
+  
+  if (qtdeIndex === -1 || qtdeIndex >= tokens.length - 1) {
+    return null;
   }
-  const orderMap = new Map(options.productOrder.map((code, index) => [code, index]));
-  return snapshots.slice().sort((a, b) => {
-    const orderA = orderMap.get(a.productCode);
-    const orderB = orderMap.get(b.productCode);
-    if (typeof orderA === 'number' && typeof orderB === 'number') {
-      return orderA - orderB;
-    }
-    if (typeof orderA === 'number') {
-      return -1;
-    }
-    if (typeof orderB === 'number') {
-      return 1;
-    }
-    return 0;
-  });
+
+  return {
+    qtdeToken: tokens[qtdeIndex],
+    sizeTokens: tokens.slice(qtdeIndex + 1) // Todos os tokens após "Qtde" são tamanhos
+  };
 };
 
 export const parseTextContent = (text: string, options?: TextParserOptions): ProductSnapshot[] => {
-  const lines = normalizeLines(text);
-  const productsMap = new Map<string, ParsedProduct>();
-  let currentGrade: string[] | null = null;
-  let currentVariation: ParsedVariation | null = null;
-  let currentColumns: ColumnRange[] = [];
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const productsMap = new Map<string, VariationSnapshot[]>();
 
-  lines.forEach((rawLine) => {
-    const line = rawLine.replace(/\s+$/g, '');
-    if (!line || TOTAL_GRADE_REGEX.test(line) || TOTAL_ESTOQUES_REGEX.test(line)) {
-      return;
+  // Estado do Parser
+  let currentLayout: HeaderLayout | null = null;
+  let currentRef: string | null = null;
+  let expectingRef = false;
+
+  const dataLineRegex = /(A PRODUZIR:|PARCIAL \(2\):)/i;
+  const refStartRegex = /^([A-Z0-9\.]+)/i;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // ---------------------------------------------------------
+    // 1. Detectar Cabeçalho ("Qtde ...")
+    // ---------------------------------------------------------
+    if (line.includes("Qtde")) {
+      const newLayout = parseHeaderLayout(line);
+      
+      if (newLayout) {
+        currentLayout = newLayout;
+        
+        // Verifica Referência na mesma linha (antes do Qtde)
+        const qtdeIndex = line.indexOf("Qtde");
+        const preQtde = line.substring(0, qtdeIndex).trim();
+        
+        if (preQtde.length > 0) {
+          const refMatch = preQtde.match(refStartRegex);
+          if (refMatch && !IGNORED_REFS.includes(refMatch[1].toUpperCase())) {
+            currentRef = refMatch[1];
+            expectingRef = false;
+          } else {
+            currentRef = null;
+            expectingRef = true;
+          }
+        } else {
+          // Referência deve estar na próxima linha
+          currentRef = null;
+          expectingRef = true;
+        }
+        continue;
+      }
     }
 
-    const gradeMatch = line.match(GRADE_HEADER_REGEX);
-    if (gradeMatch) {
-      const desc = gradeMatch[1].trim();
-      if (/UNICA/i.test(desc)) {
-        currentGrade = ['UN'];
-      } else {
-        currentGrade = desc
-          .split(/[\s/]+/)
-          .map((token) => token.trim())
-          .reduce<string[]>((acc, token) => {
-            const normalized = normalizeSizeLabel(token);
-            if (normalized) {
-              acc.push(normalized);
-            }
-            return acc;
-          }, []);
+    // ---------------------------------------------------------
+    // 2. Buscar Referência (se esperado)
+    // ---------------------------------------------------------
+    if (expectingRef) {
+      const match = trimmed.match(refStartRegex);
+      if (match) {
+        const candidate = match[1];
+        if (!IGNORED_REFS.includes(candidate.toUpperCase()) && candidate.length > 2) {
+          currentRef = candidate;
+          expectingRef = false;
+        }
+      }
+      // Se encontrar divisores, cancela a espera para não pegar lixo
+      if (trimmed.includes("Lotes Anteriores") || trimmed.includes("Estoque")) {
+        expectingRef = false;
+      }
+    }
+
+    // ---------------------------------------------------------
+    // 3. Processar Dados ("A PRODUZIR")
+    // ---------------------------------------------------------
+    if (currentRef && currentLayout && dataLineRegex.test(line)) {
+      // Pega apenas números da linha
+      // Usamos um regex global para pegar "-123" ou "123"
+      const numberTokens = getTokens(line).filter(t => /^-?\d+$/.test(t.text));
+      
+      if (numberTokens.length === 0) continue;
+
+      const values: Record<string, number> = {};
+      let totalRow = 0;
+
+      // --- LÓGICA DE MAPEAMENTO ---
+      // Temos tokens de dados (D) e tokens de cabeçalho de tamanho (H)
+      // Precisamos casar D com H baseados na proximidade, mas mantendo a ordem.
+      
+      // Passo A: Determinar se o primeiro número é o "Total Geral"
+      // Heurística 1: Alinhamento com "Qtde"
+      // Heurística 2: Contagem (Se tem mais números que tamanhos, o 1º é total)
+      
+      let dataStartIndex = 0;
+      const firstToken = numberTokens[0];
+      const distToQtde = Math.abs(firstToken.center - currentLayout.qtdeToken.center);
+      const distToFirstSize = Math.abs(firstToken.center - currentLayout.sizeTokens[0].center);
+
+      // Se estiver mais perto do "Qtde" do que do primeiro tamanho, ou se a contagem sobrar
+      if (distToQtde < distToFirstSize || numberTokens.length > currentLayout.sizeTokens.length) {
+        // O primeiro token é o Total, ignoramos ele para o mapeamento da grade
+        dataStartIndex = 1;
+        // (Opcional: poderíamos validar se esse valor bate com a soma)
       }
 
-      const inlineVariationMatch = line.match(VARIATION_REGEX);
-      currentVariation = inlineVariationMatch
-        ? createOrGetVariation(productsMap, inlineVariationMatch[1], currentGrade)
-        : null;
-      currentColumns = [];
-      return;
-    }
+      // Passo B: Mapeamento Guloso Ordenado (Greedy Ordered Matching)
+      // Para cada token de dado restante, encontre o cabeçalho DISPONÍVEL mais próximo.
+      let lastMatchedHeaderIndex = -1;
 
-    if (QTDE_HEADER_REGEX.test(line)) {
-      currentColumns = buildColumnsFromQtdeLine(line);
-      const gradeFromColumns = currentColumns.map((column) => column.label);
-      if (gradeFromColumns.length) {
-        currentGrade = gradeFromColumns.slice();
-        if (currentVariation) {
-          currentVariation.grade = gradeFromColumns.slice();
-          const productCodeMatch = currentVariation.ref.match(/^(\d{3,}[A-Z]?)/);
-          if (productCodeMatch) {
-            const product = productsMap.get(productCodeMatch[1]);
-            if (product) {
-              product.grade = gradeFromColumns.slice();
-            }
+      for (let d = dataStartIndex; d < numberTokens.length; d++) {
+        const dToken = numberTokens[d];
+        const val = parseInt(dToken.text, 10);
+
+        let bestHeaderIndex = -1;
+        let minDistance = Infinity;
+
+        // Procura o melhor cabeçalho que esteja À DIREITA do último usado
+        for (let h = lastMatchedHeaderIndex + 1; h < currentLayout.sizeTokens.length; h++) {
+          const hToken = currentLayout.sizeTokens[h];
+          const dist = Math.abs(dToken.center - hToken.center);
+          
+          // Se for o melhor até agora, salva.
+          // NOTA: Como estamos iterando em ordem, se a distância começar a aumentar muito, paramos?
+          // Não necessariamente, pois o gap pode ser grande. Verificamos todos os candidatos válidos.
+          if (dist < minDistance) {
+            minDistance = dist;
+            bestHeaderIndex = h;
           }
         }
-      }
 
-      const variationInQtdeLine = line.match(/^(\s*\d{3,}[A-Z]?\.[A-Z0-9]+).*Qtde/i);
-      const baseMatchInQtde = line.match(/^(\s*\d{3,}[A-Z]?).*Qtde\s+UN\b/i);
-      if (variationInQtdeLine) {
-        currentVariation = createOrGetVariation(
-          productsMap,
-          variationInQtdeLine[1].trim(),
-          currentGrade,
-        );
-        return;
-      }
-
-      if (baseMatchInQtde && currentGrade?.length === 1) {
-        currentVariation = createOrGetVariation(
-          productsMap,
-          baseMatchInQtde[1].trim(),
-          currentGrade,
-        );
-        return;
-      }
-
-      return;
-    }
-
-    const refOnlyMatch = line.match(VARIATION_ONLY_REGEX);
-    if (refOnlyMatch) {
-      currentVariation = createOrGetVariation(productsMap, refOnlyMatch[1], currentGrade);
-      return;
-    }
-
-    if (!currentVariation) {
-      const baseMatch = line.match(BASE_ONLY_REGEX);
-      if (baseMatch && currentGrade?.length === 1) {
-        currentVariation = createOrGetVariation(productsMap, baseMatch[1], currentGrade);
-        return;
-      }
-    }
-
-    const variationMatch = line.match(VARIATION_REGEX);
-    const baseMatch = currentGrade?.length === 1 ? line.match(BASE_ONLY_REGEX) : null;
-
-    if (variationMatch) {
-      currentVariation = createOrGetVariation(productsMap, variationMatch[1], currentGrade);
-    } else if (baseMatch) {
-      currentVariation = createOrGetVariation(productsMap, baseMatch[1], currentGrade);
-    }
-
-    if (currentVariation && (PRODUCE_REGEX.test(line) || PARTIAL_PRODUCE_REGEX.test(line))) {
-      const grade = currentVariation.grade.length ? currentVariation.grade : cloneGrade(currentGrade);
-      if (!grade.length) {
-        return;
-      }
-
-      if (!currentVariation.grade.length) {
-        currentVariation.grade = grade.slice();
-      }
-
-      let numbers: number[] = [];
-      let hasValue = false;
-
-      if (currentColumns.length) {
-        const extracted = extractNumbersFromColumns(line, currentColumns);
-        numbers = extracted.numbers;
-        hasValue = extracted.hasValue;
-      }
-
-      if (!hasValue) {
-        numbers = extractNumbersAfterColon(line);
-        hasValue = numbers.length > 0;
-      }
-
-      if (!hasValue) {
-        return;
-      }
-
-      const perSizeValues = mapNumbersToGrade(grade, numbers);
-      currentVariation.tamanhos = grade.reduce<Record<string, number>>((acc, size, idx) => {
-        acc[size] = perSizeValues[idx] ?? 0;
-        return acc;
-      }, {});
-
-      const productCodeMatch = currentVariation.ref.match(/^(\d{3,}[A-Z]?)/);
-      if (productCodeMatch) {
-        const product = createOrGetProduct(productsMap, productCodeMatch[1], grade);
-        if (!product.grade.length) {
-          product.grade = grade.slice();
+        // Se encontrou um cabeçalho válido
+        if (bestHeaderIndex !== -1) {
+          const sizeLabel = currentLayout.sizeTokens[bestHeaderIndex].text;
+          values[sizeLabel] = val;
+          totalRow += val;
+          lastMatchedHeaderIndex = bestHeaderIndex;
         }
       }
+
+      // Preenche com 0 os tamanhos que não receberam valores (Gaps/Buracos)
+      currentLayout.sizeTokens.forEach(hToken => {
+        if (values[hToken.text] === undefined) {
+          values[hToken.text] = 0;
+        }
+      });
+
+      // --- FIM DA LÓGICA DE MAPEAMENTO ---
+
+      // Salvar/Atualizar Produto
+      const codeMatch = currentRef.match(/^([^\.]+)/);
+      const productCode = codeMatch ? codeMatch[1] : currentRef;
+
+      if (!productsMap.has(productCode)) {
+        productsMap.set(productCode, []);
+      }
+      
+      const variations = productsMap.get(productCode)!;
+      const existingVarIndex = variations.findIndex(v => v.ref === currentRef);
+      
+      const newVariation = {
+        ref: currentRef,
+        grade: currentLayout.sizeTokens.map(t => t.text),
+        tamanhos: values,
+        total: totalRow
+      };
+
+      if (existingVarIndex >= 0) {
+        variations[existingVarIndex] = newVariation;
+      } else {
+        variations.push(newVariation);
+      }
     }
+  }
+
+  // Construir Resultado Final
+  const snapshots: ProductSnapshot[] = [];
+  productsMap.forEach((variations, productCode) => {
+    const mainGrade = variations.length > 0 ? variations[0].grade : [];
+    snapshots.push({
+      productCode,
+      grade: mainGrade,
+      variations,
+      warnings: []
+    });
   });
 
-  const snapshots = buildSnapshotsFromMap(productsMap);
-  return applyProductOrdering(snapshots, options);
+  if (options?.productOrder) {
+    const orderMap = new Map(options.productOrder.map((code, index) => [code, index]));
+    snapshots.sort((a, b) => {
+      const orderA = orderMap.get(a.productCode);
+      const orderB = orderMap.get(b.productCode);
+      if (orderA !== undefined && orderB !== undefined) return orderA - orderB;
+      if (orderA !== undefined) return -1;
+      if (orderB !== undefined) return 1;
+      return 0;
+    });
+  }
+
+  return snapshots;
 };
 
 export default parseTextContent;
