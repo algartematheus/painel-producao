@@ -128,29 +128,6 @@ const createOrGetVariation = (
   return variation;
 };
 
-const extractGradeTokensFromQtdeLine = (line: string): string[] => {
-  const qtdeIndex = line.toLowerCase().indexOf('qtde');
-  if (qtdeIndex < 0) {
-    return [];
-  }
-  const afterQtde = line.slice(qtdeIndex + 4).trim();
-  if (!afterQtde) {
-    return [];
-  }
-  const tokens = afterQtde
-    .split(/[\s/]+/)
-    .map((token) => token.trim())
-    .filter(Boolean);
-
-  return tokens.reduce<string[]>((acc, token) => {
-    const normalized = normalizeSizeLabel(token);
-    if (normalized) {
-      acc.push(normalized);
-    }
-    return acc;
-  }, []);
-};
-
 const mapNumbersToGrade = (grade: string[], numbers: number[]): number[] => {
   if (!grade.length) {
     return [];
@@ -221,120 +198,6 @@ const extractNumbersFromColumns = (
   return { numbers, hasValue };
 };
 
-const parseLinesIntoProducts = (lines: string[]): Map<string, ParsedProduct> => {
-  const productsMap = new Map<string, ParsedProduct>();
-  let currentGrade: string[] | null = null;
-  let currentVariation: ParsedVariation | null = null;
-
-  lines.forEach((rawLine) => {
-    const line = rawLine.replace(/\s+$/g, '');
-    if (!line) {
-      return;
-    }
-
-    const gradeMatch = line.match(GRADE_HEADER_REGEX);
-    if (gradeMatch) {
-      const desc = gradeMatch[1].trim();
-      if (/UNICA/i.test(desc)) {
-        currentGrade = ['UN'];
-      } else {
-        currentGrade = desc
-          .split(/[\s/]+/)
-          .map((token) => token.trim())
-          .reduce<string[]>((acc, token) => {
-            const normalized = normalizeSizeLabel(token);
-            if (normalized) {
-              acc.push(normalized);
-            }
-            return acc;
-          }, []);
-      }
-
-      const inlineVariationMatch = line.match(VARIATION_REGEX);
-      currentVariation = inlineVariationMatch
-        ? createOrGetVariation(productsMap, inlineVariationMatch[1], currentGrade)
-        : null;
-      return;
-    }
-
-    if (TOTAL_GRADE_REGEX.test(line) || TOTAL_ESTOQUES_REGEX.test(line)) {
-      return;
-    }
-
-    if (QTDE_HEADER_REGEX.test(line)) {
-      const qtdeGradeTokens = extractGradeTokensFromQtdeLine(line);
-      if (qtdeGradeTokens.length) {
-        currentGrade = qtdeGradeTokens.slice();
-        if (currentVariation) {
-          currentVariation.grade = qtdeGradeTokens.slice();
-          const productCodeMatch = currentVariation.ref.match(/^(\d{3,}[A-Z]?)/);
-          if (productCodeMatch) {
-            const product = productsMap.get(productCodeMatch[1]);
-            if (product) {
-              product.grade = qtdeGradeTokens.slice();
-            }
-          }
-        }
-      }
-
-      const variationInQtdeLine = line.match(/^(\s*\d{3,}[A-Z]?\.[A-Z0-9]+).*Qtde/i);
-      const baseMatch = line.match(/^(\s*\d{3,}[A-Z]?).*Qtde\s+UN\b/i);
-      if (variationInQtdeLine) {
-        currentVariation = createOrGetVariation(
-          productsMap,
-          variationInQtdeLine[1].trim(),
-          currentGrade,
-        );
-        return;
-      }
-
-      if (baseMatch && currentGrade?.length === 1) {
-        currentVariation = createOrGetVariation(
-          productsMap,
-          baseMatch[1].trim(),
-          currentGrade,
-        );
-        return;
-      }
-    }
-
-    const refOnlyMatch = line.match(VARIATION_ONLY_REGEX);
-    if (refOnlyMatch) {
-      currentVariation = createOrGetVariation(
-        productsMap,
-        refOnlyMatch[1],
-        currentGrade,
-      );
-      return;
-    }
-
-    if (!currentVariation) {
-      const baseMatch = line.match(BASE_ONLY_REGEX);
-      if (baseMatch && currentGrade?.length === 1) {
-        currentVariation = createOrGetVariation(productsMap, baseMatch[1], currentGrade);
-        return;
-      }
-    }
-
-    if (currentVariation && (PRODUCE_REGEX.test(line) || PARTIAL_PRODUCE_REGEX.test(line))) {
-      const grade = currentVariation.grade.length ? currentVariation.grade : cloneGrade(currentGrade);
-      if (!currentVariation.grade.length && grade.length) {
-        currentVariation.grade = grade.slice();
-      }
-
-      const numbers = extractNumbersAfterColon(line);
-      const perSizeValues = mapNumbersToGrade(grade, numbers);
-
-      currentVariation.tamanhos = grade.reduce<Record<string, number>>((acc, size, index) => {
-        acc[size] = perSizeValues[index] ?? 0;
-        return acc;
-      }, {});
-    }
-  });
-
-  return productsMap;
-};
-
 const buildSnapshotsFromMap = (productsMap: Map<string, ParsedProduct>): ProductSnapshot[] => {
   return Array.from(productsMap.values()).map((product) => {
     const grade = cloneGrade(product.grade);
@@ -381,55 +244,141 @@ const applyProductOrdering = (snapshots: ProductSnapshot[], options?: TextParser
 
 export const parseTextContent = (text: string, options?: TextParserOptions): ProductSnapshot[] => {
   const lines = normalizeLines(text);
-  const qtdeLineIndex = lines.findIndex((line) => QTDE_HEADER_REGEX.test(line));
-  const qtdeLine = qtdeLineIndex >= 0 ? lines[qtdeLineIndex].replace(/\s+$/g, '') : '';
-  const columns = qtdeLine ? buildColumnsFromQtdeLine(qtdeLine) : [];
-  const gradeFromColumns = columns.map((column) => column.label);
-
-  if (!columns.length || !gradeFromColumns.length) {
-    const productsMap = parseLinesIntoProducts(lines);
-    const snapshots = buildSnapshotsFromMap(productsMap);
-    return applyProductOrdering(snapshots, options);
-  }
-
   const productsMap = new Map<string, ParsedProduct>();
+  let currentGrade: string[] | null = null;
   let currentVariation: ParsedVariation | null = null;
+  let currentColumns: ColumnRange[] = [];
 
-  for (let index = qtdeLineIndex; index < lines.length; index++) {
-    const rawLine = lines[index]?.replace(/\s+$/g, '') ?? '';
-    if (!rawLine || TOTAL_GRADE_REGEX.test(rawLine) || TOTAL_ESTOQUES_REGEX.test(rawLine)) {
-      continue;
+  lines.forEach((rawLine) => {
+    const line = rawLine.replace(/\s+$/g, '');
+    if (!line || TOTAL_GRADE_REGEX.test(line) || TOTAL_ESTOQUES_REGEX.test(line)) {
+      return;
     }
 
-    const variationMatch = rawLine.match(VARIATION_REGEX);
-    const baseMatch = gradeFromColumns.length === 1 ? rawLine.match(BASE_ONLY_REGEX) : null;
+    const gradeMatch = line.match(GRADE_HEADER_REGEX);
+    if (gradeMatch) {
+      const desc = gradeMatch[1].trim();
+      if (/UNICA/i.test(desc)) {
+        currentGrade = ['UN'];
+      } else {
+        currentGrade = desc
+          .split(/[\s/]+/)
+          .map((token) => token.trim())
+          .reduce<string[]>((acc, token) => {
+            const normalized = normalizeSizeLabel(token);
+            if (normalized) {
+              acc.push(normalized);
+            }
+            return acc;
+          }, []);
+      }
+
+      const inlineVariationMatch = line.match(VARIATION_REGEX);
+      currentVariation = inlineVariationMatch
+        ? createOrGetVariation(productsMap, inlineVariationMatch[1], currentGrade)
+        : null;
+      currentColumns = [];
+      return;
+    }
+
+    if (QTDE_HEADER_REGEX.test(line)) {
+      currentColumns = buildColumnsFromQtdeLine(line);
+      const gradeFromColumns = currentColumns.map((column) => column.label);
+      if (gradeFromColumns.length) {
+        currentGrade = gradeFromColumns.slice();
+        if (currentVariation) {
+          currentVariation.grade = gradeFromColumns.slice();
+          const productCodeMatch = currentVariation.ref.match(/^(\d{3,}[A-Z]?)/);
+          if (productCodeMatch) {
+            const product = productsMap.get(productCodeMatch[1]);
+            if (product) {
+              product.grade = gradeFromColumns.slice();
+            }
+          }
+        }
+      }
+
+      const variationInQtdeLine = line.match(/^(\s*\d{3,}[A-Z]?\.[A-Z0-9]+).*Qtde/i);
+      const baseMatchInQtde = line.match(/^(\s*\d{3,}[A-Z]?).*Qtde\s+UN\b/i);
+      if (variationInQtdeLine) {
+        currentVariation = createOrGetVariation(
+          productsMap,
+          variationInQtdeLine[1].trim(),
+          currentGrade,
+        );
+        return;
+      }
+
+      if (baseMatchInQtde && currentGrade?.length === 1) {
+        currentVariation = createOrGetVariation(
+          productsMap,
+          baseMatchInQtde[1].trim(),
+          currentGrade,
+        );
+        return;
+      }
+
+      return;
+    }
+
+    const refOnlyMatch = line.match(VARIATION_ONLY_REGEX);
+    if (refOnlyMatch) {
+      currentVariation = createOrGetVariation(productsMap, refOnlyMatch[1], currentGrade);
+      return;
+    }
+
+    if (!currentVariation) {
+      const baseMatch = line.match(BASE_ONLY_REGEX);
+      if (baseMatch && currentGrade?.length === 1) {
+        currentVariation = createOrGetVariation(productsMap, baseMatch[1], currentGrade);
+        return;
+      }
+    }
+
+    const variationMatch = line.match(VARIATION_REGEX);
+    const baseMatch = currentGrade?.length === 1 ? line.match(BASE_ONLY_REGEX) : null;
 
     if (variationMatch) {
-      currentVariation = createOrGetVariation(
-        productsMap,
-        variationMatch[1],
-        gradeFromColumns,
-      );
+      currentVariation = createOrGetVariation(productsMap, variationMatch[1], currentGrade);
     } else if (baseMatch) {
-      currentVariation = createOrGetVariation(productsMap, baseMatch[1], gradeFromColumns);
+      currentVariation = createOrGetVariation(productsMap, baseMatch[1], currentGrade);
     }
 
-    const variationForLine = currentVariation;
-    const { numbers, hasValue } = extractNumbersFromColumns(rawLine, columns);
+    if (currentVariation && (PRODUCE_REGEX.test(line) || PARTIAL_PRODUCE_REGEX.test(line))) {
+      const grade = currentVariation.grade.length ? currentVariation.grade : cloneGrade(currentGrade);
+      if (!grade.length) {
+        return;
+      }
 
-    if (variationForLine && hasValue) {
-      const grade = variationForLine.grade.length ? variationForLine.grade : gradeFromColumns;
-      if (!variationForLine.grade.length) {
-        variationForLine.grade = grade.slice();
+      if (!currentVariation.grade.length) {
+        currentVariation.grade = grade.slice();
+      }
+
+      let numbers: number[] = [];
+      let hasValue = false;
+
+      if (currentColumns.length) {
+        const extracted = extractNumbersFromColumns(line, currentColumns);
+        numbers = extracted.numbers;
+        hasValue = extracted.hasValue;
+      }
+
+      if (!hasValue) {
+        numbers = extractNumbersAfterColon(line);
+        hasValue = numbers.length > 0;
+      }
+
+      if (!hasValue) {
+        return;
       }
 
       const perSizeValues = mapNumbersToGrade(grade, numbers);
-      variationForLine.tamanhos = grade.reduce<Record<string, number>>((acc, size, idx) => {
+      currentVariation.tamanhos = grade.reduce<Record<string, number>>((acc, size, idx) => {
         acc[size] = perSizeValues[idx] ?? 0;
         return acc;
       }, {});
 
-      const productCodeMatch = variationForLine.ref.match(/^(\d{3,}[A-Z]?)/);
+      const productCodeMatch = currentVariation.ref.match(/^(\d{3,}[A-Z]?)/);
       if (productCodeMatch) {
         const product = createOrGetProduct(productsMap, productCodeMatch[1], grade);
         if (!product.grade.length) {
@@ -437,11 +386,10 @@ export const parseTextContent = (text: string, options?: TextParserOptions): Pro
         }
       }
     }
-  }
+  });
 
   const snapshots = buildSnapshotsFromMap(productsMap);
   return applyProductOrdering(snapshots, options);
 };
 
 export default parseTextContent;
-
