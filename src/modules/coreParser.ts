@@ -204,6 +204,16 @@ export const parseTextContent = (text: string, options?: TextParserOptions): Pro
       if (!productsMap.has(productCode)) {
         productsMap.set(productCode, []);
       }
+      
+      const variations = productsMap.get(productCode)!;
+      const existingVarIndex = variations.findIndex(v => v.ref === currentRef);
+      
+      const newVariation = {
+        ref: currentRef,
+        grade: currentLayout.sizeTokens.map(t => t.text),
+        tamanhos: values,
+        total: totalRow
+      };
 
       const productVariations = productsMap.get(productCode)!;
       const refForSearch = currentRef;
