@@ -114,7 +114,6 @@ export const parseTextContent = (text: string, options?: TextParserOptions): Pro
           currentRef = candidate;
           expectingRef = false;
         }
-        continue;
       }
       // Se encontrar divisores, cancela a espera para não pegar lixo
       if (trimmed.includes("Lotes Anteriores") || trimmed.includes("Estoque")) {
@@ -216,9 +215,9 @@ export const parseTextContent = (text: string, options?: TextParserOptions): Pro
         total: totalRow
       };
 
-      const variations = productsMap.get(productCode)!;
+      const productVariations = productsMap.get(productCode)!;
       const refForSearch = currentRef;
-      const existingVarIndex = variations.findIndex(v => v.ref === refForSearch);
+      const existingVarIndex = productVariations.findIndex(v => v.ref === refForSearch);
 
       const newVariation = {
         ref: currentRef,
@@ -228,23 +227,23 @@ export const parseTextContent = (text: string, options?: TextParserOptions): Pro
       };
 
       if (existingVarIndex >= 0) {
-        variations[existingVarIndex] = newVariation;
+        productVariations[existingVarIndex] = newVariation;
       } else {
-        variations.push(newVariation);
+        productVariations.push(newVariation);
       }
     }
   }
 
   // Construir Resultado Final
   const snapshots: ProductSnapshot[] = [];
-  productsMap.forEach((variations, productCode) => {
-    const mainGrade = variations.length > 0 ? variations[0].grade : [];
-    snapshots.push({
-      productCode,
-      grade: mainGrade,
-      variations,
-      warnings: []
-    });
+    productsMap.forEach((productVariations, productCode) => {
+      const mainGrade = productVariations.length > 0 ? productVariations[0].grade : [];
+      snapshots.push({
+        productCode,
+        grade: mainGrade,
+        variations: productVariations,
+        warnings: []
+      });
   });
 
   if (options?.productOrder) {
