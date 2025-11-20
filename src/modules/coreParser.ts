@@ -206,7 +206,8 @@ export const parseTextContent = (text: string, options?: TextParserOptions): Pro
       }
       
       const productVariations = productsMap.get(productCode)!;
-      const existingVarIndex = productVariations.findIndex(v => v.ref === currentRef);
+      const refToMatch = currentRef;
+      const existingVarIndex = productVariations.findIndex(v => v.ref === refToMatch);
 
       const newVariation = {
         ref: currentRef,

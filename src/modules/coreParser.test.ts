@@ -5,15 +5,16 @@ describe('coreParser', () => {
   it('interpreta relatórios TXT com produtos UN e grades numéricas', () => {
     const text = [
       'Grade: 2 - UNICA',
+      'Qtde         UN',
       '300',
-      'Qtde UN',
       'A PRODUZIR: -456',
       'Grade: 3 - 06/08/10/12/14/16/02/04',
+      'Qtde             06  08  10  12  14  16  02  04',
       '016.AZ',
-      'Qtde 06 08 10 12 14 16 02 04',
-      'A PRODUZIR: -301 -50 -5 -15 -37 -51 -28 -20 -95',
+      'A PRODUZIR: -301 -50 -5  -15 -37 -51 -95 -28 -20',
+      'Qtde             06  08  10  12  14  16  02  04',
       '016.DV',
-      'A PRODUZIR: -200 -10 -20 -30 -40 -50 -20 -10 -20',
+      'A PRODUZIR: -210 -10 -20 -30 -40 -50 -20 -20 -20',
     ].join('\n');
 
     const snapshots = parseTextContent(text);
@@ -60,13 +61,14 @@ describe('coreParser', () => {
           },
         ],
       },
-    ] as ProductSnapshot[]);
+    ]);
   });
 
   it('captura referência na linha da grade e ignora totais extras na linha de produção', () => {
     const text = [
-      'Grade: 3 - 04/06/08 123.AB',
-      'Qtde 04 06 08',
+      'Grade: 3 - 04/06/08',
+      'Qtde           04 06 08',
+      '123.AB',
       'A PRODUZIR: 60 10 20 30 999',
     ].join('\n');
 
@@ -86,14 +88,14 @@ describe('coreParser', () => {
           },
         ],
       },
-    ] as ProductSnapshot[]);
+    ]);
   });
 
   it('captura referência na mesma linha do cabeçalho Qtde e descarta totais adicionais', () => {
     const text = [
       'Grade: 3 - 04/06/08',
-      '123.AC Qtde 04 06 08',
-      'A PRODUZIR: 100 5 15 20 999',
+      '123.AC Qtde       04  06 08',
+      'A PRODUZIR: 100    5  15 20 999',
     ].join('\n');
 
     const snapshots = parseTextContent(text);
@@ -112,14 +114,14 @@ describe('coreParser', () => {
           },
         ],
       },
-    ] as ProductSnapshot[]);
+    ]);
   });
 
   it('infere grade numérica a partir da linha Qtde', () => {
     const text = [
       'Grade: 0 -',
+      'Qtde             50  52  54  56  58  60',
       '123.AB',
-      'Qtde 50 52 54 56 58 60',
       'A PRODUZIR: -210 -10 -20 -30 -40 -50 -60',
     ].join('\n');
 
@@ -146,14 +148,14 @@ describe('coreParser', () => {
           },
         ],
       },
-    ] as ProductSnapshot[]);
+    ]);
   });
 
   it('normaliza grades alfabéticas a partir da linha Qtde', () => {
     const text = [
       'Grade: 0 -',
+      'Qtde             PP  P   M   G   GG',
       '456.BR',
-      'Qtde PP P M G GG',
       'A PRODUZIR: -150 -10 -20 -30 -40 -50',
     ].join('\n');
 
@@ -173,18 +175,18 @@ describe('coreParser', () => {
           },
         ],
       },
-    ] as ProductSnapshot[]);
+    ]);
   });
 
   it('aplica ordenação de produtos informada nas opções', () => {
     const text = [
       'Grade: 2 - UNICA',
+      'Qtde         UN',
       '200',
-      'Qtde UN',
       'A PRODUZIR: 5',
       'Grade: 2 - UNICA',
+      'Qtde         UN',
       '100',
-      'Qtde UN',
       'A PRODUZIR: 10',
     ].join('\n');
 
