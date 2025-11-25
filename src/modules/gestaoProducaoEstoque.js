@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
     Upload,
     FileType2,
@@ -47,49 +47,6 @@ import AutoImportReview from './gestaoProducaoEstoque/AutoImportReview';
 
 const MODULE_TITLE = 'Gestão de Produção x Estoque';
 const MODULE_SUBTITLE = 'Integre produção e estoque em um relatório consolidado pronto para impressão.';
-export const LAST_MANUAL_PRODUCT_KEY = 'gestaoProducaoEstoque:lastManualProduct';
-
-const obterStorageSeguro = () => {
-    if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
-        return null;
-    }
-    try {
-        return window.localStorage;
-    } catch (error) {
-        console.warn('[GestaoProducaoEstoque] Não foi possível acessar o localStorage.', error);
-        return null;
-    }
-};
-
-const registrarUltimoProdutoManual = (codigo) => {
-    const storage = obterStorageSeguro();
-    if (!storage) {
-        return;
-    }
-    try {
-        if (codigo) {
-            storage.setItem(LAST_MANUAL_PRODUCT_KEY, codigo);
-        } else {
-            storage.removeItem(LAST_MANUAL_PRODUCT_KEY);
-        }
-    } catch (error) {
-        console.warn('[GestaoProducaoEstoque] Falha ao registrar o último produto manual.', error);
-    }
-};
-
-const recuperarUltimoProdutoManual = () => {
-    const storage = obterStorageSeguro();
-    if (!storage) {
-        return '';
-    }
-    try {
-        return storage.getItem(LAST_MANUAL_PRODUCT_KEY) || '';
-    } catch (error) {
-        console.warn('[GestaoProducaoEstoque] Não foi possível recuperar o último produto manual.', error);
-        return '';
-    }
-};
-
 const normalizarRotuloGrade = (valor) => {
     if (valor === null || valor === undefined) {
         return '';
@@ -710,159 +667,6 @@ const buildAutoSnapshots = ({
     return snapshotsFinais;
 };
 
-const parseManualGradeText = (gradeText) => normalizarGradeLista(parseGradeString(gradeText));
-
-const reconciliarVariacoesManuais = (variacoes = [], gradeLista = []) => {
-    const alinhadas = prepararVariacoesComGrade(variacoes, gradeLista);
-    if (!alinhadas.length) {
-        return [criarVariacaoVazia(gradeLista)];
-    }
-    return alinhadas;
-};
-
-const extrairTamanhosDeVariacoes = (variacoes = []) =>
-    normalizarGradeLista(
-        (Array.isArray(variacoes) ? variacoes : []).flatMap((variacao) =>
-            Object.keys(isPlainObject(variacao?.tamanhos) ? variacao.tamanhos : {}),
-        ),
-    );
-
-const validarFormularioManual = ({
-    codigo,
-    gradeTexto,
-    gradeLista,
-    variacoes,
-    agrupamento,
-}) => {
-    const codigoTrim = typeof codigo === 'string' ? codigo.trim().toUpperCase() : '';
-    if (!codigoTrim) {
-        throw new Error('Informe o código do produto base.');
-    }
-
-    let gradeNormalizada = normalizarGradeLista(
-        Array.isArray(gradeLista) && gradeLista.length ? gradeLista : parseGradeString(gradeTexto),
-    );
-
-    const variacoesProcessadas = (Array.isArray(variacoes) ? variacoes : [])
-        .map((variacao) => {
-            const ref = typeof variacao?.ref === 'string' ? variacao.ref.trim().toUpperCase() : '';
-            const tamanhos = preencherTamanhosComGrade(gradeNormalizada, variacao?.tamanhos);
-            if (!ref || !temQuantidadeInformada(tamanhos)) {
-                return null;
-            }
-            return {
-                ref,
-                tamanhos,
-                alwaysSeparate: Boolean(variacao?.alwaysSeparate),
-            };
-        })
-        .filter(Boolean);
-
-    if (!gradeNormalizada.length) {
-        const tamanhosExtras = extrairTamanhosDeVariacoes(variacoesProcessadas);
-        gradeNormalizada = tamanhosExtras;
-    }
-
-    if (!gradeNormalizada.length) {
-        throw new Error('Informe ao menos um tamanho na grade.');
-    }
-
-    const gradeFinal = normalizarGradeLista([
-        ...gradeNormalizada,
-        ...extrairTamanhosDeVariacoes(variacoesProcessadas),
-    ]);
-
-    if (!variacoesProcessadas.length) {
-        throw new Error('Cadastre pelo menos uma variação com tamanhos válidos.');
-    }
-
-    const variacoesAlinhadas = variacoesProcessadas.map((variacao) => ({
-        ref: variacao.ref,
-        tamanhos: preencherTamanhosComGrade(gradeFinal, variacao.tamanhos),
-    }));
-
-    return {
-        codigo: codigoTrim,
-        grade: gradeFinal,
-        variacoes: variacoesAlinhadas,
-        agrupamento: agrupamento === 'separadas' ? 'separadas' : 'juntas',
-    };
-};
-
-const tentarValidarFormularioManual = (dados) => {
-    try {
-        return validarFormularioManual(dados);
-    } catch (error) {
-        return null;
-    }
-};
-
-const construirSnapshotsManuais = ({
-    codigo,
-    grade,
-    variacoes,
-    agrupamento,
-    responsavel,
-    dataLancamentoISO = null,
-}) => {
-    const gradeNormalizada = Array.isArray(grade) ? grade : [];
-    const variacoesNormalizadas = (Array.isArray(variacoes) ? variacoes : []).map((variacao) => ({
-        ref: typeof variacao?.ref === 'string' ? variacao.ref : '',
-        tamanhos: preencherTamanhosComGrade(gradeNormalizada, variacao?.tamanhos),
-        alwaysSeparate: Boolean(variacao?.alwaysSeparate),
-    }));
-
-    const snapshotConfig = {
-        grade: gradeNormalizada,
-        responsavel,
-        dataLancamentoISO,
-    };
-
-    if (agrupamento === 'separadas') {
-        return variacoesNormalizadas.map((variacao) =>
-            criarSnapshotProduto({
-                ...snapshotConfig,
-                produtoBase: variacao.ref || codigo,
-                variations: [variacao],
-            }),
-        );
-    }
-
-    const agrupadas = [];
-    const separadas = [];
-
-    variacoesNormalizadas.forEach((variacao) => {
-        if (variacao.alwaysSeparate) {
-            separadas.push(variacao);
-        } else {
-            agrupadas.push(variacao);
-        }
-    });
-
-    const snapshots = [];
-    if (agrupadas.length) {
-        snapshots.push(
-            criarSnapshotProduto({
-                ...snapshotConfig,
-                produtoBase: codigo,
-                variations: agrupadas,
-            }),
-        );
-    }
-
-    separadas.forEach((variacao) => {
-        snapshots.push(
-            criarSnapshotProduto({
-                ...snapshotConfig,
-                produtoBase: variacao.ref || codigo,
-                variations: [variacao],
-            }),
-        );
-    });
-
-    return snapshots;
-};
-
 const GestaoProducaoEstoqueModule = ({
     onNavigateToCrono,
     onNavigateToStock,
@@ -877,16 +681,10 @@ const GestaoProducaoEstoqueModule = ({
     const [historico, setHistorico] = useState([]);
     const [mostrarPortfolio, setMostrarPortfolio] = useState(false);
     const [mostrarHistorico, setMostrarHistorico] = useState(false);
-    const [novoProdutoCodigo, setNovoProdutoCodigo] = useState('');
-    const [novoProdutoGrade, setNovoProdutoGrade] = useState('');
-    const [novoProdutoVariacoes, setNovoProdutoVariacoes] = useState([criarVariacaoVazia()]);
-    const [novoProdutoAgrupamento, setNovoProdutoAgrupamento] = useState('juntas');
     const [tipoArquivo, setTipoArquivo] = useState('docx');
     const [arquivoSelecionado, setArquivoSelecionado] = useState(null);
     const [arquivoNome, setArquivoNome] = useState('');
     const [previewSnapshots, setPreviewSnapshots] = useState([]);
-    const [manualPreviewSnapshots, setManualPreviewSnapshots] = useState([]);
-    const [manualPreviewData, setManualPreviewData] = useState(null);
     const [previewSource, setPreviewSource] = useState(null);
     const [autoImportRawSnapshots, setAutoImportRawSnapshots] = useState([]);
     const [autoImportAdjustments, setAutoImportAdjustments] = useState({});
@@ -894,14 +692,7 @@ const GestaoProducaoEstoqueModule = ({
     const [processing, setProcessing] = useState(false);
     const [status, setStatus] = useState({ type: 'idle', message: '' });
     const [autoCarregamentoInicialAplicado, setAutoCarregamentoInicialAplicado] = useState(false);
-    const manualFormularioRef = useRef(null);
-    const gridCellRefs = useRef(new Map());
-
-    const gradeListaAtual = useMemo(() => parseManualGradeText(novoProdutoGrade), [novoProdutoGrade]);
-    const resumoGradeAtual = useMemo(
-        () => calcularResumoPorTamanho(novoProdutoVariacoes, gradeListaAtual),
-        [novoProdutoVariacoes, gradeListaAtual],
-    );
+    const [aiConversationText, setAiConversationText] = useState('');
 
     const registerGridCell = useCallback((rowIndex, colIndex, element) => {
         const key = `${rowIndex}-${colIndex}`;
@@ -911,67 +702,6 @@ const GestaoProducaoEstoqueModule = ({
             gridCellRefs.current.delete(key);
         }
     }, []);
-
-    const focusGridCell = useCallback((rowIndex, colIndex) => {
-        const key = `${rowIndex}-${colIndex}`;
-        const target = gridCellRefs.current.get(key);
-        if (target) {
-            target.focus();
-            if (typeof target.select === 'function') {
-                target.select();
-            }
-        }
-    }, []);
-
-    const handleGridKeyDown = useCallback(
-        (event, rowIndex, colIndex) => {
-            const navegaveis = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'];
-            if (!navegaveis.includes(event.key)) {
-                return;
-            }
-            event.preventDefault();
-            const totalLinhas = novoProdutoVariacoes.length;
-            const totalColunas = Math.max(1, gradeListaAtual.length + 1);
-            let proximaLinha = rowIndex;
-            let proximaColuna = colIndex;
-
-            switch (event.key) {
-                case 'ArrowUp':
-                    proximaLinha = Math.max(0, rowIndex - 1);
-                    break;
-                case 'ArrowDown':
-                    proximaLinha = Math.min(totalLinhas - 1, rowIndex + 1);
-                    break;
-                case 'ArrowLeft':
-                    proximaColuna = Math.max(0, colIndex - 1);
-                    break;
-                case 'ArrowRight':
-                    proximaColuna = Math.min(totalColunas - 1, colIndex + 1);
-                    break;
-                case 'Enter':
-                    if (event.shiftKey) {
-                        proximaLinha = Math.max(0, rowIndex - 1);
-                    } else {
-                        proximaLinha = Math.min(totalLinhas - 1, rowIndex + 1);
-                    }
-                    break;
-                default:
-                    break;
-            }
-
-            focusGridCell(proximaLinha, proximaColuna);
-        },
-        [gradeListaAtual.length, novoProdutoVariacoes.length, focusGridCell],
-    );
-
-    const clearManualPreview = useCallback(() => {
-        setManualPreviewSnapshots([]);
-        setManualPreviewData(null);
-        if (previewSource === 'manual') {
-            setPreviewSnapshots([]);
-            setPreviewSource(null);
-        }
-    }, [previewSource]);
 
     const formatarTamanhos = useCallback((tamanhos = {}) => {
         const entries = Object.entries(tamanhos || {});
@@ -989,29 +719,8 @@ const GestaoProducaoEstoqueModule = ({
         setPortfolio(listPortfolio());
         setHistorico(carregarHistorico());
     }, []);
-
     useEffect(() => {
-        setNovoProdutoVariacoes((prev) => {
-            const alinhadas = reconciliarVariacoesManuais(prev, gradeListaAtual);
-            if (!alinhadas.length) {
-                return [criarVariacaoVazia(gradeListaAtual)];
-            }
-            const nenhumaMudanca =
-                alinhadas.length === prev.length &&
-                alinhadas.every((variacao, index) => {
-                    const original = prev[index] || {};
-                    const refOriginal = typeof original.ref === 'string' ? original.ref : '';
-                    return (
-                        variacao.ref === refOriginal &&
-                        saoMapasDeTamanhosIguais(variacao.tamanhos, original.tamanhos)
-                    );
-                });
-            return nenhumaMudanca ? prev : alinhadas;
-        });
-    }, [gradeListaAtual]);
-
-    useEffect(() => {
-        if (previewSource !== 'auto') {
+        if (previewSource !== 'auto' && previewSource !== 'ia') {
             return;
         }
         if (!autoImportRawSnapshots.length) {
@@ -1084,8 +793,6 @@ const GestaoProducaoEstoqueModule = ({
 
     const resetPreview = useCallback(() => {
         setPreviewSnapshots([]);
-        setManualPreviewSnapshots([]);
-        setManualPreviewData(null);
         setPreviewSource(null);
         setAutoImportRawSnapshots([]);
         setAutoImportAdjustments({});
@@ -1164,9 +871,7 @@ const GestaoProducaoEstoqueModule = ({
             setAutoImportAdjustments(ajustesIniciais);
             setAutoImportOrder(ordemInicial);
             setPreviewSnapshots([]);
-            setManualPreviewSnapshots([]);
-            setManualPreviewData(null);
-            setPreviewSource('auto');
+            setPreviewSource('ia');
             if (produtosImportados.length) {
                 setStatus({
                     type: 'success',
@@ -1304,10 +1009,10 @@ const GestaoProducaoEstoqueModule = ({
     );
 
     const handleConfirmarLancamento = useCallback(async () => {
-        if (previewSource !== 'auto' || !autoImportRawSnapshots.length) {
+        if ((previewSource !== 'auto' && previewSource !== 'ia') || !autoImportRawSnapshots.length) {
             setStatus({
                 type: 'error',
-                message: 'Gere e revise a prévia automatizada antes de confirmar o lançamento.',
+                message: 'Gere e revise a prévia da IA antes de confirmar o lançamento.',
             });
             return;
         }
@@ -1325,7 +1030,7 @@ const GestaoProducaoEstoqueModule = ({
             if (!finalSnapshots.length) {
                 throw new Error('Nenhum snapshot foi gerado. Ajuste as variações e tente novamente.');
             }
-            await importarArquivoDeProducao(finalSnapshots, 'manual', responsavelAtual);
+            await importarArquivoDeProducao(finalSnapshots, 'ia', responsavelAtual);
             setHistorico(carregarHistorico());
             setStatus({
                 type: 'success',
@@ -1361,531 +1066,29 @@ const GestaoProducaoEstoqueModule = ({
 
     const handleExecutarExemplo = useCallback(() => {
         exemploFluxoCompleto();
-        setHistorico(carregarHistorico());
-        setStatus({ type: 'success', message: 'Exemplo executado. Um relatório demonstrativo foi gerado em uma nova aba.' });
-    }, []);
 
-    const handleAdicionarLinhaVariacao = useCallback(() => {
-        setNovoProdutoVariacoes((prev) => [...prev, criarVariacaoVazia(gradeListaAtual)]);
-        clearManualPreview();
-    }, [gradeListaAtual, clearManualPreview]);
-
-    const handleAtualizarVariacao = useCallback((index, campo, valor, tamanhoAlvo = null) => {
-        let houveAlteracao = false;
-        setNovoProdutoVariacoes((prev) =>
-            prev.map((variacao, idx) => {
-                if (idx !== index) {
-                    return variacao;
-                }
-                if (campo === 'ref') {
-                    const valorNormalizado = typeof valor === 'string' ? valor.toUpperCase() : '';
-                    if (variacao.ref === valorNormalizado) {
-                        return variacao;
-                    }
-                    houveAlteracao = true;
-                    return { ...variacao, ref: valorNormalizado };
-                }
-                if (campo === 'alwaysSeparate') {
-                    const checked = Boolean(valor);
-                    if (variacao.alwaysSeparate === checked) {
-                        return variacao;
-                    }
-                    houveAlteracao = true;
-                    return { ...variacao, alwaysSeparate: checked };
-                }
-                if (campo === 'tamanhos' && tamanhoAlvo) {
-                    const tamanhosAtuais = isPlainObject(variacao.tamanhos) ? variacao.tamanhos : {};
-                    const valorBruto = typeof valor === 'string' ? valor : String(valor ?? '');
-                    if (valorBruto === '' || valorBruto === '-' || valorBruto === '+') {
-                        if (tamanhosAtuais[tamanhoAlvo] === valorBruto) {
-                            return variacao;
-                        }
-                        houveAlteracao = true;
-                        return {
-                            ...variacao,
-                            tamanhos: {
-                                ...tamanhosAtuais,
-                                [tamanhoAlvo]: valorBruto,
-                            },
-                        };
-                    }
-                    const quantidadeNormalizada = normalizarQuantidade(valorBruto);
-                    if (tamanhosAtuais[tamanhoAlvo] === quantidadeNormalizada) {
-                        return variacao;
-                    }
-                    houveAlteracao = true;
-                    return {
-                        ...variacao,
-                        tamanhos: {
-                            ...tamanhosAtuais,
-                            [tamanhoAlvo]: quantidadeNormalizada,
-                        },
-                    };
-                }
-                return variacao;
-            }),
-        );
-        if (houveAlteracao) {
-            clearManualPreview();
-        }
-    }, [clearManualPreview]);
-
-    const handleAplicarValoresColados = useCallback(
-        (index, tamanhoInicial, textoBruto) => {
-            if (typeof textoBruto !== 'string' || !textoBruto.trim()) {
-                return;
-            }
-
-            const indiceInicial = tamanhoInicial ? gradeListaAtual.indexOf(tamanhoInicial) : -1;
-            const gradeSegmento = indiceInicial >= 0 ? gradeListaAtual.slice(indiceInicial) : gradeListaAtual;
-
-            const construirMapaSequencial = () => {
-                if (!gradeSegmento.length) {
-                    return {};
-                }
-                const sanitized = textoBruto.replace(/\r/g, '').replace(/\n/g, '\t');
-                const tokens = sanitized
-                    .split('\t')
-                    .flatMap((segmento) => segmento.split(/[,;]+/))
-                    .flatMap((segmento) => segmento.split(/\s+/))
-                    .map((token) => token.trim())
-                    .filter(Boolean);
-                const numeroRegex = /^-?\d+(?:[.,]\d+)?$/;
-                const tokensNumericos = tokens.filter((token) => numeroRegex.test(token));
-                if (!tokensNumericos.length) {
-                    return {};
-                }
-                const mapaSequencial = {};
-                gradeSegmento.forEach((tamanho, idx) => {
-                    const token = tokensNumericos[idx];
-                    if (token === undefined) {
-                        return;
-                    }
-                    mapaSequencial[tamanho] = token;
-                });
-                return mapaSequencial;
-            };
-
-            const mapaDireto = parseTamanhosString(textoBruto, { grade: gradeSegmento });
-            const mapaValores = Object.keys(mapaDireto).length ? mapaDireto : construirMapaSequencial();
-
-            if (!Object.keys(mapaValores).length) {
-                return;
-            }
-
-            let houveAlteracao = false;
-            setNovoProdutoVariacoes((prev) =>
-                prev.map((variacao, idx) => {
-                    if (idx !== index) {
-                        return variacao;
-                    }
-                    const tamanhosAtuais = preencherTamanhosComGrade(gradeListaAtual, variacao.tamanhos);
-                    const tamanhosAtualizados = { ...tamanhosAtuais };
-
-                    const aplicarValor = (tamanho, valor) => {
-                        if (!tamanho) {
-                            return;
-                        }
-                        tamanhosAtualizados[tamanho] = normalizarQuantidade(valor);
-                    };
-
-                    gradeSegmento.forEach((tamanho) => {
-                        if (Object.prototype.hasOwnProperty.call(mapaValores, tamanho)) {
-                            const valorAtual = tamanhosAtualizados[tamanho];
-                            const valorNovo = normalizarQuantidade(mapaValores[tamanho]);
-                            if (!Object.is(valorAtual, valorNovo)) {
-                                houveAlteracao = true;
-                            }
-                            aplicarValor(tamanho, mapaValores[tamanho]);
-                        }
-                    });
-
-                    Object.entries(mapaValores).forEach(([tamanho, valor]) => {
-                        if (!Object.prototype.hasOwnProperty.call(tamanhosAtualizados, tamanho)) {
-                            houveAlteracao = true;
-                            aplicarValor(tamanho, valor);
-                        }
-                    });
-
-                    if (saoMapasDeTamanhosIguais(tamanhosAtualizados, tamanhosAtuais)) {
-                        return variacao;
-                    }
-
-                    houveAlteracao = true;
-                    return {
-                        ...variacao,
-                        tamanhos: tamanhosAtualizados,
-                    };
-                }),
-            );
-            if (houveAlteracao) {
-                clearManualPreview();
-            }
-        },
-        [gradeListaAtual, clearManualPreview],
-    );
-
-    const handleColarNaVariacao = useCallback(
-        (event, index, tamanhoAlvo) => {
-            if (!event?.clipboardData) {
-                return;
-            }
-            const texto =
-                event.clipboardData.getData('text') || event.clipboardData.getData('text/plain');
-            if (!texto) {
-                return;
-            }
-            event.preventDefault();
-            handleAplicarValoresColados(index, tamanhoAlvo, texto);
-        },
-        [handleAplicarValoresColados],
-    );
-
-    const handleRemoverVariacao = useCallback(
-        (index) => {
-            let houveAlteracao = false;
-            setNovoProdutoVariacoes((prev) => {
-                if (index < 0 || index >= prev.length) {
-                    return prev;
-                }
-                houveAlteracao = true;
-                const restante = prev.filter((_, idx) => idx !== index);
-                if (!restante.length) {
-                    return [criarVariacaoVazia(gradeListaAtual)];
-                }
-                return restante;
-            });
-            if (houveAlteracao) {
-                clearManualPreview();
-            }
-        },
-        [gradeListaAtual, clearManualPreview],
-    );
-
-    const resetFormularioNovoProduto = useCallback(() => {
-        setNovoProdutoCodigo('');
-        setNovoProdutoGrade('');
-        setNovoProdutoVariacoes([criarVariacaoVazia()]);
-        setNovoProdutoAgrupamento('juntas');
-        clearManualPreview();
-        registrarUltimoProdutoManual('');
-    }, [clearManualPreview]);
-
-    const temRascunho = useMemo(() => {
-        if (novoProdutoCodigo.trim() || novoProdutoGrade.trim()) {
-            return true;
-        }
-        return novoProdutoVariacoes.some((variacao) => {
-            const refPreenchido = typeof variacao?.ref === 'string' && variacao.ref.trim();
-            return Boolean(refPreenchido || temQuantidadeInformada(variacao?.tamanhos));
-        });
-    }, [novoProdutoCodigo, novoProdutoGrade, novoProdutoVariacoes]);
-
-    const manualFormularioNormalizado = useMemo(
-        () =>
-            tentarValidarFormularioManual({
-                codigo: novoProdutoCodigo,
-                gradeTexto: novoProdutoGrade,
-                gradeLista: gradeListaAtual,
-                variacoes: novoProdutoVariacoes,
-                agrupamento: novoProdutoAgrupamento,
-            }),
-        [novoProdutoCodigo, novoProdutoGrade, gradeListaAtual, novoProdutoVariacoes, novoProdutoAgrupamento],
-    );
-
-    const manualFormularioValido = Boolean(manualFormularioNormalizado);
-
-    const trazerFormularioManualParaView = useCallback((behavior = 'smooth') => {
-        const executarScroll = () => {
-            if (
-                manualFormularioRef.current &&
-                typeof manualFormularioRef.current.scrollIntoView === 'function'
-            ) {
-                manualFormularioRef.current.scrollIntoView({ behavior, block: 'start' });
-            }
-        };
-        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-            window.requestAnimationFrame(executarScroll);
-        } else {
-            setTimeout(executarScroll, 0);
-        }
-    }, []);
-
-    const handleCarregarProduto = useCallback(
-        (produto, options = {}) => {
-            if (!produto) {
-                return;
-            }
-            const agrupamentoSalvo = produto.groupingMode === 'separated'
-                ? 'separadas'
-                : produto.grouping === 'separadas'
-                    ? 'separadas'
-                    : produto.agruparVariacoes === false
-                        ? 'separadas'
-                        : 'juntas';
-            setNovoProdutoCodigo(produto.codigo || '');
-            setNovoProdutoGrade(Array.isArray(produto.grade) && produto.grade.length ? produto.grade.join(', ') : '');
-            setNovoProdutoAgrupamento(agrupamentoSalvo === 'separadas' ? 'separadas' : 'juntas');
-            setNovoProdutoVariacoes(() => {
-                if (Array.isArray(produto.variations) && produto.variations.length) {
-                    return produto.variations.map((variacao) => ({
-                        ref: variacao?.ref || '',
-                        tamanhos: preencherTamanhosComGrade(produto.grade || [], variacao?.tamanhos || {}),
-                        alwaysSeparate: Boolean(variacao?.alwaysSeparate),
-                    }));
-                }
-                return [criarVariacaoVazia(produto.grade || [])];
-            });
-            clearManualPreview();
-            setMostrarPortfolio(true);
-            if (produto?.codigo) {
-                registrarUltimoProdutoManual(produto.codigo);
-            }
-            const behavior = options?.scrollBehavior || 'smooth';
-            trazerFormularioManualParaView(behavior);
-        },
-        [clearManualPreview, trazerFormularioManualParaView],
-    );
-
-    useEffect(() => {
-        if (autoCarregamentoInicialAplicado || !portfolio.length) {
-            return;
-        }
-        const codigoPreferido = recuperarUltimoProdutoManual();
-        const produtoInicial =
-            portfolio.find((produto) => produto?.codigo === codigoPreferido) || portfolio[0];
-        if (produtoInicial) {
-            handleCarregarProduto(produtoInicial, { scrollBehavior: 'auto' });
-        }
-        setAutoCarregamentoInicialAplicado(true);
-    }, [portfolio, autoCarregamentoInicialAplicado, handleCarregarProduto]);
-
-    const sincronizarFormularioComProduto = useCallback(
-        (portfolioFonte, codigoBase) => {
-            if (!Array.isArray(portfolioFonte) || !portfolioFonte.length) {
-                return;
-            }
-            const codigoNormalizado = typeof codigoBase === 'string' ? codigoBase.trim() : '';
-            if (!codigoNormalizado) {
-                return;
-            }
-            const produtoEncontrado = portfolioFonte.find((produto) => produto?.codigo === codigoNormalizado);
-            if (produtoEncontrado) {
-                handleCarregarProduto(produtoEncontrado);
-            }
-        },
-        [handleCarregarProduto],
-    );
-
-    const encontrarOrderIndexProduto = useCallback(
-        (codigoBase) => {
-            const codigoNormalizado = typeof codigoBase === 'string' ? codigoBase.trim() : '';
-            if (!codigoNormalizado) {
-                return portfolio.length;
-            }
-            const produtoExistente = portfolio.find((item) => item?.codigo === codigoNormalizado);
-            if (produtoExistente && Number.isFinite(produtoExistente.orderIndex)) {
-                return produtoExistente.orderIndex;
-            }
-            return portfolio.length;
-        },
-        [portfolio],
-    );
-
-    const handleAdicionarProduto = useCallback(() => {
+    const handleAplicarRespostaIa = useCallback(() => {
         try {
-            const variacoesPreparadas = prepararVariacoesComGrade(novoProdutoVariacoes, gradeListaAtual);
-            const ordemPreferida = encontrarOrderIndexProduto(novoProdutoCodigo);
-            const { portfolioAtualizado, mensagemSucesso } = validarEAdicionarProdutoAoPortfolio({
-                codigo: novoProdutoCodigo,
-                grade: novoProdutoGrade,
-                variacoes: variacoesPreparadas,
-                agrupamento: novoProdutoAgrupamento,
-                responsavel: responsavelAtual,
-                orderIndex: ordemPreferida,
-            });
-            setPortfolio(portfolioAtualizado);
-            sincronizarFormularioComProduto(portfolioAtualizado, novoProdutoCodigo);
+            const parsed = JSON.parse(aiConversationText || '[]');
+            const snapshots = Array.isArray(parsed?.snapshots) ? parsed.snapshots : Array.isArray(parsed) ? parsed : [];
+            if (!snapshots.length) {
+                throw new Error('Nenhum snapshot foi encontrado na resposta da IA.');
+            }
+            const ajustesIniciais = buildInitialAutoAdjustments(snapshots, portfolio);
+            const ordemInicial = buildInitialAutoOrder(snapshots, portfolio);
+            setAutoImportRawSnapshots(snapshots);
+            setAutoImportAdjustments(ajustesIniciais);
+            setAutoImportOrder(ordemInicial);
+            setPreviewSnapshots([]);
+            setPreviewSource('ia');
             setStatus({
                 type: 'success',
-                message: `${mensagemSucesso} Alterações salvas automaticamente.`,
+                message: 'Resposta da IA aplicada. Revise o agrupamento e confirme o lançamento.',
             });
         } catch (error) {
-            setStatus({ type: 'error', message: error?.message || 'Não foi possível adicionar o produto.' });
+            setStatus({ type: 'error', message: error?.message || 'Não foi possível interpretar a resposta da IA.' });
         }
-    }, [
-        novoProdutoCodigo,
-        novoProdutoGrade,
-        novoProdutoVariacoes,
-        novoProdutoAgrupamento,
-        gradeListaAtual,
-        responsavelAtual,
-        sincronizarFormularioComProduto,
-        encontrarOrderIndexProduto,
-    ]);
-
-    const handleSalvarPortfolio = useCallback(() => {
-        if (!temRascunho) {
-            setStatus({ type: 'info', message: 'Preencha o formulário para salvar um novo produto.' });
-            return;
-        }
-        try {
-            const variacoesPreparadas = prepararVariacoesComGrade(novoProdutoVariacoes, gradeListaAtual);
-            const ordemPreferida = encontrarOrderIndexProduto(novoProdutoCodigo);
-            const { portfolioAtualizado, mensagemSucesso } = validarEAdicionarProdutoAoPortfolio({
-                codigo: novoProdutoCodigo,
-                grade: novoProdutoGrade,
-                variacoes: variacoesPreparadas,
-                agrupamento: novoProdutoAgrupamento,
-                responsavel: responsavelAtual,
-                orderIndex: ordemPreferida,
-            });
-            setPortfolio(portfolioAtualizado);
-            sincronizarFormularioComProduto(portfolioAtualizado, novoProdutoCodigo);
-            setStatus({
-                type: 'success',
-                message: `Rascunho salvo: ${mensagemSucesso}`,
-            });
-        } catch (error) {
-            setStatus({ type: 'error', message: error?.message || 'Não foi possível salvar o rascunho.' });
-        }
-    }, [
-        temRascunho,
-        novoProdutoCodigo,
-        novoProdutoGrade,
-        novoProdutoVariacoes,
-        novoProdutoAgrupamento,
-        gradeListaAtual,
-        responsavelAtual,
-        sincronizarFormularioComProduto,
-        encontrarOrderIndexProduto,
-    ]);
-
-    const handleNovoProdutoCodigoChange = useCallback(
-        (event) => {
-            setNovoProdutoCodigo(event.target.value.toUpperCase());
-            clearManualPreview();
-        },
-        [clearManualPreview],
-    );
-
-    const handleNovoProdutoGradeChange = useCallback(
-        (event) => {
-            setNovoProdutoGrade(event.target.value);
-            clearManualPreview();
-        },
-        [clearManualPreview],
-    );
-
-    const handleNovoProdutoAgrupamentoChange = useCallback(
-        (event) => {
-            setNovoProdutoAgrupamento(event.target.value);
-            clearManualPreview();
-        },
-        [clearManualPreview],
-    );
-
-    const handleGerarPreviaManual = useCallback(() => {
-        if (!manualFormularioNormalizado) {
-            setStatus({
-                type: 'error',
-                message: 'Preencha o formulário manual corretamente antes de gerar a prévia.',
-            });
-            return;
-        }
-
-        const dadosConfirmacao = {
-            codigo: manualFormularioNormalizado.codigo,
-            grade: [...manualFormularioNormalizado.grade],
-            agrupamento: manualFormularioNormalizado.agrupamento,
-            variacoes: manualFormularioNormalizado.variacoes.map((variacao) => ({
-                ref: variacao.ref,
-                tamanhos: { ...variacao.tamanhos },
-                alwaysSeparate: Boolean(variacao.alwaysSeparate),
-            })),
-        };
-
-        const snapshots = construirSnapshotsManuais({
-            ...dadosConfirmacao,
-            responsavel: responsavelAtual,
-        });
-
-        setManualPreviewData(dadosConfirmacao);
-        setManualPreviewSnapshots(snapshots);
-        setPreviewSnapshots(snapshots);
-        setPreviewSource('manual');
-        setStatus({
-            type: 'success',
-            message: `Prévia manual montada com ${snapshots.length} snapshot(s). Revise e confirme o lançamento.`,
-        });
-    }, [manualFormularioNormalizado, responsavelAtual]);
-
-    const handleConfirmarLancamentoManual = useCallback(async () => {
-        if (!manualPreviewData || !manualPreviewSnapshots.length) {
-            setStatus({
-                type: 'error',
-                message: 'Gere uma prévia manual antes de confirmar o lançamento.',
-            });
-            return;
-        }
-
-        setProcessing(true);
-        setStatus({
-            type: 'info',
-            message: 'Registrando lançamento manual e gerando relatório...',
-        });
-
-        try {
-            const dataLancamentoISO = new Date().toISOString();
-            const snapshotsConfirmados = construirSnapshotsManuais({
-                ...manualPreviewData,
-                responsavel: responsavelAtual,
-                dataLancamentoISO,
-            });
-
-            let dailyRecord = null;
-            try {
-                const resultado = await importarArquivoDeProducao(snapshotsConfirmados, 'manual', responsavelAtual);
-                if (resultado?.dailyRecord) {
-                    dailyRecord = resultado.dailyRecord;
-                }
-            } catch (error) {
-                console.warn('[GestaoProducaoEstoque] Falha ao importar manualmente, aplicando fallback local.', error);
-            }
-
-            if (!dailyRecord) {
-                dailyRecord = montarDailyRecord({
-                    dataLancamentoISO,
-                    responsavel: responsavelAtual,
-                    snapshotsProdutos: snapshotsConfirmados,
-                });
-                salvarNoHistorico(dailyRecord);
-                const paginas = paginarRelatorioEmPaginasA4(dailyRecord);
-                const html = gerarHTMLImpressaoPaginado(dailyRecord, paginas);
-                if (typeof window !== 'undefined') {
-                    const novaJanela = window.open('', '_blank');
-                    if (novaJanela) {
-                        novaJanela.document.write(html);
-                        novaJanela.document.close();
-                    }
-                }
-            }
-
-            setHistorico(carregarHistorico());
-            setStatus({
-                type: 'success',
-                message: 'Lançamento manual registrado com sucesso! O relatório foi aberto em uma nova aba.',
-            });
-            resetPreview();
-        } catch (error) {
-            setStatus({
-                type: 'error',
-                message: error?.message || 'Não foi possível concluir o lançamento manual.',
-            });
-        } finally {
-            setProcessing(false);
-        }
-    }, [manualPreviewData, manualPreviewSnapshots, responsavelAtual, resetPreview]);
+    }, [aiConversationText, portfolio]);
 
     const handleRemoverProduto = useCallback((codigo) => {
         const atualizado = deletePortfolio(codigo);
@@ -1966,53 +1169,83 @@ const GestaoProducaoEstoqueModule = ({
                                 onClick={handleExecutarExemplo}
                                 className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/50 dark:text-indigo-200"
                             >
-                                <RefreshCcw size={16} />
-                                Fluxo de exemplo
+                            <RefreshCcw size={16} />
+                            Fluxo de exemplo
+                        </button>
+                    </header>
+
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Resposta da IA (JSON ou lista de snapshots)</label>
+                        <textarea
+                            value={aiConversationText}
+                            onChange={(event) => setAiConversationText(event.target.value)}
+                            rows={4}
+                            className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
+                            placeholder="Cole aqui a resposta gerada pela IA para mapear diretamente para snapshots."
+                        />
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                type="button"
+                                onClick={handleAplicarRespostaIa}
+                                disabled={processing || !aiConversationText.trim()}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+                            >
+                                <Layers size={16} />
+                                Aplicar resposta da IA
                             </button>
-                        </header>
+                            <button
+                                type="button"
+                                onClick={() => setAiConversationText('')}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+                            >
+                                <Trash2 size={16} />
+                                Limpar texto
+                            </button>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Esta área centraliza a interação com a IA. Cole o retorno da conversa ou importe um arquivo para gerar snapshots e relatórios.</p>
+                    </div>
 
-                        <div className="grid gap-4 md:grid-cols-3">
-                            <div className="flex flex-col gap-2">
-                                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Tipo de arquivo</span>
-                                <div className="flex gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => handleTipoArquivo('docx')}
-                                        className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border ${tipoArquivo === 'docx' ? 'border-indigo-500 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-200' : 'border-gray-300 bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200'}`}
-                                    >
-                                        <FileType2 size={18} /> DOCX
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleTipoArquivo('txt')}
-                                        className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border ${tipoArquivo === 'txt' ? 'border-blue-500 bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-200' : 'border-gray-300 bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200'}`}
-                                    >
-                                        <FileText size={18} /> TXT
-                                    </button>
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="md:col-span-2 flex flex-col gap-2">
-                                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Arquivo do relatório</span>
-                                <label className="flex items-center gap-3 px-4 py-3 border border-dashed border-gray-300 dark:border-gray-600 rounded-md cursor-pointer bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm">
-                                    <Upload size={18} />
-                                    <div className="flex-1">
-                                        {arquivoNome ? (
-                                            <span className="font-medium text-gray-800 dark:text-gray-100">{arquivoNome}</span>
-                                        ) : (
-                                            <span className="text-gray-500 dark:text-gray-300">Clique para selecionar o arquivo...</span>
-                                        )}
-                                    </div>
-                                    <input
-                                        type="file"
-                                        accept={tipoArquivo === 'docx' ? '.docx' : '.txt'}
-                                        className="hidden"
-                                        onChange={handleArquivoChange}
-                                    />
-                                </label>
+                    <div className="grid gap-4 md:grid-cols-3">
+                        <div className="flex flex-col gap-2">
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Tipo de arquivo</span>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => handleTipoArquivo('docx')}
+                                    className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border ${tipoArquivo === 'docx' ? 'border-indigo-500 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-200' : 'border-gray-300 bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200'}`}
+                                >
+                                    <FileType2 size={18} /> DOCX
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleTipoArquivo('txt')}
+                                    className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border ${tipoArquivo === 'txt' ? 'border-blue-500 bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-200' : 'border-gray-300 bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200'}`}
+                                >
+                                    <FileText size={18} /> TXT
+                                </button>
                             </div>
                         </div>
+
+                        <div className="md:col-span-2 flex flex-col gap-2">
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Arquivo do relatório</span>
+                            <label className="flex items-center gap-3 px-4 py-3 border border-dashed border-gray-300 dark:border-gray-600 rounded-md cursor-pointer bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm">
+                                <Upload size={18} />
+                                <div className="flex-1">
+                                    {arquivoNome ? (
+                                        <span className="font-medium text-gray-800 dark:text-gray-100">{arquivoNome}</span>
+                                    ) : (
+                                        <span className="text-gray-500 dark:text-gray-300">Clique para selecionar o arquivo...</span>
+                                    )}
+                                </div>
+                                <input
+                                    type="file"
+                                    accept={tipoArquivo === 'docx' ? '.docx' : '.txt'}
+                                    className="hidden"
+                                    onChange={handleArquivoChange}
+                                />
+                            </label>
+                        </div>
+                    </div>
 
                         <div className="flex flex-col sm:flex-row gap-3">
                             <button
@@ -2027,7 +1260,7 @@ const GestaoProducaoEstoqueModule = ({
                             <button
                                 type="button"
                                 onClick={handleConfirmarLancamento}
-                                disabled={processing || previewSource !== 'auto' || !previewSnapshots.length}
+                                disabled={processing || (!previewSnapshots.length || (previewSource !== 'auto' && previewSource !== 'ia'))}
                                 className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
                             >
                                 <CheckCircle2 size={16} />
@@ -2058,7 +1291,7 @@ const GestaoProducaoEstoqueModule = ({
                                     </div>
                                 </header>
 
-                                {previewSource === 'auto' ? (
+                                {previewSource ? (
                                     <AutoImportReview
                                         rawSnapshots={autoImportRawSnapshots}
                                         orderedProductCodes={autoImportOrder}
@@ -2068,70 +1301,7 @@ const GestaoProducaoEstoqueModule = ({
                                         onToggleAlwaysSeparate={handleAutoImportAlwaysSeparateChange}
                                     />
                                 ) : (
-                                    <div className="space-y-6">
-                                        {previewSnapshots.map((snapshot) => (
-                                            <div key={snapshot.produtoBase} className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                                            <div className="bg-gray-50 dark:bg-gray-800 px-4 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                                                <div>
-                                                    <h4 className="text-lg font-semibold">Produto {snapshot.produtoBase}</h4>
-                                                    <p className="text-sm text-gray-600 dark:text-gray-300">Grade: {snapshot.grade.join(' / ')}</p>
-                                                </div>
-                                                <div className="flex flex-wrap gap-4 text-sm">
-                                                    <div>Necessário produzir: <span className="text-red-600 dark:text-red-400 font-semibold">{snapshot.resumoPositivoNegativo.positivoTotal}</span></div>
-                                                    <div>Sobra consolidada: <span className="text-blue-600 dark:text-blue-400 font-semibold">{snapshot.resumoPositivoNegativo.negativoTotal}</span></div>
-                                                    <div>Resumo rápido: <span className="font-semibold">{snapshot.resumoPositivoNegativo.formatoHumano}</span></div>
-                                                </div>
-                                            </div>
-                                            <div className="overflow-x-auto">
-                                                <table className="min-w-full text-sm">
-                                                    <thead className="bg-gray-100 dark:bg-gray-900/60">
-                                                        <tr>
-                                                            <th className="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">Variação</th>
-                                                            {snapshot.grade.map((tamanho) => (
-                                                                <th key={tamanho} className="px-3 py-2 text-center font-semibold text-gray-700 dark:text-gray-200">{tamanho}</th>
-                                                            ))}
-                                                            <th className="px-3 py-2 text-center font-semibold text-gray-700 dark:text-gray-200">Total</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {snapshot.variations.map((variation) => {
-                                                            const totalVar = snapshot.grade.reduce((acc, size) => acc + (variation.tamanhos?.[size] || 0), 0);
-                                                            return (
-                                                                <tr key={variation.ref} className="border-t border-gray-200 dark:border-gray-800">
-                                                                    <td className="px-3 py-2 font-medium text-gray-800 dark:text-gray-100">{variation.ref}</td>
-                                                                    {snapshot.grade.map((tamanho) => (
-                                                                        <td key={`${variation.ref}-${tamanho}`} className={`px-3 py-2 text-center ${getValueTone(variation.tamanhos?.[tamanho] || 0)}`}>
-                                                                            {variation.tamanhos?.[tamanho] ?? 0}
-                                                                        </td>
-                                                                    ))}
-                                                                    <td className={`px-3 py-2 text-center ${getValueTone(totalVar)}`}>{totalVar}</td>
-                                                                </tr>
-                                                            );
-                                                        })}
-                                                    </tbody>
-                                                    <tfoot>
-                                                        <tr className="border-t border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 font-semibold">
-                                                            <td className="px-3 py-2 text-gray-800 dark:text-gray-100">{snapshot.produtoBase}.</td>
-                                                            {snapshot.grade.map((tamanho) => {
-                                                                const liquido = snapshot.totalPorTamanho?.[tamanho] ?? 0;
-                                                                const detalhe = snapshot.totalPorTamanhoDetalhado?.[tamanho];
-                                                                const { texto, classe } = formatDetalheTotalPreview(detalhe, liquido);
-                                                                return (
-                                                                    <td key={`${snapshot.produtoBase}-total-${tamanho}`} className={`px-3 py-2 text-center ${classe}`}>
-                                                                        {texto}
-                                                                    </td>
-                                                                );
-                                                            })}
-                                                            <td className={`px-3 py-2 text-center ${getValueTone(Object.values(snapshot.totalPorTamanho || {}).reduce((acc, value) => acc + value, 0))}`}>
-                                                                {Object.values(snapshot.totalPorTamanho || {}).reduce((acc, value) => acc + value, 0)}
-                                                            </td>
-                                                        </tr>
-                                                    </tfoot>
-                                                </table>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    </div>
+                                    <p className="text-sm text-gray-600 dark:text-gray-300">Importe um arquivo ou cole a resposta da IA para visualizar a prévia.</p>
                                 )}
                             </div>
                         )}
@@ -2146,380 +1316,66 @@ const GestaoProducaoEstoqueModule = ({
                                 <Settings size={20} />
                                 <div>
                                     <h3 className="text-lg font-semibold">Portfólio de produtos</h3>
-                                    <p className="text-sm text-gray-600 dark:text-gray-300">Mantenha a lista ordenada de produtos e grades utilizadas na importação.</p>
+                                    <p className="text-sm text-gray-600 dark:text-gray-300">Preferências usadas para ordenar e agrupar respostas da IA.</p>
                                 </div>
                             </div>
                             <ArrowDown className={`transition-transform ${mostrarPortfolio ? 'rotate-180' : ''}`} size={20} />
                         </header>
                         {mostrarPortfolio && (
-                            <div className="p-6 space-y-6" ref={manualFormularioRef}>
-                                <div className="grid gap-4 md:grid-cols-2">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Código do produto base</label>
-                                        <input
-                                            type="text"
-                                            value={novoProdutoCodigo}
-                                            onChange={handleNovoProdutoCodigoChange}
-                                            className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
-                                            placeholder="Ex: 016"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Grade (tamanhos separados por espaço, vírgula ou quebra de linha)</label>
-                                        <textarea
-                                            value={novoProdutoGrade}
-                                            onChange={handleNovoProdutoGradeChange}
-                                            className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
-                                            rows={2}
-                                            placeholder="06 08 10 12 14 16 02 04"
-                                        />
-                                    </div>
-                                </div>
-                                <div className="space-y-4">
-                                    <div className="space-y-2">
-                                        <div className="flex flex-wrap items-center justify-between gap-2">
-                                            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Variações (referência e saldos por tamanho)</label>
+                            <div className="p-6 space-y-4">
+                                {portfolio.length === 0 && (
+                                    <p className="text-sm text-gray-500 dark:text-gray-400">Nenhum portfólio salvo ainda. Confirme um lançamento da IA para popular automaticamente.</p>
+                                )}
+                                {portfolio.map((item, index) => (
+                                    <div key={item.codigo} className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 border border-gray-200 dark:border-gray-700 rounded-md px-4 py-3">
+                                        <div className="space-y-1">
+                                            <h4 className="font-semibold">Produto {item.codigo}</h4>
+                                            <p className="text-sm text-gray-600 dark:text-gray-300">Grade: {item.grade && item.grade.length ? item.grade.join(' / ') : 'Sem grade definida'}</p>
+                                            <p className="text-xs text-gray-500 dark:text-gray-400">Agrupamento preferido: {item.groupingMode === 'separated' ? 'Snapshots separados' : 'Snapshots agrupados'}</p>
+                                            {item.variations && item.variations.length > 0 && (
+                                                <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1">
+                                                    {item.variations.map((variacao) => (
+                                                        <p key={variacao.ref}>
+                                                            <span className="font-semibold">{variacao.ref}</span> · {formatarTamanhos(variacao.tamanhos)}
+                                                        </p>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
                                             <button
                                                 type="button"
-                                                onClick={handleAdicionarLinhaVariacao}
-                                                className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+                                                onClick={() => handleMoverProduto(index, -1)}
+                                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600"
                                             >
-                                                <PlusCircle size={14} />
-                                                Adicionar variação
+                                                <ArrowUp size={16} />
+                                                Subir
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleMoverProduto(index, 1)}
+                                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600"
+                                            >
+                                                <ArrowDown size={16} />
+                                                Descer
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleRemoverProduto(item.codigo)}
+                                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/40 dark:text-red-300"
+                                            >
+                                                <Trash2 size={16} />
+                                                Remover
                                             </button>
                                         </div>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                                            As colunas são geradas automaticamente a partir da grade definida acima. Informe as
-                                            quantidades em cada célula (valores negativos são permitidos), utilize setas ou Enter para navegar e cole sequências completas para agilizar o preenchimento.
-                                        </p>
-                                        <div className="overflow-x-auto rounded-md border border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900">
-                                            <table className="w-full border-collapse text-sm">
-                                                <thead className="bg-gray-100 dark:bg-gray-900/60 text-gray-700 dark:text-gray-200">
-                                                    <tr>
-                                                        <th className="border border-gray-300 dark:border-gray-700 px-3 py-2 text-left font-semibold" scope="col">
-                                                            REF/TAM
-                                                        </th>
-                                                        {gradeListaAtual.map((tamanho) => (
-                                                            <th
-                                                                key={`cabecalho-${tamanho}`}
-                                                                className="border border-gray-300 dark:border-gray-700 px-3 py-2 text-center font-semibold"
-                                                                scope="col"
-                                                            >
-                                                                {tamanho}
-                                                            </th>
-                                                        ))}
-                                                        <th className="border border-gray-300 dark:border-gray-700 px-3 py-2 text-center font-semibold" scope="col">
-                                                            Ações
-                                                        </th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {novoProdutoVariacoes.map((variacao, index) => (
-                                                        <tr key={`variacao-${index}`} className="bg-white dark:bg-gray-900">
-                                                            <td className="border border-gray-300 dark:border-gray-700 px-3 py-2 align-top">
-                                                                <div className="space-y-2">
-                                                                    <input
-                                                                        type="text"
-                                                                        value={variacao.ref}
-                                                                        onChange={(event) => handleAtualizarVariacao(index, 'ref', event.target.value)}
-                                                                        onKeyDown={(event) => handleGridKeyDown(event, index, 0)}
-                                                                        ref={(element) => registerGridCell(index, 0, element)}
-                                                                        className="w-full rounded-sm border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 font-semibold tracking-wide text-gray-900 dark:text-gray-100 focus:border-blue-500 focus:ring-blue-500"
-                                                                        placeholder="Ex: 016.AZ"
-                                                                        aria-label={`Referência da variação ${index + 1}`}
-                                                                    />
-                                                                    <label className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-300">
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            checked={Boolean(variacao.alwaysSeparate)}
-                                                                            onChange={(event) =>
-                                                                                handleAtualizarVariacao(
-                                                                                    index,
-                                                                                    'alwaysSeparate',
-                                                                                    event.target.checked,
-                                                                                )
-                                                                            }
-                                                                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                                                            aria-label={`Sempre separar variação ${index + 1}`}
-                                                                        />
-                                                                        <span>Sempre separar</span>
-                                                                    </label>
-                                                                </div>
-                                                            </td>
-                                                            {gradeListaAtual.map((tamanho, colunaIndex) => {
-                                                                const valorAtual = normalizarQuantidade(variacao?.tamanhos?.[tamanho]);
-                                                                const valorClasse =
-                                                                    valorAtual > 0
-                                                                        ? 'text-green-700 dark:text-green-400'
-                                                                        : valorAtual < 0
-                                                                            ? 'text-red-600 dark:text-red-400'
-                                                                            : 'text-gray-900 dark:text-gray-100';
-                                                                return (
-                                                                    <td
-                                                                        key={`${tamanho}-${index}`}
-                                                                        className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-right align-middle"
-                                                                    >
-                                                                        <input
-                                                                            type="text"
-                                                                            inputMode="decimal"
-                                                                            pattern="-?\\d*(?:[\\.,]\\d*)?"
-                                                                            value={obterValorParaCampoDeTamanho(variacao.tamanhos, tamanho)}
-                                                                            onChange={(event) =>
-                                                                                handleAtualizarVariacao(
-                                                                                    index,
-                                                                                    'tamanhos',
-                                                                                    event.target.value,
-                                                                                    tamanho,
-                                                                                )
-                                                                            }
-                                                                            onPaste={(event) =>
-                                                                                handleColarNaVariacao(event, index, tamanho)
-                                                                            }
-                                                                            onKeyDown={(event) => handleGridKeyDown(event, index, colunaIndex + 1)}
-                                                                            ref={(element) => registerGridCell(index, colunaIndex + 1, element)}
-                                                                            className={`w-full bg-transparent text-right text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 ${valorClasse}`}
-                                                                            aria-label={`Quantidade para tamanho ${tamanho} da variação ${index + 1}`}
-                                                                            placeholder="0"
-                                                                            autoComplete="off"
-                                                                        />
-                                                                    </td>
-                                                                );
-                                                            })}
-                                                            <td className="border border-gray-300 dark:border-gray-700 px-3 py-2 text-center align-middle">
-                                                                {novoProdutoVariacoes.length > 1 && (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleRemoverVariacao(index)}
-                                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/40 dark:text-red-300"
-                                                                        aria-label={`Remover variação ${index + 1}`}
-                                                                    >
-                                                                        <Trash2 size={14} />
-                                                                        Remover
-                                                                    </button>
-                                                                )}
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                    {gradeListaAtual.length > 0 && (
-                                                        <tr className="bg-gray-50 dark:bg-gray-800/70 text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-200">
-                                                            <td className="border border-gray-300 dark:border-gray-700 px-3 py-2">produtoBase.</td>
-                                                            {gradeListaAtual.map((tamanho) => {
-                                                                const resumo = resumoGradeAtual[tamanho] || { positivo: 0, negativo: 0 };
-                                                                return (
-                                                                    <td
-                                                                        key={`resumo-${tamanho}`}
-                                                                        className="border border-gray-300 dark:border-gray-700 px-2 py-2 text-right"
-                                                                    >
-                                                                        <div className="flex flex-col items-end gap-0.5">
-                                                                            <span
-                                                                                className={
-                                                                                    resumo.positivo
-                                                                                        ? 'text-green-700 dark:text-green-400'
-                                                                                        : 'text-gray-500 dark:text-gray-400'
-                                                                                }
-                                                                            >
-                                                                                +{formatQuantidadeResumo(resumo.positivo)}
-                                                                            </span>
-                                                                            <span
-                                                                                className={
-                                                                                    resumo.negativo
-                                                                                        ? 'text-red-600 dark:text-red-400'
-                                                                                        : 'text-gray-500 dark:text-gray-400'
-                                                                                }
-                                                                            >
-                                                                                {formatQuantidadeResumo(resumo.negativo)}
-                                                                            </span>
-                                                                        </div>
-                                                                    </td>
-                                                                );
-                                                            })}
-                                                            <td className="border border-gray-300 dark:border-gray-700 px-3 py-2 text-center text-gray-500 dark:text-gray-400 text-xs">
-                                                                —
-                                                            </td>
-                                                        </tr>
-                                                    )}
-                                                    {!gradeListaAtual.length && (
-                                                        <tr>
-                                                            <td
-                                                                colSpan={Math.max(2, gradeListaAtual.length + 2)}
-                                                                className="border border-gray-300 dark:border-gray-700 px-4 py-6 text-center text-xs text-gray-500 dark:text-gray-400"
-                                                            >
-                                                                Defina a grade para habilitar as colunas de tamanho e preencher os saldos por variação.
-                                                            </td>
-                                                        </tr>
-                                                    )}
-                                                </tbody>
-                                            </table>
-                                        </div>
                                     </div>
-
-                                    <div>
-                                        <span className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Agrupamento das variações</span>
-                                        <div className="grid gap-2 md:grid-cols-2">
-                                            <label className="flex items-start gap-2 rounded-md border border-gray-300 dark:border-gray-700 px-3 py-2 cursor-pointer bg-white dark:bg-gray-800">
-                                                <input
-                                                    type="radio"
-                                                    name="agrupamentoVariacoes"
-                                                    value="juntas"
-                                                    checked={novoProdutoAgrupamento === 'juntas'}
-                                                    onChange={handleNovoProdutoAgrupamentoChange}
-                                                    className="mt-1"
-                                                />
-                                                <div>
-                                                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Juntas</p>
-                                                    <p className="text-xs text-gray-500 dark:text-gray-400">Consolida todas as variações do código em um único snapshot.</p>
-                                                </div>
-                                            </label>
-                                            <label className="flex items-start gap-2 rounded-md border border-gray-300 dark:border-gray-700 px-3 py-2 cursor-pointer bg-white dark:bg-gray-800">
-                                                <input
-                                                    type="radio"
-                                                    name="agrupamentoVariacoes"
-                                                    value="separadas"
-                                                    checked={novoProdutoAgrupamento === 'separadas'}
-                                                    onChange={handleNovoProdutoAgrupamentoChange}
-                                                    className="mt-1"
-                                                />
-                                                <div>
-                                                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Separadas</p>
-                                                    <p className="text-xs text-gray-500 dark:text-gray-400">Gera snapshots individuais por referência, ideal para monitorar cores ou lavagens separadamente.</p>
-                                                </div>
-                                            </label>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="flex flex-wrap gap-3">
-                                    <button
-                                        type="button"
-                                        onClick={handleGerarPreviaManual}
-                                        disabled={processing || !manualFormularioValido}
-                                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-                                            processing || !manualFormularioValido
-                                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed dark:bg-gray-700 dark:text-gray-400'
-                                                : 'bg-blue-600 text-white hover:bg-blue-700'
-                                        }`}
-                                    >
-                                        <Eye size={16} />
-                                        Gerar prévia
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={handleConfirmarLancamentoManual}
-                                        disabled={processing || !manualPreviewSnapshots.length}
-                                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-                                            processing || !manualPreviewSnapshots.length
-                                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed dark:bg-gray-700 dark:text-gray-400'
-                                                : 'bg-green-600 text-white hover:bg-green-700'
-                                        }`}
-                                    >
-                                        <CheckCircle2 size={16} />
-                                        Confirmar lançamento
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={handleAdicionarProduto}
-                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-green-600 text-white hover:bg-green-700"
-                                    >
-                                        <PlusCircle size={16} />
-                                        Adicionar ao portfólio
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={handleSalvarPortfolio}
-                                        disabled={!temRascunho}
-                                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-                                            temRascunho
-                                                ? 'bg-blue-600 text-white hover:bg-blue-700'
-                                                : 'bg-gray-300 text-gray-500 cursor-not-allowed dark:bg-gray-700 dark:text-gray-400'
-                                        }`}
-                                    >
-                                        <CheckCircle2 size={16} />
-                                        Salvar alterações
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={resetFormularioNovoProduto}
-                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
-                                    >
-                                        <Trash2 size={16} />
-                                        Limpar formulário manual
-                                    </button>
-                                </div>
-
-                                <div className="space-y-3">
-                                    {portfolio.length === 0 && (
-                                        <p className="text-sm text-gray-500 dark:text-gray-400">Nenhum produto cadastrado. Utilize o formulário acima para adicionar os códigos principais.</p>
-                                    )}
-                                    {portfolio.map((item, index) => (
-                                        <div key={item.codigo} className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 border border-gray-200 dark:border-gray-700 rounded-md px-4 py-3">
-                                            <div className="space-y-2">
-                                                <div>
-                                                    <h4 className="font-semibold">Produto {item.codigo}</h4>
-                                                    <p className="text-sm text-gray-600 dark:text-gray-300">
-                                                        Grade: {item.grade && item.grade.length ? item.grade.join(' / ') : 'Sem grade definida'}
-                                                    </p>
-                                                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                                                        {(() => {
-                                                            const grouping = item.grouping || (item.agruparVariacoes ? 'juntas' : 'separadas');
-                                                            return grouping === 'juntas'
-                                                                ? 'Agrupamento: variações juntas (snapshot único)'
-                                                                : 'Agrupamento: variações separadas (snapshots individuais)';
-                                                        })()}
-                                                    </p>
-                                                </div>
-                                                <div className="space-y-1">
-                                                    {item.variations && item.variations.length > 0 ? (
-                                                        item.variations.map((variacao) => (
-                                                            <p key={variacao.ref} className="text-sm text-gray-700 dark:text-gray-200">
-                                                                <span className="font-semibold">{variacao.ref}</span> · {formatarTamanhos(variacao.tamanhos)}
-                                                            </p>
-                                                        ))
-                                                    ) : (
-                                                        <p className="text-sm text-gray-500 dark:text-gray-400 italic">Sem variações cadastradas manualmente.</p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-wrap gap-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleCarregarProduto(item)}
-                                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600"
-                                                >
-                                                    <RefreshCcw size={16} />
-                                                    Carregar
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleMoverProduto(index, -1)}
-                                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600"
-                                                >
-                                                    <ArrowUp size={16} />
-                                                    Subir
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleMoverProduto(index, 1)}
-                                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600"
-                                                >
-                                                    <ArrowDown size={16} />
-                                                    Descer
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleRemoverProduto(item.codigo)}
-                                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/40 dark:text-red-300"
-                                                >
-                                                    <Trash2 size={16} />
-                                                    Remover
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
+                                ))}
                             </div>
                         )}
                     </section>
 
                     <section className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm">
+
                         <header
                             className="flex items-center justify-between px-6 py-4 cursor-pointer border-b border-gray-200 dark:border-gray-800"
                             onClick={() => setMostrarHistorico((prev) => !prev)}

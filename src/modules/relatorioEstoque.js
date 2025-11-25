@@ -977,13 +977,13 @@ export const importarArquivoDeProducao = async (file, tipoArquivo, responsavelLo
     const dataLancamentoISO = new Date().toISOString();
     let snapshotsProdutos = [];
 
-    if (tipoArquivo === 'manual' && Array.isArray(file)) {
+    if (tipoArquivo === 'ia' && Array.isArray(file)) {
         snapshotsProdutos = file;
     } else if ((tipoArquivo === 'docx' || tipoArquivo === 'txt') && file) {
         const produtosImportados = await importStockFile(file);
         snapshotsProdutos = normalizeParsedProductsToSnapshots(produtosImportados, dataLancamentoISO, responsavelLogado);
     } else {
-        throw new Error('Tipo de arquivo não suportado. Use "docx" ou "txt".');
+        throw new Error('Tipo de arquivo não suportado. Use "docx", "txt" ou o resultado da IA.');
     }
 
     const dailyRecord = montarDailyRecord({
