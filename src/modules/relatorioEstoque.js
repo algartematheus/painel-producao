@@ -657,7 +657,7 @@ export const renderizarBlocoProdutoHTML = (produtoSnapshot) => {
     const grade = cloneGrade(produtoSnapshot.grade);
     const variations = Array.isArray(produtoSnapshot.variations) ? produtoSnapshot.variations : [];
     const totalPorTamanho = produtoSnapshot.totalPorTamanho || calcularTotalPorTamanho(variations, grade);
-    const totalPorTamanhoDetalhado = produtoSnapshot.totalPorTamanhoDetalhado || calcularDetalhesPorTamanho(variations, grade);
+
     const resumo = produtoSnapshot.resumoPositivoNegativo || { positivoTotal: 0, negativoTotal: 0, formatoHumano: '0 0' };
 
 
