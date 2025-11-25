@@ -78,9 +78,9 @@ const sanitizeVariations = (variations = []) => {
             }
             const tamanhos = variation.tamanhos && typeof variation.tamanhos === 'object'
                 ? Object.entries(variation.tamanhos).reduce((acc, [size, numberValue]) => {
-                      acc[String(size)] = normalizeNumber(numberValue);
-                      return acc;
-                  }, {})
+                    acc[String(size)] = normalizeNumber(numberValue);
+                    return acc;
+                }, {})
                 : {};
             return {
                 ref,
@@ -228,8 +228,8 @@ const persistPortfolio = (portfolioArray = []) => {
     const storage = getStorage();
     const sanitized = Array.isArray(portfolioArray)
         ? portfolioArray
-              .map((item, index) => sanitizePortfolioProduct(item, index))
-              .filter(Boolean)
+            .map((item, index) => sanitizePortfolioProduct(item, index))
+            .filter(Boolean)
         : [];
     const normalized = sanitized.map((item, index) => ({
         ...item,
@@ -690,25 +690,10 @@ export const renderizarBlocoProdutoHTML = (produtoSnapshot) => {
     };
 
     const formatTotalCell = (size) => {
-        const { positivo, negativo } = getDetalheNormalizado(size);
-        const hasPositivo = positivo > 0;
-        const hasNegativo = negativo < 0;
-
-        let displayValue = '0';
-        if (hasPositivo && hasNegativo) {
-            displayValue = `${formatNumber(positivo)}-${formatNumber(Math.abs(negativo))}`;
-        } else if (hasPositivo) {
-            displayValue = formatNumber(positivo);
-        } else if (hasNegativo) {
-            displayValue = formatNumber(negativo);
-        }
-
-        let className = '';
-        if (hasPositivo && !hasNegativo) {
-            className = 'falta';
-        } else if (hasNegativo && !hasPositivo) {
-            className = 'sobra';
-        }
+        // Simplificado: Mostra apenas o saldo líquido (soma de positivos e negativos)
+        const value = normalizeNumber(totalPorTamanho?.[size]);
+        const displayValue = formatNumber(value);
+        const className = getValueClass(value);
 
         return { className, displayValue };
     };
