@@ -1206,47 +1206,46 @@ const GestaoProducaoEstoqueModule = ({
                     </div>
 
                     <div className="grid gap-4 md:grid-cols-3">
-                            <div className="flex flex-col gap-2">
-                                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Tipo de arquivo</span>
-                                <div className="flex gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => handleTipoArquivo('docx')}
-                                        className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border ${tipoArquivo === 'docx' ? 'border-indigo-500 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-200' : 'border-gray-300 bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200'}`}
-                                    >
-                                        <FileType2 size={18} /> DOCX
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleTipoArquivo('txt')}
-                                        className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border ${tipoArquivo === 'txt' ? 'border-blue-500 bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-200' : 'border-gray-300 bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200'}`}
-                                    >
-                                        <FileText size={18} /> TXT
-                                    </button>
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="md:col-span-2 flex flex-col gap-2">
-                                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Arquivo do relatório</span>
-                                <label className="flex items-center gap-3 px-4 py-3 border border-dashed border-gray-300 dark:border-gray-600 rounded-md cursor-pointer bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm">
-                                    <Upload size={18} />
-                                    <div className="flex-1">
-                                        {arquivoNome ? (
-                                            <span className="font-medium text-gray-800 dark:text-gray-100">{arquivoNome}</span>
-                                        ) : (
-                                            <span className="text-gray-500 dark:text-gray-300">Clique para selecionar o arquivo...</span>
-                                        )}
-                                    </div>
-                                    <input
-                                        type="file"
-                                        accept={tipoArquivo === 'docx' ? '.docx' : '.txt'}
-                                        className="hidden"
-                                        onChange={handleArquivoChange}
-                                    />
-                                </label>
+                        <div className="flex flex-col gap-2">
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Tipo de arquivo</span>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => handleTipoArquivo('docx')}
+                                    className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border ${tipoArquivo === 'docx' ? 'border-indigo-500 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-200' : 'border-gray-300 bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200'}`}
+                                >
+                                    <FileType2 size={18} /> DOCX
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleTipoArquivo('txt')}
+                                    className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border ${tipoArquivo === 'txt' ? 'border-blue-500 bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-200' : 'border-gray-300 bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200'}`}
+                                >
+                                    <FileText size={18} /> TXT
+                                </button>
                             </div>
                         </div>
+
+                        <div className="md:col-span-2 flex flex-col gap-2">
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Arquivo do relatório</span>
+                            <label className="flex items-center gap-3 px-4 py-3 border border-dashed border-gray-300 dark:border-gray-600 rounded-md cursor-pointer bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm">
+                                <Upload size={18} />
+                                <div className="flex-1">
+                                    {arquivoNome ? (
+                                        <span className="font-medium text-gray-800 dark:text-gray-100">{arquivoNome}</span>
+                                    ) : (
+                                        <span className="text-gray-500 dark:text-gray-300">Clique para selecionar o arquivo...</span>
+                                    )}
+                                </div>
+                                <input
+                                    type="file"
+                                    accept={tipoArquivo === 'docx' ? '.docx' : '.txt'}
+                                    className="hidden"
+                                    onChange={handleArquivoChange}
+                                />
+                            </label>
+                        </div>
+                    </div>
 
                         <div className="flex flex-col sm:flex-row gap-3">
                             <button
