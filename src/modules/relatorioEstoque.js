@@ -660,34 +660,7 @@ export const renderizarBlocoProdutoHTML = (produtoSnapshot) => {
     const totalPorTamanhoDetalhado = produtoSnapshot.totalPorTamanhoDetalhado || calcularDetalhesPorTamanho(variations, grade);
     const resumo = produtoSnapshot.resumoPositivoNegativo || { positivoTotal: 0, negativoTotal: 0, formatoHumano: '0 0' };
 
-    const getDetalheNormalizado = (size) => {
-        const detalhe = totalPorTamanhoDetalhado?.[size];
-        const liquidoFallback = normalizeNumber(totalPorTamanho?.[size]);
-        let positivo = normalizeNumber(detalhe?.positivo);
-        let negativo = normalizeNumber(detalhe?.negativo);
 
-        positivo = positivo > 0 ? positivo : 0;
-        negativo = negativo < 0 ? negativo : 0;
-
-        if (positivo === 0 && negativo === 0) {
-            const liquidoDetalhe = normalizeNumber(detalhe?.liquido);
-            if (liquidoDetalhe > 0) {
-                positivo = liquidoDetalhe;
-            } else if (liquidoDetalhe < 0) {
-                negativo = liquidoDetalhe;
-            }
-        }
-
-        if (positivo === 0 && negativo === 0 && liquidoFallback !== 0) {
-            if (liquidoFallback > 0) {
-                positivo = liquidoFallback;
-            } else {
-                negativo = liquidoFallback;
-            }
-        }
-
-        return { positivo, negativo };
-    };
 
     const formatTotalCell = (size) => {
         // Simplificado: Mostra apenas o saldo líquido (soma de positivos e negativos)
